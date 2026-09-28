@@ -1,0 +1,12 @@
+controls: base 236, now 238; kept verbatim 219; re-anchored/relabelled 8; retired 9; new 11
+re-anchored:
+  C35: label CHANGED -> C35 RESTART NEEDED never reaches the landing screen (the reboot fact is dropped); script CHANGED
+  C84: label CHANGED -> C84 the withdrawn CFG marker is put back on the landing body (§6.1's other direction); script CHANGED
+  C92: label same; script CHANGED
+  C95: label CHANGED -> C95 the interactive list's exit row (MENU) is never drawn; script CHANGED
+  C99: label same; script CHANGED
+  C102: label CHANGED -> C102 My device's position row reads the LIVE config again (the row can TEAR mid-frame); script CHANGED
+  C108: label CHANGED -> C108 the team rows are ALSO drawn at the old STATUS x=40 origin; script CHANGED
+  C124: label same; script CHANGED
+retired: C83 C96 C97 C98 C100 C101 C121 C122 C123
+new: W4b-N1 W4b-N2a W4b-N2b W4b-N3 W4b-N4 W4b-N5 W4b-N7 W4b-W1 W4b-W2 W4b-W3 W4b-N6

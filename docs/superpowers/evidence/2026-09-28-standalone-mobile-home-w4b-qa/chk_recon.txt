@@ -1,0 +1,77 @@
+labels: base 840, now 873; kept verbatim 817; same label, changed expression 6; retired 17; new 50
+--- expr
+  P3u once the store answers, the next sync OPENS it: the entry row replaces the notice
+  P6j one more short comes HOME to row 0, never off the screen
+  P17b ...including the pages drawn AFTER the fix moved
+  P17b ...and the NEXT frame renders the new position
+  P17c no fix at all renders NO LOCATION, never 0.000,0.000
+  P17c one non-zero coordinate IS a fix (the predicate is an OR)
+--- retired
+  P6j the walk reaches the BACK row without leaving the screen
+  P6k a double on BACK returns to the PASSIVE list, not elsewhere
+  P6k ...and one further short then passes the screen
+  P7b ...and the STATUS body no longer carries the withdrawn marker TEXT
+  P14a STATUS draws exactly ONE more non-text record, and NO body rect at all
+  P14a ...and it is the MeshRoute mark ASSET, at 24x24 on 12,12
+  P14a ...and STATUS row 0 is drawn at the narrowed x=40 origin
+  P14d ...and its passive form offers no BACK row
+  P14f ...STATUS uses BOTH origins, rows 0-2 at 40 in 14 cols
+  P17a STATUS row 0 is `TEAM 3D9348A5` at x=40
+  P17a row 1 is `ME T220` at x=40
+  P17a row 2 is the STRIP's own team token + KNOWN, at x=40
+  P17a row 3 is the STRIP's own unread token + HOME, at x=12
+  P17a row 4 is the configured position at x=12
+  P17a ...and no STATUS row is drawn at the other origin
+  P18b ...and the last row is the shared BACK row
+  [fmt] P29b %s compose: BACK follows unchanged at row 3
+--- new
+  P3v precondition: Home INVITE MEMBER opened its window over the CLOSED service (ungated)
+  P3v after the pre-emption SETTINGS shows exactly CFG UNAVAILABLE on body row 2, nothing else
+  P3v ...in MENU MODE: the cue beside SETTINGS and no arrow anywhere
+  P3v ...and a short reaches the next rail screen (Home), the cue with it
+  P6j the walk reaches the MENU row without leaving the screen
+  P6k a double on MENU enters MENU MODE on the HOME slot, not elsewhere
+  P6k ...and one further short walks the rail from Home to TEAM, the cue with it
+  P7b ...and the Home body carries no configuration marker TEXT (R-3)
+  P7e ...on Home's row 2, the list window shrunk to rows 3-4
+  P14a menu mode draws ONE gutter cue, x=10..11 and one slot high, beside the boxed slot
+  P14a ...and the cue is not a second selection box
+  P14a list focus draws NO cue — the body's `>` is the list's own
+  P14a Home draws NO mark: no mark bitmap and no record in the old 12,12,24,24 slot
+  P14a ...and no Home row at the old x=40 origin
+  P14a ...and Home row 0 is drawn at the ordinary x=12 origin
+  P14a Home in menu mode draws exactly 6 + 5 glyphs, the box and the cue — and NO body rect
+  P14d ...and its passive form offers no exit row
+  P14f ...Home draws its rows at the ONE ordinary origin, in 19 columns, none at 40
+  P17a Home row 0 is `ME probe`, the node's own stored name, at x=12
+  P17a row 1 is the team line `TEAM 3D9348A5 T220`
+  P17a row 2 is the ARROWED INBOX item, with the STRIP's own unread token
+  P17a row 3 is ` SEND TO TEAM`, unarrowed
+  P17a row 4 is the TEAM item, with the STRIP's own team token
+  P17a ...and no Home row is drawn at the old x=40 origin
+  P17m My device row 0 is the full stored name, row 1 blank under 20 bytes
+  P17m ...row 2 is the stable identity `ID 0x<HASH8>`
+  P17m ...row 3 is the configured position
+  P17m ...row 4 is `>BACK`, its only row, and the rail still boxes STATUS
+  P17r the fix moving repaints My device's position with NO press
+  P17r ...and no strip token moved (the repaint is the BODY's)
+  P17n BACK returns Home with the arrow ON MY DEVICE
+  P17g every page of that frame drew the OLD name, including those after the change
+  P17g ...and the NEXT complete frame shows the new name
+  P17r a new name repaints Home row 0 with NO press
+  P17r a new local ID repaints the team line with NO press
+  P17r a new full team ID repaints the team line with NO press
+  P17r ...and no strip token moved for any of the three (the repaint is the BODY's)
+  P17r the profile moving (the ID lost) repaints the team line with NO press
+  P17r an ID arriving repaints the team line with NO press
+  P18b ...and the last row is the shared MENU row
+  P29d Home CREATE TEAM opens the BACK-first confirmation, the rail on SETTINGS
+  P29d ...and its BACK returns HOME in list focus, the arrow on CREATE TEAM
+  P29d the phase leaves the configuration CLEAN again
+  [fmt] P17n a %u-byte name is published to My device as its counted, sanitized rows
+  [fmt] P17n a %u-byte name is published to Home row 0 as the 16-cell identity
+  [fmt] P29b %s compose: the exit row follows unchanged at row 3
+  [fmt] P29d %s: Home JOIN TEAM shows exactly %s / IN SETTINGS on rows 1-2
+  [fmt] P29d %s: ...no arrow, the rail boxing SETTINGS
+  [fmt] P29d %s: ...and the refused activation saved, applied and loaded nothing
+  [fmt] P29d %s: ...either press returns HOME, the arrow on JOIN TEAM

@@ -1,0 +1,2 @@
+scenarios: ref 36, new 36; identical on 13 fields: 36; differing: 0
+scenario_count 36 -> 36; baseline_sha256 equal: True; inputs_stable True

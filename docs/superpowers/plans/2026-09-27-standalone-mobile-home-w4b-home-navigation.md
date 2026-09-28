@@ -1,8 +1,9 @@
 <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
 # Standalone Home W4b — Home and navigation, with B456 first (`src` feature)
 
-**Revision 2 — 2026-09-27 — DRAFT, awaiting scoped Quality-Agent re-review.** It folds in the
-[brief review](../evidence/2026-09-27-standalone-mobile-home-w4b-brief-review.md) (HOLD, W4B-1–W4B-4); see §8.
+**Revision 3 — 2026-09-27 — checkpoint re-pin after the coder's STOP-1, awaiting QA's re-pin message.** Revision 2 was
+authorized at `a20e2dbf…4f64` ([re-review](../evidence/2026-09-27-standalone-mobile-home-w4b-brief-rereview.md)); this
+revision adds only the design r2.22 transition (B457) and its proofs, and refreshes two pins — see §8.
 
 - **Base:** commit **`8360802`** (`8360802904f7bd0023279d3da844453d61207ede`) **plus the uncommitted, QA-passed W1c, W3 and
   W4a candidates and their landings**. This is not HEAD alone: the pre-check's inventory is the authority for the whole
@@ -108,8 +109,8 @@ since then: the pre-check report and folder, this brief, and QA review artefacts
 
 | Path | Kind | SHA-256 |
 | --- | --- | --- |
-| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.21) | `1d0618da3e10e1498065de04b6e7681a62a69cfeef0d0e0e102d41494ba27c1f` |
-| `docs/2026-07-30-open-bug-register.md` | authority (B456; §0) | `1ff3a21bfb97cab0f56d2dc23ac597bd37c7b31e53482c5a775c73fcea9e4673` |
+| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.22) | `80f7078419c9d70a2f3f03b52375f355c10e285fa397530a0c98210cba3ccae9` |
+| `docs/2026-07-30-open-bug-register.md` | authority (B456, B457; §0) | `1f54f9c3cc3bb9fc83b882bb77e2beb423a3e999b61fb16d82dfd452afdbbc0f` |
 | `docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md` | authority (pre-check) | `38b699335991cf04ffc21c7eb9702f36f3f8a3ba640ad5ff0d9b5a51047294aa` |
 | `docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck/SHA256SUMS` | evidence — covers the folder's other 14 files, including `inputs.json` (`84b8af5d…94aa`) and `corpus-manifest.json` | `a6ba6d303a256f4a6ae57453bd7432d9850b64de99a4c98857948e2335a2af85` |
 | `tracker.md`, `MEMORY.md` | context pointers | `bd1566b362047afe58be0668f74c1a2a0fedb1adf2a4b96aeb486e0ff3d399f2`, `fb3826dc9254190fe66f15fa9edae81f646595601a8ac90c14bdf82d464d1092` |
@@ -261,6 +262,12 @@ A count changing inside a label is not an item change.
   `CFG UNAVAILABLE` unchanged. Double opens the menu in list focus over an open service, as today.
 - **Settings menu:** the last row is `MENU`. It runs `on_back()` (no save, draft kept), then enters menu mode on the
   Home slot. Short wraps. Sub-view BACK rows stay BACK.
+- **Never a menu over a closed service** (design r2.22 §6.1; B457). Whenever SETTINGS would show the menu while the
+  configuration service is not open — including after an emergency hold pre-empts a flow that Home's ungated
+  `INVITE MEMBER` or a TEAM-roster grant opened — SETTINGS shows its closed view (`CFG UNAVAILABLE`) in menu mode: no
+  arrow, the cue beside SETTINGS, short walks the rail, and double stays refused until the service opens. One
+  authority enforces it for every path — the existing per-tick `sync_settings` is the natural home. The pre-emptions
+  themselves are unchanged; with an open service they still land in the Settings menu, as today.
 - **Home `JOIN TEAM` / `CREATE TEAM`.**
   - *Admission at activation:* run `provision_admit` **when the Home item is activated**, before any generic SETTINGS
     arrival.
@@ -407,7 +414,8 @@ witness that replaces it. Anything absent from it that changed is a STOP. It cov
   6. the blocked note on the wrong row;
   7. a Home list row placed on the wrong body row;
 
-  plus §2.10's three wiring controls.
+  plus §2.10's three wiring controls. The ledger also gains a real-render check for B457: after the pre-emption over a
+  closed service the panel shows `CFG UNAVAILABLE` with the cue and no arrow, and a short reaches the next rail screen.
 - **The W41 reader** (`tools/probe_board_ui/run.sh`, `w41`) requires the bare statement
   `if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);` verbatim. Keep it, and draw the cue as a separate
   statement — never wrap the box statement in braces. A needed reader change returns for scoped review; B418 is not
@@ -421,7 +429,7 @@ witness that replaces it. Anything absent from it that changed is a STOP. It cov
   - *Status:* S01 and S05–12 retired with replacements on the new formatters; S02–04 and S13 kept.
   - *Admission and setup:* the M55–59, M62–72, M76–78, M83–88, V- and W- families keep their meaning through any
     re-anchor.
-  - *A new battery `w4bhome` → `src/firmware_ui_model.h`*, with at least ten entries, each RED:
+  - *A new battery `w4bhome` → `src/firmware_ui_model.h`*, with at least eleven entries, each RED:
     1. key-missing no longer outranks ID-pending;
     2. capability gating bypassed;
     3. the arrow kept by row instead of identity;
@@ -431,7 +439,8 @@ witness that replaces it. Anything absent from it that changed is a STOP. It cov
     7. an OQ-3 cancellation removed;
     8. the Home-origin exit going to the PROVISION menu;
     9. the blocked reason re-read, not frozen;
-    10. a Send `PRESET CHANGED` press that sends.
+    10. a Send `PRESET CHANGED` press that sends;
+    11. the Settings menu shown over a closed service (B457).
   - *`uistatus`* gains at least three entries on the new formatters: the team-line spellings, the My-device split, and
     `NO NAME SET`.
   - *Retirements:* each is listed with its replacement; no silent GREEN.
@@ -449,7 +458,11 @@ witness that replaces it. Anything absent from it that changed is a STOP. It cov
   - the snapshot fields and focus the model freezes — projection only; the real publication, page and refresh proofs
     are §2.10's;
   - Inbox list and preview watermarks;
-  - Send result and catalog-change returns.
+  - Send result and catalog-change returns, including an empty phrase list (the note covers `MENU` for one press);
+  - a press in the same tick as the change that raises `OPTIONS CHANGED` is consumed without clearing it;
+  - **B457:** Home `INVITE MEMBER` and a TEAM-roster grant, each opened over a closed service and pre-empted by an
+    emergency hold → the closed view in menu mode; short reaches the next rail screen; double is refused until the
+    service opens, then opens the menu. The open-service counterpart still lands in the Settings menu.
 
 ### 2.10 Real-renderer proofs — the firmware-UI probe
 
@@ -663,7 +676,8 @@ The census, the full union and full discovery stay in the coder's chain.
 
 ## 7. Landing (QA, on PASS)
 
-- **Register:** **B456 CLOSED** (the guard and its regressions independently gated); the §0 dispatch rewritten in place.
+- **Register:** **B456 CLOSED** (the guard and its regressions independently gated); **B457 CLOSED** (design r2.22's
+  rule, independently gated); the §0 dispatch rewritten in place.
 - **Design:** the §13 W4b status.
 - **Pointers:** `tracker.md` and `MEMORY.md`.
 - **Metal plan (M2)** — pre-check §10's proposals, adapted at landing:
@@ -706,3 +720,10 @@ The census, the full union and full discovery stay in the coder's chain.
 - **W4B-3:** a new §2.10 gives the own-name publication, frozen pages and press-free body refresh to the real
   firmware-UI probe, with three wiring controls; the native matrix keeps projection only.
 - **W4B-4:** design §11.1's closing sentence now names the W4b grant, and the design pin is refreshed.
+
+**Revision 3 (2026-09-27)** is a checkpoint re-pin after the coder's STOP-1 (P4). The coder found one transition design
+r2.21 did not settle: an emergency pre-emption over a closed configuration service left an invisible Settings menu, a
+defect that already existed at base via the TEAM-roster grant and that W4b's wrapping menu would have made
+inescapable. The author settled it in design r2.22 (option A: never a menu over a closed service) and registered it as
+B457. The delta is: §2.5's new rule; the B457 native cases, real-render check and `w4bhome` entry 11 in §2.9 (with the
+two r2.22 clarifications as native cases); B457's closure in §7; and the design and register pins. Nothing else changes.

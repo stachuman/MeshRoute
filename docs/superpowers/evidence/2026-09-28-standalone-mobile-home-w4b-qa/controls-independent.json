@@ -1,0 +1,959 @@
+{
+  "declared": 238,
+  "observed_distinct": 238,
+  "zero_missing_duplicate_unknown": true,
+  "outcomes": {
+    "C0  restoring #include \"fw_context.h\" breaks the host build": {
+      "must_build": "no",
+      "verdict": "ok   C0  restoring #include \"fw_context.h\" breaks the host build (build fails, as required)"
+    },
+    "C1  mac_idle() -> true (no gate at all)": {
+      "must_build": "yes",
+      "verdict": "ok   C1  mac_idle() -> true (no gate at all) -> RED (4 check(s) failed)"
+    },
+    "C2  mac_idle() keeps only the radio clause": {
+      "must_build": "yes",
+      "verdict": "ok   C2  mac_idle() keeps only the radio clause -> RED (1 check(s) failed)"
+    },
+    "C3  mac_idle() keeps only the queue clause": {
+      "must_build": "yes",
+      "verdict": "ok   C3  mac_idle() keeps only the queue clause -> RED (3 check(s) failed)"
+    },
+    "C10 mac_idle() -> false (suppressed for ever; the panel never paints)": {
+      "must_build": "yes",
+      "verdict": "ok   C10 mac_idle() -> false (suppressed for ever; the panel never paints) -> RED (347 check(s) failed)"
+    },
+    "C11 next_page()'s verdict is never fed back to the gate": {
+      "must_build": "yes",
+      "verdict": "ok   C11 next_page()'s verdict is never fed back to the gate -> RED (58 check(s) failed)"
+    },
+    "C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank)": {
+      "must_build": "yes",
+      "verdict": "ok   C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank) -> RED (12 check(s) failed)"
+    },
+    "C5  the idle arm forces a repaint, bypassing the 2 Hz throttle": {
+      "must_build": "yes",
+      "verdict": "ok   C5  the idle arm forces a repaint, bypassing the 2 Hz throttle -> RED (310 check(s) failed)"
+    },
+    "C6  the ADC burst is no longer gated on a MAC-idle radio": {
+      "must_build": "yes",
+      "verdict": "ok   C6  the ADC burst is no longer gated on a MAC-idle radio -> RED (1 check(s) failed)"
+    },
+    "C7  the cadence gates on SUCCEEDED instead of ATTEMPTED": {
+      "must_build": "yes",
+      "verdict": "ok   C7  the cadence gates on SUCCEEDED instead of ATTEMPTED -> RED (4 check(s) failed)"
+    },
+    "C8  the 30 s period is never re-armed (sample every pass)": {
+      "must_build": "yes",
+      "verdict": "ok   C8  the 30 s period is never re-armed (sample every pass) -> RED (4 check(s) failed)"
+    },
+    "C9  the dead-panel report tests board_init() the wrong way round": {
+      "must_build": "yes",
+      "verdict": "ok   C9  the dead-panel report tests board_init() the wrong way round -> RED (1 check(s) failed)"
+    },
+    "C12 mr_ui_init no longer brings the panel up": {
+      "must_build": "yes",
+      "verdict": "ok   C12 mr_ui_init no longer brings the panel up -> RED (2 check(s) failed)"
+    },
+    "C13 an unavailable read ERASES the last good value": {
+      "must_build": "yes",
+      "verdict": "ok   C13 an unavailable read ERASES the last good value -> RED (1 check(s) failed)"
+    },
+    "C14 the battery token is invented instead of formatted (a plausible voltage for --)": {
+      "must_build": "yes",
+      "verdict": "ok   C14 the battery token is invented instead of formatted (a plausible voltage for --) -> RED (4 check(s) failed)"
+    },
+    "C15 the strip renders a PERCENTAGE instead of volts (ruled out)": {
+      "must_build": "yes",
+      "verdict": "ok   C15 the strip renders a PERCENTAGE instead of volts (ruled out) -> RED (7 check(s) failed)"
+    },
+    "C16 the strip hardcodes a voltage instead of reading the frozen chrome": {
+      "must_build": "yes",
+      "verdict": "ok   C16 the strip hardcodes a voltage instead of reading the frozen chrome -> RED (4 check(s) failed)"
+    },
+    "C17 the record lookup matches seq only (the kind clause dropped)": {
+      "must_build": "yes",
+      "verdict": "ok   C17 the record lookup matches seq only (the kind clause dropped) -> RED (17 check(s) failed)"
+    },
+    "C18 the erase targets the DM store unconditionally (B133's shape)": {
+      "must_build": "yes",
+      "verdict": "ok   C18 the erase targets the DM store unconditionally (B133's shape) -> RED (6 check(s) failed)"
+    },
+    "C19 the preview row carries msg_id where the identity should be": {
+      "must_build": "yes",
+      "verdict": "ok   C19 the preview row carries msg_id where the identity should be -> RED (39 check(s) failed)"
+    },
+    "C20 the preview row hardcodes the kind (every row reads DM)": {
+      "must_build": "yes",
+      "verdict": "ok   C20 the preview row hardcodes the kind (every row reads DM) -> RED (52 check(s) failed)"
+    },
+    "C21 every erase is reported as a SUCCESS regardless of the outcome": {
+      "must_build": "yes",
+      "verdict": "ok   C21 every erase is reported as a SUCCESS regardless of the outcome -> RED (7 check(s) failed)"
+    },
+    "C27 the erase targets the CHANNEL store unconditionally": {
+      "must_build": "yes",
+      "verdict": "ok   C27 the erase targets the CHANNEL store unconditionally -> RED (4 check(s) failed)"
+    },
+    "C28 opening a record DELETES it (the switch arms crossed)": {
+      "must_build": "yes",
+      "verdict": "ok   C28 opening a record DELETES it (the switch arms crossed) -> RED (47 check(s) failed)"
+    },
+    "CC1 the ordinary-view gate is dropped (E2E receipts come back as inbox rows)": {
+      "must_build": "yes",
+      "verdict": "ok   CC1 the ordinary-view gate is dropped (E2E receipts come back as inbox rows) -> RED (3 check(s) failed)"
+    },
+    "CC2 the gate is applied AFTER the budget (the row slot and the total are already spent)": {
+      "must_build": "yes",
+      "verdict": "ok   CC2 the gate is applied AFTER the budget (the row slot and the total are already spent) -> RED (3 check(s) failed)"
+    },
+    "C22 the tick never serves the inbox request (the modal cannot open)": {
+      "must_build": "yes",
+      "verdict": "ok   C22 the tick never serves the inbox request (the modal cannot open) -> RED (43 check(s) failed)"
+    },
+    "C23 the body length is left for the model to measure (the strlen shape)": {
+      "must_build": "yes",
+      "verdict": "ok   C23 the body length is left for the model to measure (the strlen shape) -> RED (33 check(s) failed)"
+    },
+    "C24 draw_frame stops giving the modal the body": {
+      "must_build": "yes",
+      "verdict": "ok   C24 draw_frame stops giving the modal the body -> RED (45 check(s) failed)"
+    },
+    "C25 the MESSAGE GONE refusal row is dropped from the list": {
+      "must_build": "yes",
+      "verdict": "ok   C25 the MESSAGE GONE refusal row is dropped from the list -> RED (1 check(s) failed)"
+    },
+    "C29 the SETTINGS screen is never drawn (the switch arm dropped)": {
+      "must_build": "yes",
+      "verdict": "ok   C29 the SETTINGS screen is never drawn (the switch arm dropped) -> RED (81 check(s) failed)"
+    },
+    "C30 the model is never given the config service (the menu is inert)": {
+      "must_build": "yes",
+      "verdict": "ok   C30 the model is never given the config service (the menu is inert) -> RED (86 check(s) failed)"
+    },
+    "C31 the draft marker renders UiState::dirty instead of config_unsaved()": {
+      "must_build": "yes",
+      "verdict": "ok   C31 the draft marker renders UiState::dirty instead of config_unsaved() -> RED (2 check(s) failed)"
+    },
+    "C32 the value row shows a default instead of the DRAFT": {
+      "must_build": "yes",
+      "verdict": "ok   C32 the value row shows a default instead of the DRAFT -> RED (2 check(s) failed)"
+    },
+    "C33 the SETTINGS badge always draws the clean gear (the state becomes invisible)": {
+      "must_build": "yes",
+      "verdict": "ok   C33 the SETTINGS badge always draws the clean gear (the state becomes invisible) -> RED (6 check(s) failed)"
+    },
+    "C34 the editor is indistinguishable from the browsing row (no bracket)": {
+      "must_build": "yes",
+      "verdict": "ok   C34 the editor is indistinguishable from the browsing row (no bracket) -> RED (2 check(s) failed)"
+    },
+    "C35 RESTART NEEDED never reaches the landing screen (the reboot fact is dropped)": {
+      "must_build": "yes",
+      "verdict": "ok   C35 RESTART NEEDED never reaches the landing screen (the reboot fact is dropped) -> RED (2 check(s) failed)"
+    },
+    "C36 the BLE row is rendered unconditionally (the transport condition ignored)": {
+      "must_build": "yes",
+      "verdict": "ok   C36 the BLE row is rendered unconditionally (the transport condition ignored) -> RED (1 check(s) failed)"
+    },
+    "C37 the hook never tells the service (the notification is dropped)": {
+      "must_build": "yes",
+      "verdict": "ok   C37 the hook never tells the service (the notification is dropped) -> RED (8 check(s) failed)"
+    },
+    "C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)": {
+      "must_build": "yes",
+      "verdict": "ok   C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE) -> RED (10 check(s) failed)"
+    },
+    "C39 the is_open() guard is dropped (flash is read on every cfg set)": {
+      "must_build": "yes",
+      "verdict": "ok   C39 the is_open() guard is dropped (flash is read on every cfg set) -> RED (1 check(s) failed)"
+    },
+    "C40 an unreadable record is treated as a conflict (a latch from no evidence)": {
+      "must_build": "yes",
+      "verdict": "ok   C40 an unreadable record is treated as a conflict (a latch from no evidence) -> RED (2 check(s) failed)"
+    },
+    "C41 ChanState::waiting says SENT again (the pre-T3 false confirmation)": {
+      "must_build": "yes",
+      "verdict": "ok   C41 ChanState::waiting says SENT again (the pre-T3 false confirmation) -> RED (4 check(s) failed)"
+    },
+    "C42 ChanState::aired says QUEUED (the earned state never shows)": {
+      "must_build": "yes",
+      "verdict": "ok   C42 ChanState::aired says QUEUED (the earned state never shows) -> RED (2 check(s) failed)"
+    },
+    "C43 the no-relay outcome reads SENT, no relay again": {
+      "must_build": "yes",
+      "verdict": "ok   C43 the no-relay outcome reads SENT, no relay again -> RED (2 check(s) failed)"
+    },
+    "C44 DmState::aired_waiting is rendered as QUEUED too": {
+      "must_build": "yes",
+      "verdict": "ok   C44 DmState::aired_waiting is rendered as QUEUED too -> RED (1 check(s) failed)"
+    },
+    "C45 the fail-closed guard is dropped (sleeps after a hardware refusal)": {
+      "must_build": "yes",
+      "verdict": "ok   C45 the fail-closed guard is dropped (sleeps after a hardware refusal) -> RED (1 check(s) failed)"
+    },
+    "C46 the board is never asked (the arm is answered from a constant)": {
+      "must_build": "yes",
+      "verdict": "ok   C46 the board is never asked (the arm is answered from a constant) -> RED (4 check(s) failed)"
+    },
+    "C47 a held button is treated as a hardware failure (latches sleep off for the boot)": {
+      "must_build": "yes",
+      "verdict": "ok   C47 a held button is treated as a hardware failure (latches sleep off for the boot) -> RED (3 check(s) failed)"
+    },
+    "C48 the arm failure is never said on the console": {
+      "must_build": "yes",
+      "verdict": "ok   C48 the arm failure is never said on the console -> RED (2 check(s) failed)"
+    },
+    "C52 the arm report is inverted (silent on the first failure, cries later)": {
+      "must_build": "yes",
+      "verdict": "ok   C52 the arm report is inverted (silent on the first failure, cries later) -> RED (2 check(s) failed)"
+    },
+    "C53 the failure is said on every pass, not once (a USB-CDC flood)": {
+      "must_build": "yes",
+      "verdict": "ok   C53 the failure is said on every pass, not once (a USB-CDC flood) -> RED (1 check(s) failed)"
+    },
+    "C54 an arm is put back into mr_ui_init() (B200, literally)": {
+      "must_build": "yes",
+      "verdict": "ok   C54 an arm is put back into mr_ui_init() (B200, literally) -> RED (1 check(s) failed)"
+    },
+    "C55 the disarm's answer is discarded (a stuck level is reported as clean)": {
+      "must_build": "yes",
+      "verdict": "ok   C55 the disarm's answer is discarded (a stuck level is reported as clean) -> RED (1 check(s) failed)"
+    },
+    "C56 the policy hook arms the wake itself (a per-pass arm on a possibly-held pin)": {
+      "must_build": "yes",
+      "verdict": "ok   C56 the policy hook arms the wake itself (a per-pass arm on a possibly-held pin) -> RED (2 check(s) failed)"
+    },
+    "C57 the boot announces a wake source again (nothing arms one there)": {
+      "must_build": "yes",
+      "verdict": "ok   C57 the boot announces a wake source again (nothing arms one there) -> RED (1 check(s) failed)"
+    },
+    "C58 a SUCCESSFUL arm is reported as a failure (the vacuity control)": {
+      "must_build": "yes",
+      "verdict": "ok   C58 a SUCCESSFUL arm is reported as a failure (the vacuity control) -> RED (3 check(s) failed)"
+    },
+    "C59 the disarm is never performed (the board is not even asked)": {
+      "must_build": "yes",
+      "verdict": "ok   C59 the disarm is never performed (the board is not even asked) -> RED (3 check(s) failed)"
+    },
+    "C60 a successful disarm reports a problem anyway (cries wolf)": {
+      "must_build": "yes",
+      "verdict": "ok   C60 a successful disarm reports a problem anyway (cries wolf) -> RED (1 check(s) failed)"
+    },
+    "C49 the hook always permits sleep (the whole policy bypassed)": {
+      "must_build": "yes",
+      "verdict": "ok   C49 the hook always permits sleep (the whole policy bypassed) -> RED (3 check(s) failed)"
+    },
+    "C50 the hook never permits sleep (the panel-lit answer for ever)": {
+      "must_build": "yes",
+      "verdict": "ok   C50 the hook never permits sleep (the panel-lit answer for ever) -> RED (3 check(s) failed)"
+    },
+    "C51 the policy is re-derived here without the input term (B197 back)": {
+      "must_build": "yes",
+      "verdict": "ok   C51 the policy is re-derived here without the input term (B197 back) -> RED (1 check(s) failed)"
+    },
+    "C26 the highlight is NOT suppressed while the refusal stands": {
+      "must_build": "yes",
+      "verdict": "ok   C26 the highlight is NOT suppressed while the refusal stands -> RED (1 check(s) failed)"
+    },
+    "C61 the strip is drawn from the LIVE chrome instead of the frozen copy": {
+      "must_build": "yes",
+      "verdict": "ok   C61 the strip is drawn from the LIVE chrome instead of the frozen copy -> RED (4 check(s) failed)"
+    },
+    "C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)": {
+      "must_build": "yes",
+      "verdict": "ok   C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel) -> RED (4 check(s) failed)"
+    },
+    "C63 the comparison reference is updated where the change is OBSERVED, not at the freeze": {
+      "must_build": "yes",
+      "verdict": "ok   C63 the comparison reference is updated where the change is OBSERVED, not at the freeze -> RED (4 check(s) failed)"
+    },
+    "C64 every home state draws the same house (the four-state table bypassed)": {
+      "must_build": "yes",
+      "verdict": "ok   C64 every home state draws the same house (the four-state table bypassed) -> RED (2 check(s) failed)"
+    },
+    "C65 a missing team content key draws the NORMAL key (the slot claims a capability)": {
+      "must_build": "yes",
+      "verdict": "ok   C65 a missing team content key draws the NORMAL key (the slot claims a capability) -> RED (1 check(s) failed)"
+    },
+    "C66 the battery token's column is moved (the frozen slot redefined)": {
+      "must_build": "yes",
+      "verdict": "ok   C66 the battery token's column is moved (the frozen slot redefined) -> RED (10 check(s) failed)"
+    },
+    "C67 every glyph is drawn at the same x (the layout table bypassed)": {
+      "must_build": "yes",
+      "verdict": "ok   C67 every glyph is drawn at the same x (the layout table bypassed) -> RED (24 check(s) failed)"
+    },
+    "C68 the battery is drawn at the shared 7-px width (its 2-byte stride ignored)": {
+      "must_build": "yes",
+      "verdict": "ok   C68 the battery is drawn at the shared 7-px width (its 2-byte stride ignored) -> RED (1 check(s) failed)"
+    },
+    "C69 the strip is drawn after the body, so body-replacing views lose it": {
+      "must_build": "yes",
+      "verdict": "ok   C69 the strip is drawn after the body, so body-replacing views lose it -> RED (53 check(s) failed)"
+    },
+    "C70 the strip's icons are drawn below their y=0..8 band": {
+      "must_build": "yes",
+      "verdict": "ok   C70 the strip's icons are drawn below their y=0..8 band -> RED (29 check(s) failed)"
+    },
+    "C71 the blanked arm falls through and paints into a dark panel": {
+      "must_build": "yes",
+      "verdict": "ok   C71 the blanked arm falls through and paints into a dark panel -> RED (5 check(s) failed)"
+    },
+    "C74 a chrome change is treated as user input (the panel never blanks)": {
+      "must_build": "yes",
+      "verdict": "ok   C74 a chrome change is treated as user input (the panel never blanks) -> RED (110 check(s) failed)"
+    },
+    "C72 the live chrome is built once and cached (a stale projection for ever)": {
+      "must_build": "yes",
+      "verdict": "ok   C72 the live chrome is built once and cached (a stale projection for ever) -> RED (161 check(s) failed)"
+    },
+    "C73 the strip opens a frame of its own while composing": {
+      "must_build": "yes",
+      "verdict": "ok   C73 the strip opens a frame of its own while composing -> RED (302 check(s) failed)"
+    },
+    "C75 the strip parks the panel mid-compose (a bus command from a draw)": {
+      "must_build": "yes",
+      "verdict": "ok   C75 the strip parks the panel mid-compose (a bus command from a draw) -> RED (6 check(s) failed)"
+    },
+    "C76 the emergency rail suppression is dropped entirely (\u00a75.3)": {
+      "must_build": "yes",
+      "verdict": "ok   C76 the emergency rail suppression is dropped entirely (\u00a75.3) -> RED (1 check(s) failed)"
+    },
+    "C77 the rail is never drawn (the screens lose their only heading)": {
+      "must_build": "yes",
+      "verdict": "ok   C77 the rail is never drawn (the screens lose their only heading) -> RED (181 check(s) failed)"
+    },
+    "C78 every rail slot gets a selection frame (exactly-one becomes all-five)": {
+      "must_build": "yes",
+      "verdict": "ok   C78 every rail slot gets a selection frame (exactly-one becomes all-five) -> RED (155 check(s) failed)"
+    },
+    "C79 the selection comes from a renderer-local cursor, not the frozen nav": {
+      "must_build": "yes",
+      "verdict": "ok   C79 the selection comes from a renderer-local cursor, not the frozen nav -> RED (151 check(s) failed)"
+    },
+    "C80 the rail packs its slots consecutively (a second layout)": {
+      "must_build": "yes",
+      "verdict": "ok   C80 the rail packs its slots consecutively (a second layout) -> RED (177 check(s) failed)"
+    },
+    "C81 the ordinary body is drawn at x=0, under the rail's icons": {
+      "must_build": "yes",
+      "verdict": "ok   C81 the ordinary body is drawn at x=0, under the rail's icons -> RED (125 check(s) failed)"
+    },
+    "C82 the emergency headline is shifted to kBodyX (a clipped distress string)": {
+      "must_build": "yes",
+      "verdict": "ok   C82 the emergency headline is shifted to kBodyX (a clipped distress string) -> RED (7 check(s) failed)"
+    },
+    "C84 the withdrawn CFG marker is put back on the landing body (\u00a76.1's other direction)": {
+      "must_build": "yes",
+      "verdict": "ok   C84 the withdrawn CFG marker is put back on the landing body (\u00a76.1's other direction) -> RED (6 check(s) failed)"
+    },
+    "C85 SETTINGS drops its actionable marker text, leaving only the badge (\u00a76 forbids)": {
+      "must_build": "yes",
+      "verdict": "ok   C85 SETTINGS drops its actionable marker text, leaving only the badge (\u00a76 forbids) -> RED (5 check(s) failed)"
+    },
+    "C86 the SETTINGS marker row is drawn unconditionally (a clean draft reads UNSAVED)": {
+      "must_build": "yes",
+      "verdict": "ok   C86 the SETTINGS marker row is drawn unconditionally (a clean draft reads UNSAVED) -> RED (10 check(s) failed)"
+    },
+    "C87 the rail's glyphs are drawn at the body's x, over the text": {
+      "must_build": "yes",
+      "verdict": "ok   C87 the rail's glyphs are drawn at the body's x, over the text -> RED (23 check(s) failed)"
+    },
+    "C88 the PROVISION row is rendered unconditionally (the ruling not applied)": {
+      "must_build": "yes",
+      "verdict": "ok   C88 the PROVISION row is rendered unconditionally (the ruling not applied) -> RED (59 check(s) failed)"
+    },
+    "C89 the child predicates are published as TRUE on a build with no children": {
+      "must_build": "yes",
+      "verdict": "ok   C89 the child predicates are published as TRUE on a build with no children -> RED (1 check(s) failed)"
+    },
+    "C90 the closed view draws the MENU's rows anyway (the ruling not applied at the renderer)": {
+      "must_build": "yes",
+      "verdict": "ok   C90 the closed view draws the MENU's rows anyway (the ruling not applied at the renderer) -> RED (80 check(s) failed)"
+    },
+    "C91 the closed view keeps the note/reboot row to itself (\u00a76's icon-only error)": {
+      "must_build": "yes",
+      "verdict": "ok   C91 the closed view keeps the note/reboot row to itself (\u00a76's icon-only error) -> RED (1 check(s) failed)"
+    },
+    "C92 the entry row's label is re-spelled at the draw site": {
+      "must_build": "yes",
+      "verdict": "ok   C92 the entry row's label is re-spelled at the draw site -> RED (79 check(s) failed)"
+    },
+    "C93 the list is drawn as ENTERED whatever the model says": {
+      "must_build": "yes",
+      "verdict": "ok   C93 the list is drawn as ENTERED whatever the model says -> RED (22 check(s) failed)"
+    },
+    "C94 an entered list is drawn as PASSIVE (no marker, no exit)": {
+      "must_build": "yes",
+      "verdict": "ok   C94 an entered list is drawn as PASSIVE (no marker, no exit) -> RED (127 check(s) failed)"
+    },
+    "C95 the interactive list's exit row (MENU) is never drawn": {
+      "must_build": "yes",
+      "verdict": "ok   C95 the interactive list's exit row (MENU) is never drawn -> RED (96 check(s) failed)"
+    },
+    "C99 the mark is drawn in the chrome, so EVERY screen shows it": {
+      "must_build": "yes",
+      "verdict": "ok   C99 the mark is drawn in the chrome, so EVERY screen shows it -> RED (5 check(s) failed)"
+    },
+    "C102 My device's position row reads the LIVE config again (the row can TEAR mid-frame)": {
+      "must_build": "yes",
+      "verdict": "ok   C102 My device's position row reads the LIVE config again (the row can TEAR mid-frame) -> RED (2 check(s) failed)"
+    },
+    "C103 own_fix is published as a constant (a fix that was never configured)": {
+      "must_build": "yes",
+      "verdict": "ok   C103 own_fix is published as a constant (a fix that was never configured) -> RED (1 check(s) failed)"
+    },
+    "C104 own_fix is published from ONE coordinate (the OR narrowed to lat)": {
+      "must_build": "yes",
+      "verdict": "ok   C104 own_fix is published from ONE coordinate (the OR narrowed to lat) -> RED (1 check(s) failed)"
+    },
+    "C105 the pre-S4 row (9-column label + hops) is composed inline again": {
+      "must_build": "yes",
+      "verdict": "ok   C105 the pre-S4 row (9-column label + hops) is composed inline again -> RED (31 check(s) failed)"
+    },
+    "C106 every row is drawn from snapshot row 0 (the wrong teammate)": {
+      "must_build": "yes",
+      "verdict": "ok   C106 every row is drawn from snapshot row 0 (the wrong teammate) -> RED (11 check(s) failed)"
+    },
+    "C107 the row marker is hard-wired off (no pick is ever shown)": {
+      "must_build": "yes",
+      "verdict": "ok   C107 the row marker is hard-wired off (no pick is ever shown) -> RED (11 check(s) failed)"
+    },
+    "C108 the team rows are ALSO drawn at the old STATUS x=40 origin": {
+      "must_build": "yes",
+      "verdict": "ok   C108 the team rows are ALSO drawn at the old STATUS x=40 origin -> RED (3 check(s) failed)"
+    },
+    "C109 the S4 repaint invalidation is never called (F-8 re-opened)": {
+      "must_build": "yes",
+      "verdict": "ok   C109 the S4 repaint invalidation is never called (F-8 re-opened) -> RED (5 check(s) failed)"
+    },
+    "C110 the invalidation compares the live snapshot with ITSELF": {
+      "must_build": "yes",
+      "verdict": "ok   C110 the invalidation compares the live snapshot with ITSELF -> RED (5 check(s) failed)"
+    },
+    "C111 the tick marks the model dirty unconditionally instead": {
+      "must_build": "yes",
+      "verdict": "ok   C111 the tick marks the model dirty unconditionally instead -> RED (47 check(s) failed)"
+    },
+    "C112 the roster is drawn in REVERSE order (a re-sort by any other name)": {
+      "must_build": "yes",
+      "verdict": "ok   C112 the roster is drawn in REVERSE order (a re-sort by any other name) -> RED (28 check(s) failed)"
+    },
+    "C113 the own fix is read LIVE in the renderer (the rows can TEAR mid-frame)": {
+      "must_build": "yes",
+      "verdict": "ok   C113 the own fix is read LIVE in the renderer (the rows can TEAR mid-frame) -> RED (1 check(s) failed)"
+    },
+    "C114 the cache is never read, so no teammate ever has a position": {
+      "must_build": "yes",
+      "verdict": "ok   C114 the cache is never read, so no teammate ever has a position -> RED (6 check(s) failed)"
+    },
+    "C115 the location age is published as ZERO, so a stale position renders as current": {
+      "must_build": "yes",
+      "verdict": "ok   C115 the location age is published as ZERO, so a stale position renders as current -> RED (2 check(s) failed)"
+    },
+    "C116 latitude and longitude are published crossed": {
+      "must_build": "yes",
+      "verdict": "ok   C116 latitude and longitude are published crossed -> RED (5 check(s) failed)"
+    },
+    "C117 the cache miss is published as a hit (0,0 becomes a position)": {
+      "must_build": "yes",
+      "verdict": "ok   C117 the cache miss is published as a hit (0,0 becomes a position) -> RED (1 check(s) failed)"
+    },
+    "C118 the renderer transmits a request for a peer it has no position for": {
+      "must_build": "yes",
+      "verdict": "ok   C118 the renderer transmits a request for a peer it has no position for -> RED (259 check(s) failed)"
+    },
+    "C119 the wake is hard-wired into the device push entry (wake-on-any-push)": {
+      "must_build": "yes",
+      "verdict": "ok   C119 the wake is hard-wired into the device push entry (wake-on-any-push) -> RED (4 check(s) failed)"
+    },
+    "C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel": {
+      "must_build": "yes",
+      "verdict": "ok   C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel -> RED (83 check(s) failed)"
+    },
+    "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)": {
+      "must_build": "yes",
+      "verdict": "ok   C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box) -> RED (5 check(s) failed)"
+    },
+    "C125 the duty gauge's slot is moved (the amendment's frozen x redefined)": {
+      "must_build": "yes",
+      "verdict": "ok   C125 the duty gauge's slot is moved (the amendment's frozen x redefined) -> RED (18 check(s) failed)"
+    },
+    "C126 a node with no duty limit draws the EMPTY gauge (no limit collapsed into 0 % used)": {
+      "must_build": "yes",
+      "verdict": "ok   C126 a node with no duty limit draws the EMPTY gauge (no limit collapsed into 0 % used) -> RED (5 check(s) failed)"
+    },
+    "C127 the duty-BLOCKED state loses its warning mark (100 % looks like 99 %)": {
+      "must_build": "yes",
+      "verdict": "ok   C127 the duty-BLOCKED state loses its warning mark (100 % looks like 99 %) -> RED (3 check(s) failed)"
+    },
+    "C128 every fill level draws the same picture (the bucket's level ignored)": {
+      "must_build": "yes",
+      "verdict": "ok   C128 every fill level draws the same picture (the bucket's level ignored) -> RED (11 check(s) failed)"
+    },
+    "C129 the gauge is read live from the node instead of the frozen bucket": {
+      "must_build": "yes",
+      "verdict": "ok   C129 the gauge is read live from the node instead of the frozen bucket -> RED (2 check(s) failed)"
+    },
+    "C130 the utilization is never published (the gauge is empty at every percentage)": {
+      "must_build": "yes",
+      "verdict": "ok   C130 the utilization is never published (the gauge is empty at every percentage) -> RED (14 check(s) failed)"
+    },
+    "C131 the duty limit is published as always-on (an unlimited node claims a utilization)": {
+      "must_build": "yes",
+      "verdict": "ok   C131 the duty limit is published as always-on (an unlimited node claims a utilization) -> RED (5 check(s) failed)"
+    },
+    "C132 the gauge is driven by the five-minute anti-spam budget, not duty_status()": {
+      "must_build": "yes",
+      "verdict": "ok   C132 the gauge is driven by the five-minute anti-spam budget, not duty_status() -> RED (13 check(s) failed)"
+    },
+    "C133 the home slot keeps its superseded x (the re-anchoring only half done)": {
+      "must_build": "yes",
+      "verdict": "ok   C133 the home slot keeps its superseded x (the re-anchoring only half done) -> RED (4 check(s) failed)"
+    },
+    "C134 an ARMED alarm is not treated as busy (the fire has not happened yet)": {
+      "must_build": "yes",
+      "verdict": "ok   C134 an ARMED alarm is not treated as busy (the fire has not happened yet) -> RED (1 check(s) failed)"
+    },
+    "C135 a FIRING alarm is not treated as busy (the attempt series is editable mid-flight)": {
+      "must_build": "yes",
+      "verdict": "ok   C135 a FIRING alarm is not treated as busy (the attempt series is editable mid-flight) -> RED (5 check(s) failed)"
+    },
+    "C136 an IDLE node answers busy (every preset verb dead with no alarm at all)": {
+      "must_build": "yes",
+      "verdict": "ok   C136 an IDLE node answers busy (every preset verb dead with no alarm at all) -> RED (32 check(s) failed)"
+    },
+    "C137 the catalog is never published into the frame (every compose list is empty on the device)": {
+      "must_build": "yes",
+      "verdict": "ok   C137 the catalog is never published into the frame (every compose list is empty on the device) -> RED (46 check(s) failed)"
+    },
+    "C138 the DM compose renders the CHANNEL list (the two projections crossed)": {
+      "must_build": "yes",
+      "verdict": "ok   C138 the DM compose renders the CHANNEL list (the two projections crossed) -> RED (12 check(s) failed)"
+    },
+    "C139 the row is composed here as %c%s (the location column dropped)": {
+      "must_build": "yes",
+      "verdict": "ok   C139 the row is composed here as %c%s (the location column dropped) -> RED (15 check(s) failed)"
+    },
+    "C140 the zero-enabled empty state is bypassed (no note is ever placed)": {
+      "must_build": "yes",
+      "verdict": "ok   C140 the zero-enabled empty state is bypassed (no note is ever placed) -> RED (1 check(s) failed)"
+    },
+    "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED": {
+      "must_build": "yes",
+      "verdict": "ok   C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED -> RED (1 check(s) failed)"
+    },
+    "B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator": {
+      "must_build": "yes",
+      "verdict": "ok   B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator -> RED (42 check(s) failed)"
+    },
+    "B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated": {
+      "must_build": "yes",
+      "verdict": "ok   B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated -> RED (40 check(s) failed)"
+    },
+    "W4a-S1 the TEAM label is formatted at 14 cells, so the row clips it silently (no marker)": {
+      "must_build": "yes",
+      "verdict": "ok   W4a-S1 the TEAM label is formatted at 14 cells, so the row clips it silently (no marker) -> RED (17 check(s) failed)"
+    },
+    "W4a-S2 the label adapter copies RAW name bytes, skipping ui_display_byte (high bytes reach the panel)": {
+      "must_build": "yes",
+      "verdict": "ok   W4a-S2 the label adapter copies RAW name bytes, skipping ui_display_byte (high bytes reach the panel) -> RED (5 check(s) failed)"
+    },
+    "W4a-S3 the DELIVERED row is formatted at the header's 15 cells instead of its own 19": {
+      "must_build": "yes",
+      "verdict": "ok   W4a-S3 the DELIVERED row is formatted at the header's 15 cells instead of its own 19 -> RED (1 check(s) failed)"
+    },
+    "W4a-S4 the REPLY sender is re-sanitized after formatting, so the marker becomes a dot": {
+      "must_build": "yes",
+      "verdict": "ok   W4a-S4 the REPLY sender is re-sanitized after formatting, so the marker becomes a dot -> RED (1 check(s) failed)"
+    },
+    "W3-D1 the detail modal's second body row repeats the first row's slice": {
+      "must_build": "yes",
+      "verdict": "ok   W3-D1 the detail modal's second body row repeats the first row's slice -> RED (20 check(s) failed)"
+    },
+    "W3-D2 every detail body row is clipped to 18 columns (a lost final byte)": {
+      "must_build": "yes",
+      "verdict": "ok   W3-D2 every detail body row is clipped to 18 columns (a lost final byte) -> RED (17 check(s) failed)"
+    },
+    "W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)": {
+      "must_build": "yes",
+      "verdict": "ok   W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped) -> RED (8 check(s) failed)"
+    },
+    "W3-C2 the compose location marker is inverted (L and - swapped)": {
+      "must_build": "yes",
+      "verdict": "ok   W3-C2 the compose location marker is inverted (L and - swapped) -> RED (15 check(s) failed)"
+    },
+    "W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2": {
+      "must_build": "yes",
+      "verdict": "ok   W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2 -> RED (2 check(s) failed)"
+    },
+    "W4b-N1 the menu cue is drawn in list focus and missing in menu mode": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N1 the menu cue is drawn in list focus and missing in menu mode -> RED (212 check(s) failed)"
+    },
+    "W4b-N2a the 24x24 mark is drawn on Home again": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N2a the 24x24 mark is drawn on Home again -> RED (2 check(s) failed)"
+    },
+    "W4b-N2b Home's list rows are drawn at the old STATUS x=40 origin": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N2b Home's list rows are drawn at the old STATUS x=40 origin -> RED (8 check(s) failed)"
+    },
+    "W4b-N3 the TEAM/INBOX exit row reads BACK instead of MENU": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N3 the TEAM/INBOX exit row reads BACK instead of MENU -> RED (97 check(s) failed)"
+    },
+    "W4b-N4 the Settings preview keeps its body arrow": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N4 the Settings preview keeps its body arrow -> RED (1 check(s) failed)"
+    },
+    "W4b-N5 My device abbreviates the name instead of splitting it over two rows": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N5 My device abbreviates the name instead of splitting it over two rows -> RED (2 check(s) failed)"
+    },
+    "W4b-N7 Home's list window starts on the wrong body row": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N7 Home's list window starts on the wrong body row -> RED (3 check(s) failed)"
+    },
+    "W4b-W1 build_snapshot never publishes the own name": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-W1 build_snapshot never publishes the own name -> RED (11 check(s) failed)"
+    },
+    "W4b-W2 Home row 0 reads the LIVE own name, so a frame can tear between pages": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-W2 Home row 0 reads the LIVE own name, so a frame can tear between pages -> RED (1 check(s) failed)"
+    },
+    "W4b-W3 the Home body invalidation is never called from the tick": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-W3 the Home body invalidation is never called from the tick -> RED (4 check(s) failed)"
+    },
+    "L1 the result's headline is dropped (the verdict never shows)": {
+      "must_build": "yes",
+      "verdict": "ok   L1 the result's headline is dropped (the verdict never shows) -> RED (20 check(s) failed)"
+    },
+    "L2 the id and fingerprint rows are swapped": {
+      "must_build": "yes",
+      "verdict": "ok   L2 the id and fingerprint rows are swapped -> RED (5 check(s) failed)"
+    },
+    "L3 the fingerprint row is dropped (only the full id is drawn)": {
+      "must_build": "yes",
+      "verdict": "ok   L3 the fingerprint row is dropped (only the full id is drawn) -> RED (3 check(s) failed)"
+    },
+    "L4 the REPLACES warning is composed unconditionally": {
+      "must_build": "yes",
+      "verdict": "ok   L4 the REPLACES warning is composed unconditionally -> RED (1 check(s) failed)"
+    },
+    "L5 the REPLACES warning is never drawn (\u00a73.6.3 not applied)": {
+      "must_build": "yes",
+      "verdict": "ok   L5 the REPLACES warning is never drawn (\u00a73.6.3 not applied) -> RED (1 check(s) failed)"
+    },
+    "L6 the refusal detail row is dropped (a verdict with no reason)": {
+      "must_build": "yes",
+      "verdict": "ok   L6 the refusal detail row is dropped (a verdict with no reason) -> RED (8 check(s) failed)"
+    },
+    "L7 the confirm and result arms are crossed (the wrong screen)": {
+      "must_build": "yes",
+      "verdict": "ok   L7 the confirm and result arms are crossed (the wrong screen) -> RED (45 check(s) failed)"
+    },
+    "L8 the model is never given the provisioning adapter": {
+      "must_build": "yes",
+      "verdict": "ok   L8 the model is never given the provisioning adapter -> RED (268 check(s) failed)"
+    },
+    "L9 the CREATE child is published as absent on a build that has it": {
+      "must_build": "yes",
+      "verdict": "ok   L9 the CREATE child is published as absent on a build that has it -> RED (152 check(s) failed)"
+    },
+    "L10 the parent row is hidden on a build that HAS a child": {
+      "must_build": "yes",
+      "verdict": "ok   L10 the parent row is hidden on a build that HAS a child -> RED (351 check(s) failed)"
+    },
+    "L11 the slot label is drawn from the ROW INDEX instead of the slot number (\u00a7B66)": {
+      "must_build": "yes",
+      "verdict": "ok   L11 the slot label is drawn from the ROW INDEX instead of the slot number (\u00a7B66) -> RED (1 check(s) failed)"
+    },
+    "L12 the store-state note is never drawn (an unreadable store looks like an empty list)": {
+      "must_build": "yes",
+      "verdict": "ok   L12 the store-state note is never drawn (an unreadable store looks like an empty list) -> RED (1 check(s) failed)"
+    },
+    "L13 the note is drawn but the list is not moved down (the rows collide with it)": {
+      "must_build": "yes",
+      "verdict": "ok   L13 the note is drawn but the list is not moved down (the rows collide with it) -> RED (1 check(s) failed)"
+    },
+    "L14 the confirmation shows only the label \u2014 design \u00a73.6.3's COMPLETE values are dropped": {
+      "must_build": "yes",
+      "verdict": "ok   L14 the confirmation shows only the label \u2014 design \u00a73.6.3's COMPLETE values are dropped -> RED (1 check(s) failed)"
+    },
+    "L15 the confirmation always renders SLOT 1 (the pick is ignored)": {
+      "must_build": "yes",
+      "verdict": "ok   L15 the confirmation always renders SLOT 1 (the pick is ignored) -> RED (1 check(s) failed)"
+    },
+    "L16 the waiting screen says JOINED before any correlated adopt (plan \u00a72.3 rule 1)": {
+      "must_build": "yes",
+      "verdict": "ok   L16 the waiting screen says JOINED before any correlated adopt (plan \u00a72.3 rule 1) -> RED (8 check(s) failed)"
+    },
+    "L17 the RESULT never shows the adopted node id (the one thing \u00a72.3 rule 2 requires)": {
+      "must_build": "yes",
+      "verdict": "ok   L17 the RESULT never shows the adopted node id (the one thing \u00a72.3 rule 2 requires) -> RED (1 check(s) failed)"
+    },
+    "L18 \u2605\u2605 the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology": {
+      "must_build": "yes",
+      "verdict": "ok   L18 \u2605\u2605 the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology -> RED (7 check(s) failed)"
+    },
+    "L19 the session guard is dropped (a /mrcfg read on every inbound push)": {
+      "must_build": "yes",
+      "verdict": "ok   L19 the session guard is dropped (a /mrcfg read on every inbound push) -> RED (1 check(s) failed)"
+    },
+    "L20 the push tap is never called, so no adopt can ever complete the screen": {
+      "must_build": "yes",
+      "verdict": "ok   L20 the push tap is never called, so no adopt can ever complete the screen -> RED (4 check(s) failed)"
+    },
+    "L21 \u2605\u2605 the waiting head is hard-wired to false, so STILL JOINING can never appear": {
+      "must_build": "yes",
+      "verdict": "ok   L21 \u2605\u2605 the waiting head is hard-wired to false, so STILL JOINING can never appear -> RED (1 check(s) failed)"
+    },
+    "L22 the kind prefilter is dropped (every push pays a /mrcfg read again)": {
+      "must_build": "yes",
+      "verdict": "ok   L22 the kind prefilter is dropped (every push pays a /mrcfg read again) -> RED (1 check(s) failed)"
+    },
+    "N1 the projection is never published (an audible team reads as an empty band)": {
+      "must_build": "yes",
+      "verdict": "ok   N1 the projection is never published (an audible team reads as an empty band) -> RED (96 check(s) failed)"
+    },
+    "N2 the age is published as the raw ARRIVAL STAMP instead of the elapsed time (every row reads old)": {
+      "must_build": "yes",
+      "verdict": "ok   N2 the age is published as the raw ARRIVAL STAMP instead of the elapsed time (every row reads old) -> RED (5 check(s) failed)"
+    },
+    "N3 the ring is walked BACKWARDS (strongest/newest first) \u2014 the ruled first-observed order is gone": {
+      "must_build": "yes",
+      "verdict": "ok   N3 the ring is walked BACKWARDS (strongest/newest first) \u2014 the ruled first-observed order is gone -> RED (65 check(s) failed)"
+    },
+    "N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1)": {
+      "must_build": "yes",
+      "verdict": "ok   N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1) -> RED (8 check(s) failed)"
+    },
+    "N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling)": {
+      "must_build": "yes",
+      "verdict": "ok   N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling) -> RED (8 check(s) failed)"
+    },
+    "N10 the scan pings each observed team to refresh it (a read-only scan that transmits)": {
+      "must_build": "yes",
+      "verdict": "ok   N10 the scan pings each observed team to refresh it (a read-only scan that transmits) -> RED (308 check(s) failed)"
+    },
+    "N5 the scan draws the LIVE snapshot array instead of the model FROZEN copy (R-10, and the own-team row returns)": {
+      "must_build": "yes",
+      "verdict": "ok   N5 the scan draws the LIVE snapshot array instead of the model FROZEN copy (R-10, and the own-team row returns) -> RED (66 check(s) failed)"
+    },
+    "N6 F-1's honest second line is never drawn (the panel claims a general PHY scan)": {
+      "must_build": "yes",
+      "verdict": "ok   N6 F-1's honest second line is never drawn (the panel claims a general PHY scan) -> RED (1 check(s) failed)"
+    },
+    "N7 the empty note is drawn but the list is not moved down (the note and BACK collide)": {
+      "must_build": "yes",
+      "verdict": "ok   N7 the empty note is drawn but the list is not moved down (the note and BACK collide) -> RED (1 check(s) failed)"
+    },
+    "N8 the JOIN TEAM child is published as absent on a build that has it": {
+      "must_build": "yes",
+      "verdict": "ok   N8 the JOIN TEAM child is published as absent on a build that has it -> RED (111 check(s) failed)"
+    },
+    "N11 the join confirmation is drawn with the CREATE title": {
+      "must_build": "yes",
+      "verdict": "ok   N11 the join confirmation is drawn with the CREATE title -> RED (1 check(s) failed)"
+    },
+    "N13 the confirmation names the team we are LEAVING, not the selected one": {
+      "must_build": "yes",
+      "verdict": "ok   N13 the confirmation names the team we are LEAVING, not the selected one -> RED (2 check(s) failed)"
+    },
+    "N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)": {
+      "must_build": "yes",
+      "verdict": "ok   N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called) -> RED (2 check(s) failed)"
+    },
+    "N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)": {
+      "must_build": "yes",
+      "verdict": "ok   N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted) -> RED (2 check(s) failed)"
+    },
+    "N15 the result screen never learned about team_joined (no id, no fingerprint)": {
+      "must_build": "yes",
+      "verdict": "ok   N15 the result screen never learned about team_joined (no id, no fingerprint) -> RED (2 check(s) failed)"
+    },
+    "N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer)": {
+      "must_build": "yes",
+      "verdict": "ok   N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer) -> RED (1 check(s) failed)"
+    },
+    "K5a the offer draws USE SAVED KEY on the BACK row too (the safe word gone from the safe arm)": {
+      "must_build": "yes",
+      "verdict": "ok   K5a the offer draws USE SAVED KEY on the BACK row too (the safe word gone from the safe arm) -> RED (2 check(s) failed)"
+    },
+    "K5b the offer draws no team identity at all (which team is this key for?)": {
+      "must_build": "yes",
+      "verdict": "ok   K5b the offer draws no team identity at all (which team is this key for?) -> RED (1 check(s) failed)"
+    },
+    "K5c the offer is drawn with the CREATE title instead of S-28": {
+      "must_build": "yes",
+      "verdict": "ok   K5c the offer is drawn with the CREATE title instead of S-28 -> RED (2 check(s) failed)"
+    },
+    "O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14)": {
+      "must_build": "yes",
+      "verdict": "ok   O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14) -> RED (8 check(s) failed)"
+    },
+    "O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36)": {
+      "must_build": "yes",
+      "verdict": "ok   O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36) -> RED (1 check(s) failed)"
+    },
+    "O3 every candidate row is drawn UNMARKED \u2014 the cursor is invisible on the one list that grants a key": {
+      "must_build": "yes",
+      "verdict": "ok   O3 every candidate row is drawn UNMARKED \u2014 the cursor is invisible on the one list that grants a key -> RED (2 check(s) failed)"
+    },
+    "O4 the note row is drawn but the list is not moved down (the note and the first candidate collide)": {
+      "must_build": "yes",
+      "verdict": "ok   O4 the note row is drawn but the list is not moved down (the note and the first candidate collide) -> RED (9 check(s) failed)"
+    },
+    "O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)": {
+      "must_build": "yes",
+      "verdict": "ok   O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c) -> RED (3 check(s) failed)"
+    },
+    "O7 the INVITE child is published as absent on a build and a node that have it": {
+      "must_build": "yes",
+      "verdict": "ok   O7 the INVITE child is published as absent on a build and a node that have it -> RED (123 check(s) failed)"
+    },
+    "O8 the unnamed member's name field is filled from the formatter's HASH branch \u2014 a third hash spelling (F-15)": {
+      "must_build": "yes",
+      "verdict": "ok   O8 the unnamed member's name field is filled from the formatter's HASH branch \u2014 a third hash spelling (F-15) -> RED (2 check(s) failed)"
+    },
+    "W4a-S5 the invite carrier is formatted at the row's six cells, so NEW MEMBER loses the 14-cell name": {
+      "must_build": "yes",
+      "verdict": "ok   W4a-S5 the invite carrier is formatted at the row's six cells, so NEW MEMBER loses the 14-cell name -> RED (4 check(s) failed)"
+    },
+    "W4a-S6 the candidate row is handed the unprojected carrier, so it clips a long name silently (no marker)": {
+      "must_build": "yes",
+      "verdict": "ok   W4a-S6 the candidate row is handed the unprojected carrier, so it clips a long name silently (no marker) -> RED (2 check(s) failed)"
+    },
+    "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)": {
+      "must_build": "yes",
+      "verdict": "ok   O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d) -> RED (1 check(s) failed)"
+    },
+    "O9b B249's announcement forward calls team-DAD instead of the existing triggered scheduler": {
+      "must_build": "yes",
+      "verdict": "ok   O9b B249's announcement forward calls team-DAD instead of the existing triggered scheduler -> RED (97 check(s) failed)"
+    },
+    "O10 \u2605\u2605 the reqpubkey device forward DROPS the real executor call (the panel waits after airing nothing)": {
+      "must_build": "yes",
+      "verdict": "ok   O10 \u2605\u2605 the reqpubkey device forward DROPS the real executor call (the panel waits after airing nothing) -> RED (101 check(s) failed)"
+    },
+    "O11 \u2605\u2605 the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)": {
+      "must_build": "yes",
+      "verdict": "ok   O11 \u2605\u2605 the peer_key_cached push is never forwarded to the invite model (WAITING can never complete) -> RED (2 check(s) failed)"
+    },
+    "O12 NEED PUBKEY is rendered as WAITING before the operator has authorised a request": {
+      "must_build": "yes",
+      "verdict": "ok   O12 NEED PUBKEY is rendered as WAITING before the operator has authorised a request -> RED (3 check(s) failed)"
+    },
+    "O13 the waiting screen prints the forbidden ambiguous words WAITING FOR KEY (S-34)": {
+      "must_build": "yes",
+      "verdict": "ok   O13 the waiting screen prints the forbidden ambiguous words WAITING FOR KEY (S-34) -> RED (3 check(s) failed)"
+    },
+    "O14 the NEED PUBKEY renderer marks REQUEST instead of the model default BACK": {
+      "must_build": "yes",
+      "verdict": "ok   O14 the NEED PUBKEY renderer marks REQUEST instead of the model default BACK -> RED (3 check(s) failed)"
+    },
+    "O15 the grant-ready renderer marks GRANT KEY instead of the model default REJECT": {
+      "must_build": "yes",
+      "verdict": "ok   O15 the grant-ready renderer marks GRANT KEY instead of the model default REJECT -> RED (2 check(s) failed)"
+    },
+    "O16 \u2605\u2605 the forward INVENTS the outcome code instead of reporting the executor's (a refusal reads as queued)": {
+      "must_build": "yes",
+      "verdict": "ok   O16 \u2605\u2605 the forward INVENTS the outcome code instead of reporting the executor's (a refusal reads as queued) -> RED (100 check(s) failed)"
+    },
+    "O17 the verdict screen draws a FIXED word instead of the outcome's own (S-24 collapsed at the renderer)": {
+      "must_build": "yes",
+      "verdict": "ok   O17 the verdict screen draws a FIXED word instead of the outcome's own (S-24 collapsed at the renderer) -> RED (16 check(s) failed)"
+    },
+    "O18 the verdict draws the DISCARDED window selection instead of the verdict's own identity (P-7c)": {
+      "must_build": "yes",
+      "verdict": "ok   O18 the verdict draws the DISCARDED window selection instead of the verdict's own identity (P-7c) -> RED (17 check(s) failed)"
+    },
+    "O19 \u2605\u2605 the device forward PICKS ITS OWN PLANE instead of passing the pure unit's (delegated made reachable)": {
+      "must_build": "yes",
+      "verdict": "ok   O19 \u2605\u2605 the device forward PICKS ITS OWN PLANE instead of passing the pure unit's (delegated made reachable) -> RED (13 check(s) failed)"
+    },
+    "O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c)": {
+      "must_build": "yes",
+      "verdict": "ok   O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c) -> RED (5 check(s) failed)"
+    },
+    "O21 \u2605\u2605 the grant forward SWALLOWS the origination handle \u2014 nothing can ever correlate": {
+      "must_build": "yes",
+      "verdict": "ok   O21 \u2605\u2605 the grant forward SWALLOWS the origination handle \u2014 nothing can ever correlate -> RED (3 check(s) failed)"
+    },
+    "O23 \u2605\u2605 the grant forward SWALLOWS the SEND-TIME resolved dst \u2014 the TxDone edge can never match (N6b)": {
+      "must_build": "yes",
+      "verdict": "ok   O23 \u2605\u2605 the grant forward SWALLOWS the SEND-TIME resolved dst \u2014 the TxDone edge can never match (N6b) -> RED (3 check(s) failed)"
+    },
+    "O22 \u2605\u2605 the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer)": {
+      "must_build": "yes",
+      "verdict": "ok   O22 \u2605\u2605 the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer) -> RED (11 check(s) failed)"
+    },
+    "K1 \u2605\u2605\u2605 the team_key_received case is dropped from mr_ui_on_push (the receipt never reaches the note)": {
+      "must_build": "yes",
+      "verdict": "ok   K1 \u2605\u2605\u2605 the team_key_received case is dropped from mr_ui_on_push (the receipt never reaches the note) -> RED (7 check(s) failed)"
+    },
+    "K2 \u2605\u2605 the grant receipt's name= is drawn as a row of its own (F-3/P-5, S-36's forbidden usage)": {
+      "must_build": "yes",
+      "verdict": "ok   K2 \u2605\u2605 the grant receipt's name= is drawn as a row of its own (F-3/P-5, S-36's forbidden usage) -> RED (1 check(s) failed)"
+    },
+    "K3 \u2605\u2605\u2605 the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)": {
+      "must_build": "yes",
+      "verdict": "ok   K3 \u2605\u2605\u2605 the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED) -> RED (239 check(s) failed)"
+    },
+    "K4 \u2605\u2605\u2605 the failed-save door does nothing at all ([[B243]] restored from the new end)": {
+      "must_build": "yes",
+      "verdict": "ok   K4 \u2605\u2605\u2605 the failed-save door does nothing at all ([[B243]] restored from the new end) -> RED (225 check(s) failed)"
+    },
+    "K5 \u2605\u2605 the fifth child is never published, so SAVED KEYS is unreachable from the panel": {
+      "must_build": "yes",
+      "verdict": "ok   K5 \u2605\u2605 the fifth child is never published, so SAVED KEYS is unreachable from the panel -> RED (38 check(s) failed)"
+    },
+    "K6 \u2605\u2605\u2605 the ACTIVE marker is drawn on EVERY row \u2014 the protected record is indistinguishable (S-44 collapsed)": {
+      "must_build": "yes",
+      "verdict": "ok   K6 \u2605\u2605\u2605 the ACTIVE marker is drawn on EVERY row \u2014 the protected record is indistinguishable (S-44 collapsed) -> RED (4 check(s) failed)"
+    },
+    "K7 \u2605\u2605\u2605\u2605 the IRREVERSIBLE confirmation draws the six-hex FINGERPRINT instead of the FULL id \u2014 a short-token collision can then name the wrong record on the one screen that destroys one": {
+      "must_build": "yes",
+      "verdict": "ok   K7 \u2605\u2605\u2605\u2605 the IRREVERSIBLE confirmation draws the six-hex FINGERPRINT instead of the FULL id \u2014 a short-token collision can then name the wrong record on the one screen that destroys one -> RED (1 check(s) failed)"
+    },
+    "K8 \u2605\u2605\u2605\u2605 the PROTECTED screen grows the destructive action row \u2014 the panel offers FORGET KEY for the ACTIVE key": {
+      "must_build": "yes",
+      "verdict": "ok   K8 \u2605\u2605\u2605\u2605 the PROTECTED screen grows the destructive action row \u2014 the panel offers FORGET KEY for the ACTIVE key -> RED (1 check(s) failed)"
+    },
+    "K9 \u2605\u2605\u2605 the removal's verdict screen draws a FIXED word instead of the outcome's own \u2014 a failed removal reads as KEY FORGOTTEN": {
+      "must_build": "yes",
+      "verdict": "ok   K9 \u2605\u2605\u2605 the removal's verdict screen draws a FIXED word instead of the outcome's own \u2014 a failed removal reads as KEY FORGOTTEN -> RED (2 check(s) failed)"
+    },
+    "K10 \u2605\u2605\u2605 the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one": {
+      "must_build": "yes",
+      "verdict": "ok   K10 \u2605\u2605\u2605 the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one -> RED (2 check(s) failed)"
+    },
+    "R1 \u2605\u2605\u2605 the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (\u00a7B66)": {
+      "must_build": "yes",
+      "verdict": "ok   R1 \u2605\u2605\u2605 the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (\u00a7B66) -> RED (5 check(s) failed)"
+    },
+    "R2 \u2605\u2605\u2605 the row TEXT is resolved without the act, so the grant row renders as a second way out": {
+      "must_build": "yes",
+      "verdict": "ok   R2 \u2605\u2605\u2605 the row TEXT is resolved without the act, so the grant row renders as a second way out -> RED (4 check(s) failed)"
+    },
+    "R3 \u2605\u2605\u2605\u2605 the act's row is drawn on EVERY DM sub-view, ignoring the model's offer (the four vetoes bypassed)": {
+      "must_build": "yes",
+      "verdict": "ok   R3 \u2605\u2605\u2605\u2605 the act's row is drawn on EVERY DM sub-view, ignoring the model's offer (the four vetoes bypassed) -> RED (13 check(s) failed)"
+    },
+    "R4 \u2605\u2605\u2605 our own stable identity is never published, so the SELF veto can never fire": {
+      "must_build": "yes",
+      "verdict": "ok   R4 \u2605\u2605\u2605 our own stable identity is never published, so the SELF veto can never fire -> RED (3 check(s) failed)"
+    },
+    "W3-N1 the settings note is drawn on body row 3 instead of row 4": {
+      "must_build": "yes",
+      "verdict": "ok   W3-N1 the settings note is drawn on body row 3 instead of row 4 -> RED (3 check(s) failed)"
+    },
+    "W4b-N6 the blocked-setup note's reason is drawn on body row 2 instead of row 1": {
+      "must_build": "yes",
+      "verdict": "ok   W4b-N6 the blocked-setup note's reason is drawn on body row 2 instead of row 1 -> RED (2 check(s) failed)"
+    }
+  }
+}

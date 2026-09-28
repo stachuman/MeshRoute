@@ -1,0 +1,24 @@
+batteries whose entry list changed: MUTS_CHROME, MUTS_MODEL, MUTS_UISTATUS, MUTS_W4BHOME
+MUTS_CHROME: base 44 -> 48; kept verbatim 44; changed 0 []; retired 0 []; new 4 [X45 X46 X47 X48]
+MUTS_MODEL: base 239 -> 239; kept verbatim 220; changed 19 [M58 M68 M69 M83 M101 M102 M106 M109 N04 N05 N06 V03 B249-1 B249-2 B249-3 V29 V40 W15 W16]; retired 0 []; new 0 []
+    M58: anchor+replacement
+    M68: anchor
+    M69: anchor+replacement
+    M83: anchor+replacement
+    M101: label+anchor+replacement
+    M102: label+anchor+replacement
+    M106: anchor+replacement
+    M109: label+anchor+replacement
+    N04: anchor+replacement
+    N05: anchor
+    N06: anchor
+    V03: anchor+replacement
+    B249-1: anchor+replacement
+    B249-2: anchor+replacement
+    B249-3: anchor+replacement
+    V29: anchor
+    V40: anchor
+    W15: anchor
+    W16: anchor+replacement
+MUTS_UISTATUS: base 13 -> 19; kept verbatim 4; changed 0 []; retired 9 [S01 S05 S06 S07 S08 S09 S10 S11 S12]; new 15 [S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28]
+MUTS_W4BHOME: base 0 -> 26; kept verbatim 0; changed 0 []; retired 0 []; new 26 [H01 H02 H03 H04 H05 H06 H07 H08 H09 H10 H10b H11 H12 H13 H14 H15 H16 H17 H18 H19 H20 H21 H22 H23 H24 H25]

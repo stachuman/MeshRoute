@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com>; r1 draft: OpenAI Codex (2026-09-06/07); r2/r2.1: Claude, specification author (2026-09-22/23) -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**Revision 2.21 · 2026-09-27 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W1, W3, W4a and W4b scoped by their QA pre-checks; the W4b allocation owner-ruled (§11.1, §16).** Every decision in
+**Revision 2.22 · 2026-09-27 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W1, W3, W4a and W4b scoped by their QA pre-checks; the W4b allocation owner-ruled (§11.1); one W4b transition settled at its coder STOP (§16).** Every decision in
 §12 is ruled by the owner (2026-09-23/24): navigation (D1), Home rows and lists (D2, D2a–D2c), the boot splash (D3),
 the editor alphabet (D4), review before every send or save (D5), written-message size and location (D6), phrase
 size (D7), the phrase-record reset (D8), default phrases (D9), names (D10), setup from Home (D11), the Home card of
@@ -445,6 +445,13 @@ opens the settings menu in list focus. The menu's last row becomes `MENU` (was `
 draft-preserving `on_back()`, then enters menu mode on the Home slot; short wraps within the menu instead of walking off the end —
 a named revision of B232/§UI-14. An unsaved draft survives leaving (badge; R-3).
 
+**The Settings menu is shown only over an open configuration service** (W4b; B457). Whenever SETTINGS would show the
+menu while the service is not open — for example after an emergency hold pre-empts a flow that the ungated
+`INVITE MEMBER` or a TEAM-roster grant opened — SETTINGS shows its closed view (`CFG UNAVAILABLE`) in menu mode
+instead: no arrow, the cue beside SETTINGS, short walks the rail, and double stays refused until the service opens
+(then the preview reads `ENTER SETTINGS` and double opens the menu as usual). A menu nobody can see is never left
+as the only way out.
+
 ### 6.2 Home rows [AGREED owner 2026-09-23, D2]
 
 - **Row 0:** identity, `ME <label>` (§4.2).
@@ -527,7 +534,9 @@ every later item one step further).]
   | the list changes again (items leave or return) | the arrow stays on item 1 of the newest list; the note stays |
   | an emergency hold | works as ever; afterwards the note is still there |
 
-  Menu mode raises no note: its preview has no arrow, and a later double opens Home on item 1.
+  Menu mode raises no note: its preview has no arrow, and a later double opens Home on item 1. A press that arrives
+  in the same tick as the change that raises the note is consumed without clearing it, so the wearer sees the note
+  before any press acts on the new list.
 
 ### 6.5 What Home items open [PROPOSED]
 
@@ -548,7 +557,8 @@ the existing channel compose list promoted to a top-level list — its phrases, 
 send`; a phrase's send, result and acknowledgement are today's, and acknowledging a result returns to the Send list
 on item 1. A catalog change while the Send list is open re-reads it like Home's: the arrow goes to item 1 and
 `PRESET CHANGED` replaces item 1's label until the next press, which sends nothing (today's rule that a catalog
-change never lets a press send, kept for a list that no longer closes).
+change never lets a press send, kept for a list that no longer closes). With no phrases, item 1 is `MENU`, so the
+note covers it for that one press.
 
 ### 6.6 Setup from Home [AGREED owner 2026-09-23, D11]
 
@@ -1038,8 +1048,8 @@ prediction is re-checked at each gate, never assumed.
 | W1c | change, `lib/core` | D10 (§4.6): unnamed devices advertise no name; `whoami` prints `name=""`; the default-name test and comments rewritten | — | full gate: native from a fresh peer cache (exact INTRO, key-answer and key-request bytes from an unnamed node — 26, 26 and 27 bytes shorter; a cached name survives an empty one), corpus keystone per `simulation/BASELINE.md` (predicted unchanged), boards; every `effective_name` user grepped (P7). **Status 2026-09-25:** **INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802`. [Receipt](../evidence/2026-09-25-standalone-mobile-home-w1c-qa.md): native 2962/195904/0; 36/36 corpus identical; ABI/RAM unchanged; flash −304/−140 B; 34/34 mutations RED. B447 unnamed half closed; named-peer precedence and B450 remain open. |
 | W2 | tool | B418: re-anchor W49/W51/W54 and their controls; rerun the supplemental probe | — | tools discovery; all board-UI controls RED |
 | W3 | refactor, `src` (C1) | a pure fixed-byte pager extracted from the detail modal — the page count and one page's row slices, with rows and columns as parameters (the review's word wrap, §7.2, stays with W6/W8); the compose-row display width derived from the body width minus its two marker columns, no longer from the record limit `kUiPresetTextMax` (unchanged; W6 raises it); one provisioning admission function sharing the arrival opener (no Home caller yet). No new state, layout or behaviour ([pre-check](../evidence/2026-09-25-standalone-mobile-home-w3-precheck.md)) | — | byte-identical renders in `probe_firmware_ui`, proved by real-render fixtures added before the extraction (detail bodies of 0/38/39/76/241 bytes, 17-byte compose rows, the blocked PROVISION notes); native pager, display-versus-record and counted-opening cases; batteries re-anchored with working-rule D6 care, never weakened; corpus; the two board envs. **Status 2026-09-25: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802` plus W1c. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w3-qa.md); the [approved brief](../plans/2026-09-25-standalone-mobile-home-w3-ui-model-seams.md) and coder freeze remain unchanged. No resident-state growth or render change in the characterized cases; W1/W1c/W3 prerequisites for W4a are satisfied. |
-| W4a | fix, `src` | B441 + the identity formatter for every device label (TEAM, compose, review, result and invite rows), including D10's unnamed rule, at the §4.1 budgets; B449 (the invite probe control O8) and B455 (O6) with it | W1, W1c, W3 | native, `chrome`/`model` batteries, firmware-UI probe; **Status 2026-09-27: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802` plus W1c/W3. [QA receipt](../evidence/2026-09-27-standalone-mobile-home-w4a-qa.md): B441/B449/B455 closed; current device labels use the §4.1 budgets with zero resident growth. Own Home/My device labels remain W4b, review labels W6/W8. [Metal UI-20](../../2026-09-20-metal-test-plan.md#ui-20) OWED. B456 records the runner’s separate missing-control false-PASS defect; this gate independently accounts for all 236 controls. The [approved brief](../plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md) and coder freeze stay unchanged. W4b prerequisites satisfied; next is its QA pre-check and author brief. |
-| W4b | feature, `src` | Home and navigation, paired under P6: menu mode, `MENU` rows on the five top-level lists, the gutter bar, Home rows/lists/arrow rules, My device (read-only), setup origin, mark removal; B456 (the firmware-UI probe's missing-control false PASS) as its instrument-first stage; allocation owner-ruled (§11.1) | W4a, W3 | native navigation matrix, `model`/`chrome`/`uistatus`, navigation tests and probe checks re-pinned (never weakened), ABI pins, RAM pair; metal UI-01. **Status 2026-09-27:** QA [pre-check](../evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md) complete; the [brief](../plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md) awaits QA review. |
+| W4a | fix, `src` | B441 + the identity formatter for every device label (TEAM, compose, review, result and invite rows), including D10's unnamed rule, at the §4.1 budgets; B449 (the invite probe control O8) and B455 (O6) with it | W1, W1c, W3 | native, `chrome`/`model` batteries, firmware-UI probe; **Status 2026-09-27: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `8360802` plus W1c/W3. [QA receipt](../evidence/2026-09-27-standalone-mobile-home-w4a-qa.md): B441/B449/B455 closed; current device labels use the §4.1 budgets with zero resident growth. Own Home/My device labels remain W4b, review labels W6/W8. [Metal UI-20](../../2026-09-20-metal-test-plan.md#ui-20) OWED. B456 recorded the runner’s separate missing-control false-PASS defect, now closed by W4b; this earlier gate independently accounted for all 236 controls. The [approved brief](../plans/2026-09-26-standalone-mobile-home-w4a-identity-labels.md) and coder freeze stay unchanged. W4b prerequisites were satisfied; its subsequent independent gate is recorded below. |
+| W4b | feature, `src` | Home and navigation, paired under P6: menu mode, `MENU` rows on the five top-level lists, the gutter bar, Home rows/lists/arrow rules, My device (read-only), setup origin, mark removal; B456 (the firmware-UI probe's missing-control false PASS) as its instrument-first stage; allocation owner-ruled (§11.1) | W4a, W3 | native navigation matrix, `model`/`chrome`/`uistatus`, navigation tests and probe checks re-pinned (never weakened), ABI pins, RAM pair; metal UI-01. **Status 2026-09-28: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `c8e36d8`, [QA receipt](../evidence/2026-09-28-standalone-mobile-home-w4b-qa.md). The approved +72 B layout is reproduced; B350/B456/B457 close. M103 is explicitly accepted as an obsolete non-RED entry; retirement of its still-active tuple is B458. [Metal UI-01](../../2026-09-20-metal-test-plan.md#ui-01), UI-03/04/06/19 and new [UI-21](../../2026-09-20-metal-test-plan.md#ui-21) remain OWED. The revision-3 [brief](../plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md) and coder freeze remain byte-identical. |
 | W4c | fix, `src` | B445: the Inbox boot boundary (`dm_newest_seq()`/`chan_newest_seq()` read once at UI start); rows from before the restart show age `--` | — | native (both sides of the stamp), `model` battery, firmware-UI probe |
 | W4d | feature, `src` | Inbox newest-first merge (§6.8) over the unchanged per-kind budget, keyed on the full receive time kept beside each staged row; the identity cursor and the after-delete neighbour follow the displayed order | W4c | native (merge, ties, restart split, sub-second order), `model` battery (B231's M92/M93 re-anchored, never weakened), firmware-UI probe; metal UI-02 |
 | W5 | feature, `src` | boot splash: the mark and the build's Git ID (D3) | W4b | native (the pure line formatter, including an over-long ID), probe render, POWER metal |
@@ -1263,3 +1273,12 @@ body arrow and the menu's `MENU` row keeps `on_back()`; §6.3 gates each action 
 catalog-change returns; §6.2 omits a zero route count as it does a zero unread count; §6.6 pins the blocked-gate note rows and freezes its reason. The owner approved +72 B of static
 UI structures for W4b (§11.1, 2026-09-27; §11.1's closing sentence now names that grant beside D7's). §13 W4b adds
 B456. Documentation only.
+
+**r2.22, 2026-09-27 — one W4b transition settled at its coder STOP-1.** The W4b coder found a state r2.21 did not
+settle: an emergency hold that pre-empts a flow opened by the ungated `INVITE MEMBER` (or, already at base, a
+TEAM-roster grant) while the configuration service is closed lands in the Settings menu, which then draws only
+`CFG UNAVAILABLE`; W4b's wrapping menu removed the old walk-off escape. §6.1 now states that the menu is shown only
+over an open service, and otherwise SETTINGS is its closed view in menu mode (registered as B457). Two clarifications
+the coder raised are written down: a press in the same tick as the change that raises `OPTIONS CHANGED` is consumed
+without clearing it (§6.4), and with no phrases the Send list's `PRESET CHANGED` covers its `MENU` row for one press
+(§6.5). Author decision within D1; no owner ruling. Documentation only.

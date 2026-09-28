@@ -742,6 +742,19 @@ TEST_CASE("ui-recv: the counters, the stamps, and the cap that is DISPLAY-ONLY")
 // ★ THE WRAPAROUND IS A DECISION, so it gets a test rather than a comment. `uint32_t` + unsigned modular subtraction:
 // the serials wrapping is harmless, and the invariant is only that the TRUE unread count stays below 2^32 between two
 // reads. Driven at the boundary directly — 2^32 arrivals is not a thing a test can push through `ui_route_recv_push`.
+// ★★★ W4b (design §6.1 rule 1) — THE BOOT STATE CHANGED: the model boots in LIST FOCUS on Home. The retired boot
+//     state (the passive STATUS screen one `short` passed) is MENU MODE ON THE HOME SLOT, reached exactly as the
+//     operator reaches it: walk Home's list to `MENU` by identity, then `double`. A navigation FIXTURE only (brief
+//     §2.9) — idempotent, and it asserts nothing of its own.
+static void to_menu_home(mrui::UiModel& m, const mrui::UiSnapshot& s) {
+    if (m.state().screen == mrui::Screen::status && m.state().list_view == mrui::ListView::interactive &&
+        m.state().home_view == mrui::HomeView::list) {
+        for (int i = 0; i < 8 && m.state().home.selected != mrui::HomeItem::menu; ++i)
+            m.on_gesture(mrui::Gesture::short_press, s);
+        m.on_gesture(mrui::Gesture::double_press, s);
+    }
+}
+
 TEST_CASE("ui-recv: the arrival serial WRAPS without losing the unread count") {
     UiInboxCounters c{};
     c.arr_dm = 0xFFFFFFFEu; c.read_dm = 0xFFFFFFFEu;
@@ -752,6 +765,7 @@ TEST_CASE("ui-recv: the arrival serial WRAPS without losing the unread count") {
     UiSnapshot s{}; c.publish(s);
     CHECK(s.unread_dm == 3);
     FrameGate g; UiModel m; UiSnapshot fs{}; fs.now_ms = 10000; c.publish(fs);
+    to_menu_home(m, fs);                                 // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, fs); m.on_gesture(Gesture::short_press, fs);
     CHECK(m.state().screen == Screen::inbox);
     CHECK(g.step(m, fs, true) == FrameStep::open);
@@ -788,6 +802,7 @@ static UiSnapshot snap_from(const UiInboxCounters& c, uint32_t now_ms) {
 }
 // Two short presses walk status -> team -> inbox on a snapshot with no team rows (list_len 1 on both).
 static void goto_inbox(UiModel& m, UiSnapshot& s) {
+    to_menu_home(m, s);                                  // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::inbox);
@@ -877,6 +892,7 @@ TEST_CASE("ui-frame: F2 — an Inbox frame under an open COMPOSE modal reads not
     UiModel m; FrameGate g; UiInboxCounters c{};
     UiSnapshot s = snap_from(c, 10000);
     (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 10000);
+    to_menu_home(m, s);                                // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);
     m.on_gesture(Gesture::short_press, s);
     m.on_gesture(Gesture::short_press, s);             // status -> team -> inbox -> send
@@ -1018,6 +1034,7 @@ TEST_CASE("ui-frame: F3 — a second REPLY needs its own completed frame") {
 TEST_CASE("ui-frame: F3 — a consumed press never operates the screen under the overlay") {
     SendTracker emg; UiInboxCounters c{}; FrameGate g; (void)g; (void)c;
     UiModel m; UiSnapshot s{}; s.now_ms = 1000;
+    to_menu_home(m, s);                                     // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);                  // status -> team
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::long_arm,  s);
@@ -1639,6 +1656,7 @@ TEST_CASE("ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the a
 TEST_CASE("ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle, and moves neither DM nor alarm") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(31);
     const UiSnapshot s = snap_at(6000);
+    to_menu_home(m, s);                                                  // W4b fixture: menu mode on Home
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team -> inbox -> SEND
     CHECK(m.state().screen == Screen::send);
     m.on_gesture(Gesture::double_press, s);                              // open the canned CHANNEL list
@@ -1783,6 +1801,7 @@ TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") 
     //   row at all. The compiled catalog is what these cases were always driving.
     UiSnapshot s{}; s.now_ms = 1000; s.team_shown = 1; s.team[0].id = 11;
     ui_snapshot_publish_presets(s, dflt_cat());
+    to_menu_home(m, s);                                    // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);                 // -> TEAM (passive)
     m.on_gesture(Gesture::double_press, s);                // §UI-17 S1: ENTER the list...
     m.on_gesture(Gesture::double_press, s);                // ...-> DM compose
@@ -1828,6 +1847,7 @@ TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view h
     //   row at all. The compiled catalog is what these cases were always driving.
     UiSnapshot s{}; s.now_ms = 1000; s.team_shown = 1; s.team[0].id = 11;
     ui_snapshot_publish_presets(s, dflt_cat());
+    to_menu_home(m, s);                                    // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);                 // -> TEAM (passive)
     m.on_gesture(Gesture::double_press, s);                // §UI-17 S1: ENTER the list
     m.on_gesture(Gesture::double_press, s);                // -> DM compose
@@ -2502,6 +2522,7 @@ struct N6Fix {
     UiModel  m;
     N6Fix() { m.attach_config(svc); m.attach_invite(dev); }
     bool to_verdict(UiSnapshot& s) {
+        to_menu_home(m, s);                               // W4b fixture: menu mode on Home
         for (int i = 0; i < 60 && m.state().screen != Screen::settings; ++i) m.on_gesture(Gesture::short_press, s);
         m.on_tick(s);
         for (int i = 0; i < 80; ++i) {

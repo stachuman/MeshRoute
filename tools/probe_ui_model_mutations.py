@@ -546,6 +546,8 @@ TARGET_SRC = {
     "w1cretain":    "lib/core/node_hashlocate.cpp",  # W1c — the cache's `name && name_len` refresh guard (not edited)
     # ★★ ADDED 2026-09-26 BY W4a ([[B441]], design §4.1): the ONE device-label formatter, `mrui::ui_fmt_identity`.
     "w4aident":     "src/firmware_ui_model.h",       # W4a — sanitize, abbreviate with `»`, member tokens, no fabrication
+    # ★★ ADDED 2026-09-27 BY W4b (brief §2.9): Home, the focus model, the typed setup origin and the Send list.
+    "w4bhome":      "src/firmware_ui_model.h",       # W4b — profiles, capture/notes, MENU, blank, OQ-3, origin, Send list
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -731,7 +733,8 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # W1c (D10): §1.3 accessor case replaced 4->19 (+15), hashlocate B1-B5+C2-C5 +10 cases/+96, dual-layer INTRO route +1/+14, INTRO golden +2 = 2962/195904; measured by the full native binary.
 # W3 (UI-model seams): stage A +7 cases/+74 (test_firmware_ui_model w3-open/w3-prov counted loads) + stage B +4 cases/+133 (w3-pager helpers), 2 budget asserts restated in place = 2973/196111; measured by the full native binary.
 # W4a (identity labels): +10 w4a-ident (model) + 1 team repaint edge + 2 invite (row bound, confirmation names) = +13 cases/+1188 = 2986/197299; measured by the full native binary.
-PIN_CASES, PIN_ASSERTS = 2986, 197299
+# W4b (Home + navigation, brief rev 3): model +41 cases (38 w4b- + 3 b457 = +1125 assertions; +59 more in the rewritten navigation expectations), status 12->13 (8 retired STATUS-row cases -> 9 w4b- cases, +67), chrome +3 (w4b-chrome +62, +1 in a re-prefixed case), team/send unchanged = +45 cases/+1314 = 3031/198613; measured by the full native binary per file against a build of HEAD (= the frozen base, which reproduces 2986/197299): model 380/6729->421/7913, status 12/115->13/182, chrome 38/1933->41/1996.
+PIN_CASES, PIN_ASSERTS = 3031, 198613
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -3263,11 +3266,12 @@ MUTS_MODEL = [
  ("M57 the CONFLICT cell is dropped — the two states collapse into one",
   "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }",
   "        ;"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: `prov_block_note` gained `unavailable` (the column realigned).
  ("M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
-  '        case ProvBlock::conflict: return "RELOAD OR DISCARD";\n'
-  '        case ProvBlock::unsaved:  return "SAVE OR DISCARD";',
-  '        case ProvBlock::conflict: return "SAVE OR DISCARD";\n'
-  '        case ProvBlock::unsaved:  return "RELOAD OR DISCARD";'),
+  "        case ProvBlock::conflict:    return \"RELOAD OR DISCARD\";\n"
+  "        case ProvBlock::unsaved:     return \"SAVE OR DISCARD\";",
+  "        case ProvBlock::conflict:    return \"SAVE OR DISCARD\";\n"
+  "        case ProvBlock::unsaved:     return \"RELOAD OR DISCARD\";"),
  ("M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
   "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
   "        if (_cfg->config_unsaved()) { (void)_cfg->save(); return true; }"),
@@ -3298,8 +3302,9 @@ MUTS_MODEL = [
  # --- §UI-15 slice 5: the CREATE flow, its landing, and the OWNER's parent-row ruling -------------------------------
  # ★ THE AIM IS THE TWO WAYS A CONFIRMATION LIES: it acts on the SAFE choice (M68/M69), or it CLAIMS an outcome the
  #   act has not returned yet (M70/M71). Both are the "a success that isn't" class this project has recorded once.
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: BACK leaves through the origin-aware exit now.
  ("M68 ★★ the confirmation fires the transaction on BACK too (the safe action performs the destructive one)",
-  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n"
   "        run_create_team();",
   "        run_create_team();"),
  # ⚠ M69 RETARGETED 2026-08-20 (§UI-15 slice 6), and the retarget is recorded rather than the entry quietly
@@ -3312,12 +3317,13 @@ MUTS_MODEL = [
  #   anchor matched TWICE and the runner reported it VACUOUS. ★ The SEMANTIC is unchanged; the THIRD line
  #   (`run_create_team();`) is what makes it the CREATE confirmation's, and the saved-key twin has its own control
  #   (`--target=model` V29, `BACK` performs the install).
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: the same three lines, BACK through the origin-aware exit.
  ("M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
   "        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }\n"
-  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n"
   "        run_create_team();",
   "        if (g == Gesture::short_press) { run_create_team(); return; }\n"
-  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n"
   "        run_create_team();"),
  # ⛔⛔ M70 IS §8 PIN 2 INVERTED, AND IT IS THE TEMPTING SHAPE: move the screen first "so the panel is already showing
  #    the right state when the answer lands". The act then runs UNDER the result screen — which is precisely the
@@ -3383,9 +3389,10 @@ MUTS_MODEL = [
   "                if (still) { _join.active = false; enter_provision(Provision::join_result);\n"
   "                    UiProvAnswer f{}; f.outcome = UiProvOutcome::join_refused; f.reason = \"timeout\";\n"
   "                    _st.prov_answer = f; } }"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: leaving JOINING is the origin-aware exit now.
  ("M83 ⛔ BACK from the waiting screen CANCELS the persisted join (plan §2.3 rule 4's forbidden rollback)",
-  "            case Provision::join_waiting:   enter_provision(Provision::menu); return;",
-  "            case Provision::join_waiting:   _join.active = false; enter_provision(Provision::menu); return;"),
+  "            case Provision::join_waiting:   provision_menu_exit(); return;",
+  "            case Provision::join_waiting:   _join.active = false; provision_menu_exit(); return;"),
  ("M84 ⛔ the ALARM cancels the persisted join (§3.6.5 pre-empts the SCREEN, never the operation)",
   "    if (_st.settings == Settings::provisioning) close_provisioning();",
   "    if (_st.settings == Settings::provisioning) { _join.active = false; close_provisioning(); }"),
@@ -3487,12 +3494,21 @@ MUTS_MODEL = [
  ("M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
   "        ensure_config_open();                                   // ★ ON ARRIVAL, above the closed-view return below",
   "        if (_st.settings != Settings::closed) ensure_config_open();"),
- ("M101 [[B232]] the walk off the last row leaves the SCREEN again (the jump the ruling removes)",
-  "if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }",
-  ";"),
- ("M102 [[B232]] the BACK row jumps to STATUS instead of leaving the MENU",
-  "                close_settings_menu();\n                break;",
-  "                _st.screen = Screen::status; _st.cursor = 0;\n                settings_follow_screen();\n                break;"),
+ # ⛔⛔ M101 — A REVISED CONTRACT, NOT A SILENT RE-ANCHOR (brief §2.9). It protected [[B232]]'s walk-off, which W4b WITHDRAWS:
+ #    the Settings menu now WRAPS like every list. The entry now RE-INSERTS the withdrawn walk-off before the shared
+ #    containment, and `b232-exit` / `w4b-wrap` are what redden.
+ ("M101 [[B232]] REVISED BY W4b (design §6.1): the Settings menu walks off its last row to the closed view instead of WRAPPING",
+  "        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }",
+  "        if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }\n"
+  "        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }"),
+ # ⛔⛔ M102 — A REVISED CONTRACT (brief §2.9): the exit row is `MENU` and goes to MENU MODE ON HOME. The wrong answer is
+ #    now the [[B232]] landing it replaces — the closed view on SETTINGS.
+ ("M102 [[B232]] REVISED BY W4b (design §6.1): MENU closes the menu but stays on SETTINGS instead of menu mode on HOME",
+  "                close_settings_menu();\n"
+  "                go_menu_home(s);\n"
+  "                break;",
+  "                close_settings_menu();\n"
+  "                break;"),
  # ⓘ M103 is the CLOSED view's own cursor: the single entry row is index 0, and a close that left the menu's index
  #   behind would put the highlight on a row that view does not draw — and `note_settings_cursor` would then read it.
  ("M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
@@ -3510,9 +3526,12 @@ MUTS_MODEL = [
  #   predicate itself (M114).
  # ⛔ M106 IS THE REVERSION, LITERALLY: it puts the auto-enter back, on every arrival, exactly as M97 does one screen
  #    over — and the harm is [[B232]]'s in the plane where it is worse, because the marked row is a SEND TARGET.
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: `list_follow_screen` is retired, so the auto-enter is written on the menu-mode advance line — the
+ #   one place a menu-mode `short` arrives on TEAM/INBOX.
  ("M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose)",
-  "        if (_st.screen == Screen::team || _st.screen == Screen::inbox) return;",
-  "        if (_st.screen == Screen::team || _st.screen == Screen::inbox) { _st.list_view = ListView::interactive; return; }"),
+  "        _st.screen = next_screen(_st.screen, s); _st.cursor = 0;",
+  "        _st.screen = next_screen(_st.screen, s); _st.cursor = 0;"
+  " if (_st.screen == Screen::team || _st.screen == Screen::inbox) _st.list_view = ListView::interactive;"),
  # ⛔ M107 IS THE SAME SYMPTOM THROUGH THE OTHER MECHANISM, and that is why both exist: the landing can be right and
  #    the screen still cost a press per teammate if the PASSIVE preview reports the roster's length.
  # ⚠ RE-POINTED 2026-08-21 onto the HOISTED decision (QG): it used to mutate the TEAM arm of `list_len` and left
@@ -3528,10 +3547,11 @@ MUTS_MODEL = [
   "    return (cursor + 1 >= shown) ? ListRow::back : ListRow::member;"),
  # ⚠ RE-POINTED 2026-08-21 onto the HOISTED dispatch (QG): it used to mutate the TEAM arm and left the INBOX copy
  #   unprotected. One site now, so the "where am I" jump is measured on BOTH screens.
- ("M109 [[UI-17]] the BACK row leaves the SCREEN instead of closing the view (the jump the contract removes)",
-  "                case ListAct::leave:  close_list_view(s); return;",
-  "                case ListAct::leave:  _st.screen = next_screen(_st.screen, s); _st.cursor = 0;\n"
-  "                                      list_follow_screen(); _st.dirty = true; return;"),
+ # ⛔⛔ M109 — A REVISED CONTRACT (brief §2.9): the TEAM/INBOX exit is `MENU` → menu mode on the Home slot. The wrong answer
+ #    is now the §UI-17 landing it replaces (the passive form of the same screen).
+ ("M109 [[UI-17]] REVISED BY W4b (design §6.1): the MENU row returns to the PASSIVE SAME screen instead of menu mode on HOME",
+  "                case ListAct::leave:  go_menu_home(s);    return;",
+  "                case ListAct::leave:  _st.list_view = ListView::passive; _st.cursor = 0; _st.dirty = true; return;"),
  ("M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped)",
   "        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }",
   "        ;"),
@@ -3767,17 +3787,15 @@ MUTS_MODEL = [
  #   view" is one invariant with two leave-paths, U1), so the one-line anchor matched TWICE and the runner reported it
  #   VACUOUS. ★ The SEMANTIC is unchanged and is still R-10's: the TICK must not re-read the scan. The following
  #   `sync_team_cursor(s);` is what makes the pair the TICK's.
- ("N04 ★★★ the scan is RE-READ EVERY TICK — owner ruling R-10's frozen-per-entry snapshot is gone and a team that "
-  "walks into range inserts a row under the operator's cursor",
-  "        list_follow_screen();\n        sync_team_cursor(s);",
-  "        if (_st.provisioning == Provision::nearby) load_nearby(s);\n"
-  "        list_follow_screen();\n        sync_team_cursor(s);"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: `list_follow_screen` left `on_tick`; the re-read rides the line before the cursor syncs.
+ ("N04 ★★★ the scan is RE-READ EVERY TICK — owner ruling R-10's frozen-per-entry snapshot is gone and a team that walks into range inserts a row under the operator's cursor",
+  "        tick_invite(s);",
+  "        tick_invite(s);\n"
+  "        if (_st.provisioning == Provision::nearby) load_nearby(s);"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: BACK leaves through the origin-aware exit now.
  ("N05 ★★ BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)",
-  # ⚠ ANCHORED ON THE LINE ABOVE IT TOO: `join_select_gesture` carries the IDENTICAL `back` landing one screen over,
-  #   so the bare line matches TWICE and the runner reports it VACUOUS — which is exactly what it did on the first
-  #   full pass. The fail-closed line's comment names `NearbySelList`, so the pair is unique.
   "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at\n"
-  "        if (r.back) { enter_provision(Provision::menu); return; }",
+  "        if (r.back) { provision_menu_exit(); return; }",
   "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at\n"
   "        if (r.back) { close_settings_menu(); return; }"),
  # ⛔⛔ N06 RE-ANCHORED 2026-08-23 (§UI-16 N3), AND THE WITHDRAWN PATTERN IS KEPT VISIBLE — it read:
@@ -3794,8 +3812,9 @@ MUTS_MODEL = [
  # ⇒ THE SAME DEFECT CLASS IN THE NEW SHAPE: *"ANY double ACTS, not just the one on a TEAM row"* — the BACK branch
  #   dropped, so leaving the list opens a `JOIN <fingerprint>?` for whatever the BACK row's empty `team` holds.
  #   ⓘ It is ⛔ NOT N10's twin: N10 is the CONFIRMATION's BACK, this is the LIST's.
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: BACK leaves through the origin-aware exit now.
  ("N06 ★★ ANY double ACTS, not just the one on a TEAM row — leaving the list opens a JOIN confirmation",
-  "        if (r.back) { enter_provision(Provision::menu); return; }\n"
+  "        if (r.back) { provision_menu_exit(); return; }\n"
   "        // ★★★ THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID",
   "        // ★★★ THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID"),
  # ===== §UI-16 N3 — the `JOIN <fingerprint>?` confirmation and the act ==========================================
@@ -3853,22 +3872,45 @@ MUTS_MODEL = [
   "    void tick_invite(const UiSnapshot& s) {\n"
   "        if (!provision_is_invite(_st.provisioning)) return;\n"
   "        _st.invite = invite_snapshot_take(s.member, s.team_shown);"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: Home INVITE repeats these three steps (design §6.6 rule 2), so the anchor now carries
+ #   `case ProvRow::invite:` to stay exactly-once; the Home copy has its own entries (`--target=w4bhome` H13-H15).
  ("V03 ★★ the snapshot is NEVER taken — the window opens with no authorities at all",
+  "            case ProvRow::invite:\n"
   "                load_invite(s);",
+  "            case ProvRow::invite:\n"
   "                ;"),
  # ★★★★ [[B249]] — THE FRESH-OPEN ANNOUNCEMENT'S THREE MODEL FAILURES. These are separate controls because a
  #      count-only case cannot prove the request followed the snapshot/window authority, and an order-only case
  #      cannot prove that redraw/tick/close refrain from repeating it.
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: Home INVITE repeats these three steps (design §6.6 rule 2), so the anchor now carries
+ #   `case ProvRow::invite:` to stay exactly-once; the Home copy has its own entries (`--target=w4bhome` H13-H15).
  ("B249-1 ★★★ the fresh INVITE open never requests the existing triggered team announcement",
-  "                if (_invite_dev) _invite_dev->request_team_announcement();",
-  "                ;"),
- ("B249-2 ★★★ the fresh INVITE open requests the announcement TWICE",
-  "                if (_invite_dev) _invite_dev->request_team_announcement();",
-  "                if (_invite_dev) { _invite_dev->request_team_announcement(); _invite_dev->request_team_announcement(); }"),
- ("B249-3 ★★★ the announcement request precedes the member snapshot and established invitation arm",
+  "            case ProvRow::invite:\n"
   "                load_invite(s);\n"
   "                enter_provision(Provision::invite);\n"
   "                if (_invite_dev) _invite_dev->request_team_announcement();",
+  "            case ProvRow::invite:\n"
+  "                load_invite(s);\n"
+  "                enter_provision(Provision::invite);"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: Home INVITE repeats these three steps (design §6.6 rule 2), so the anchor now carries
+ #   `case ProvRow::invite:` to stay exactly-once; the Home copy has its own entries (`--target=w4bhome` H13-H15).
+ ("B249-2 ★★★ the fresh INVITE open requests the announcement TWICE",
+  "            case ProvRow::invite:\n"
+  "                load_invite(s);\n"
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) _invite_dev->request_team_announcement();",
+  "            case ProvRow::invite:\n"
+  "                load_invite(s);\n"
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) { _invite_dev->request_team_announcement(); _invite_dev->request_team_announcement(); }"),
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: Home INVITE repeats these three steps (design §6.6 rule 2), so the anchor now carries
+ #   `case ProvRow::invite:` to stay exactly-once; the Home copy has its own entries (`--target=w4bhome` H13-H15).
+ ("B249-3 ★★★ the announcement request precedes the member snapshot and established invitation arm",
+  "            case ProvRow::invite:\n"
+  "                load_invite(s);\n"
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) _invite_dev->request_team_announcement();",
+  "            case ProvRow::invite:\n"
   "                if (_invite_dev) _invite_dev->request_team_announcement();\n"
   "                load_invite(s);\n"
   "                enter_provision(Provision::invite);"),
@@ -4036,9 +4078,9 @@ MUTS_MODEL = [
  # ★★★★ V29 IS THE MODEL'S HALF OF THE P-2b PAIR: `BACK` — the arm the screen OPENS ON — performs the install. One
  #      press on the SAFE action reactivates a stored secret, which is the shape the delete modal's two separate
  #      branches exist to prevent, arriving in the one flow where the act is a key.
- ("V29 ★★★★ `BACK` PERFORMS THE INSTALL — the SAFE default arm activates the saved key, so declining the offer "
-  "does the thing the offer was asking about (P-2b, the model's headline)",
-  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: declining leaves through the origin-aware exit now.
+ ("V29 ★★★★ `BACK` PERFORMS THE INSTALL — the SAFE default arm activates the saved key, so declining the offer does the thing the offer was asking about (P-2b, the model's headline)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n"
   "        run_use_saved_key();",
   "        run_use_saved_key();"),
  ("V30 ★★★ THE OFFER OPENS WITHOUT THE KEYRING'S REPORT — every nearby join lands on `SAVED KEY FOUND`, so the "
@@ -4093,11 +4135,10 @@ MUTS_MODEL = [
  # ★★★ THREE ENTRIES, ONE PER WAY THIS RULING CAN BE UNDONE: the ask reverted, the ask over-applied, and the ⛔
  #     a-push-never-navigates control re-proven THROUGH the new landing (it is the K4 pin that a new destination is
  #     most likely to erode: once a press can navigate, wiring the arrival to the same helper is one line away).
- ("V40 ★★★★ THE LANDING IS REVERTED TO THE MENU — the owner's ask undone, and undone in the shape it would really "
-  "arrive in: the helper stays, and simply goes back where every other terminal goes",
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: the landing is Home through `home_return()` (W4b ruling: list focus).
+ ("V40 ★★★★ THE LANDING IS REVERTED TO THE MENU — the owner's ask undone, and undone in the shape it would really arrive in: the helper stays, and simply goes back where every other terminal goes",
   "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;\n"
-  "        _st.screen = Screen::status;\n"
-  "        _st.cursor = 0;",
+  "        home_return();",
   "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;\n"
   "        enter_provision(Provision::menu);"),
  ("V41 ★★★ THE SCOPE OVERRUN — the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the "
@@ -4271,20 +4312,23 @@ MUTS_MODEL = [
   "            case GrantOrigin::team_roster:\n"
   "                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n"
   "                return;"),
- ("W15 ★★★ BOTH ORIGINS COLLAPSE TO THE TEAM LANDING — an invitation-window REJECT leaves its window and "
-  "selects a roster row the invitation never named",
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: the arm gained the Home-origin terminal line (it is replaced with the rest).
+ ("W15 ★★★ BOTH ORIGINS COLLAPSE TO THE TEAM LANDING — an invitation-window REJECT leaves its window and selects a roster row the invitation never named",
   "            case GrantOrigin::invite_window:\n"
+  "                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }\n"
   "                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n"
   "                return;",
   "            case GrantOrigin::invite_window:\n"
   "                return_to_team_roster(back.team_local_id, s);\n"
   "                return;"),
- ("W16 ★★★ GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed — the natural no-selection "
-  "expiry re-opens an invitation list it has no selected caller for",
+ # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: the arm gained the Home-origin terminal line (kept; the menu line is attacked).
+ ("W16 ★★★ GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed — the natural no-selection expiry re-opens an invitation list it has no selected caller for",
   "            case GrantOrigin::none:\n"
+  "                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }\n"
   "                enter_provision(Provision::menu);\n"
   "                return;",
   "            case GrantOrigin::none:\n"
+  "                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }\n"
   "                enter_provision(Provision::invite);\n"
   "                return;"),
  ("W17 ★★★ THE ROSTER IS RESTORED PASSIVE — the caller's entered list is lost and the next double only enters "
@@ -4738,6 +4782,24 @@ MUTS_CHROME = [
  ("X44 the projection hard-codes the gauge, so the slot always claims there is no duty limit",
   "    c.duty = ui_duty_bucket(s.duty_enabled, s.duty_pct);",
   "    c.duty = DutyGauge::disabled;"),
+ # ★★★★ W4b (brief §2.9): the MENU CUE (design §6.1 rule 4) and the setup-block note's rail slot. X17-X24/X27-X30 keep
+ #      their meaning; these four are the cue's and the new sub-view mapping's own.
+ ("X45 ★★ the menu cue is drawn in EVERY state (list focus included — a second cue beside the body's own `>`)",
+  "inline bool ui_menu_cue(const UiState& st) { return st.list_view == ListView::passive; }",
+  "inline bool ui_menu_cue(const UiState& st) { (void)st; return true; }"),
+ ("X46 ★★ the cue is dropped from the equality (entering/leaving menu mode owes no repaint — the rail goes stale)",
+  "        && a.menu_cue        == b.menu_cue;   // W4b: entering/leaving menu mode repaints, strip tokens or not",
+  "        ;   // W4b: entering/leaving menu mode repaints, strip tokens or not"),
+ ("X47 the cue is projected OUTSIDE the rail's visibility, so an emergency frame still carries it (§5.3 normalisation lost)",
+  "        c.menu_cue = ui_menu_cue(st);\n"
+  "    }\n"
+  "    return c;",
+  "    }\n"
+  "    c.menu_cue = ui_menu_cue(st);\n"
+  "    return c;"),
+ ("X48 ★★ the blocked-setup note boxes STATUS instead of SETTINGS (the rail describes a body it is not showing)",
+  "            case HomeView::setup_block: return NavSlot::settings;",
+  "            case HomeView::setup_block: return NavSlot::status;"),
 ]
 
 # ===== §CHROME-1 — src/firmware_ui_icons.h =========================================================================
@@ -6405,9 +6467,7 @@ MUTS_PROVSERVICE = [
 #     word, the raw sum, the rounded coordinate — every one of them looks like tidier code.
 MUTS_UISTATUS = [
  # --- row 4: the priority and the fix predicate (the two the spec names first) ------------------------------------
- ("S01 ★★ row 4's priority is INVERTED — RESTART NEEDED only when there is nothing else to show",
-  "    if (reboot_required) {",
-  "    if (reboot_required && !s.own_fix) {"),
+ # ⛔ S01 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the STATUS row 4 it attacked is gone; Home's restart row is decided in the renderer from the frozen `SettingsView` — replaced by the probe's C35 (re-anchored) on P7e's exact row. ⓘ `ui_status_location`'s restart arm is still pinned natively by `ui17-status` (the brief passes `false` from My device).
  ("S02 the fix predicate becomes AND — a node on the equator or the meridian loses its position",
   "inline bool ui_status_have_fix(int32_t lat_e7, int32_t lon_e7) { return lat_e7 != 0 || lon_e7 != 0; }",
   "inline bool ui_status_have_fix(int32_t lat_e7, int32_t lon_e7) { return lat_e7 != 0 && lon_e7 != 0; }"),
@@ -6418,38 +6478,70 @@ MUTS_UISTATUS = [
   '                     lat_neg ? "-" : "", (long)(la / 10000000), (unsigned long)((la / 10000) % 1000),',
   '                     lat_neg ? "-" : "", (long)(la / 10000000), (unsigned long)(((la + 5000) / 10000) % 1000),'),
  # --- row 0 / row 1: the two identity rows and their silences ------------------------------------------------------
- ("S05 ⛔ NO TEAM is replaced by a zero id — `TEAM 00000000`, a plausible team nobody is in",
-  "    const int n = (s.team_id == 0) ? snprintf(out, cap, \"NO TEAM\")\n"
-  "                                   : snprintf(out, cap, \"TEAM %08lX\", (unsigned long)s.team_id);",
-  "    const int n = snprintf(out, cap, \"TEAM %08lX\", (unsigned long)s.team_id);"),
- ("S06 row 1 says NO TEAM too (note a: two of five body rows spent on ONE fact)",
-  "    if (s.team_id == 0) { ui_pad_token(out, cap, 0); return; }    // note a: row 0 already said it",
-  "    if (s.team_id == 0) { snprintf(out, cap, \"NO TEAM\"); return; }    // note a: row 0 already said it"),
- ("S07 ⛔ a node before team-DAD renders `ME T0` — a PLAUSIBLE id for a node that has none",
-  "    const int n = (s.my_team_id == 0) ? snprintf(out, cap, \"ME NO ID\")\n"
-  "                                      : snprintf(out, cap, \"ME T%u\", unsigned(s.my_team_id));",
-  "    const int n = snprintf(out, cap, \"ME T%u\", unsigned(s.my_team_id));"),
+ # ⛔ S05 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 0 (`ui_status_team`) is gone — replaced by S14 on Home's team line (NO TEAM never a zero id).
+ # ⛔ S06 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 1 (`ui_status_me`) is gone — replaced by S16 (no team plane draws a blank team line, never a second fact).
+ # ⛔ S07 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 1's `ME T0` is gone — replaced by S15 (a pending ID reads NO ID, never `T0`).
  # --- row 2: the ruled word, the priority and the silence ----------------------------------------------------------
- ("S08 ★★★ the WITHDRAWN word returns — `4 HEARD` for a count that is ROUTE EVIDENCE",
-  '        n = snprintf(out, cap, "%s KNOWN", tok);',
-  '        n = snprintf(out, cap, "%s HEARD", tok);'),
- ("S09 NO TEAM KEY loses its priority to the count (the actionable half stops being said)",
-  "    if (!s.team_key_present) {",
-  "    if (false) {"),
- ("S10 row 2's `team_id != 0` half is dropped, so a teamless node reads `-- KNOWN`",
-  "    const bool configured = s.team_build && s.team_id != 0;",
-  "    const bool configured = s.team_build;"),
+ # ⛔ S08 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 2 (`ui_status_known`) is gone — replaced by S18 on Home's TEAM item (`KNOWN`, never `HEARD`).
+ # ⛔ S09 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: row 2's NO TEAM KEY priority moved to the Home PROFILE — replaced by `--target=w4bhome` H01 (key-missing outranks ID-pending).
+ # ⛔ S10 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: row 2's configured split is gone — replaced by S19 (the TEAM item's count is omitted at zero).
  # --- row 3: the token and the applicability split -----------------------------------------------------------------
- ("S11 the unread token becomes the RAW SUM (the strip's 99+ and this row stop agreeing)",
-  "    ui_fmt_mail(mail, sizeof mail, overflow ? kMailMax : uint8_t(mail_total), overflow);",
-  '    snprintf(mail, sizeof mail, "%u", unsigned(mail_total));'),
- ("S12 the HOME half is drawn on a build with NO mobile plane (`--` for not-applicable)",
-  "    if (!s.mobile_build) {",
-  "    if (false) {"),
+ # ⛔ S11 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 3 (`ui_status_unread_home`) is gone — replaced by S20 on Home's INBOX item (the strip's own token, never the raw sum).
+ # ⛔ S12 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 3's HOME half is gone (the home age is the strip's only) — replaced by the chrome battery's home-age entries, unchanged.
  # --- the frame-freeze remedy's own control (QG, 2026-08-21) -------------------------------------------------------
  ("S13 ★★ row 4 RE-DERIVES the fix instead of trusting the published `own_fix` (a second definition)",
   "    } else if (!s.own_fix) {",
   "    } else if (!ui_status_have_fix(s.own_lat_e7, s.own_lon_e7)) {"),
+ # ================================================================ W4b — HOME's TEAM LINE, LABELS, MY DEVICE AND NOTES
+ # ★★★★ W4b (brief §2.9): the replacements for S05-S12 and the new formatters' own rulings — the team-line spellings, the
+ #      My-device split and `NO NAME SET` (the three the brief names), plus the item tokens, the no-fabrication row 0, the
+ #      blocked note's second row and the body invalidation's own comparison. Each must redden `test_firmware_ui_status.cpp`.
+ ("S14 ⛔ NO TEAM is replaced by a zero id on the team line — `TEAM 00000000 NO ID`, a plausible team nobody is in",
+  "        n = snprintf(out, cap, \"NO TEAM\");",
+  "        n = snprintf(out, cap, \"TEAM 00000000 NO ID\");"),
+ ("S15 ⛔ a node before team-DAD renders `T0` — a PLAUSIBLE local id for a node that has none (was: NO ID)",
+  "        n = (s.my_team_id == 0) ? snprintf(out, cap, \"TEAM %s NO ID\", hex8)\n"
+  "                                : snprintf(out, cap, \"TEAM %s T%u\", hex8, unsigned(s.my_team_id));",
+  "        n = snprintf(out, cap, \"TEAM %s T%u\", hex8, unsigned(s.my_team_id));"),
+ ("S16 a build with NO team plane says `NO TEAM` instead of a blank team line (a fact the build cannot have)",
+  "    if (!s.team_build) { ui_pad_token(out, cap, 0); return; }        // no team plane: the row is blank",
+  "    if (!s.team_build) { snprintf(out, cap, \"NO TEAM\"); return; }        // no team plane: the row is blank"),
+ ("S17 ★★ the team-line SPELLING drifts: the full formatter's `0x` is kept (`TEAM 0x3D9348A5 T220`, 20 columns in 19)",
+  "        const char* hex8 = full + 2;                                  // the eight digits of `0x%08lX`",
+  "        const char* hex8 = full;                                  // the eight digits of `0x%08lX`"),
+ ("S18 ★★★ the WITHDRAWN word returns on the TEAM item — `TEAM 4 HEARD` for a count that is ROUTE EVIDENCE",
+  "            n = snprintf(out, cap, \"TEAM %s KNOWN\", tok);",
+  "            n = snprintf(out, cap, \"TEAM %s HEARD\", tok);"),
+ ("S19 the TEAM item's count is shown at ZERO (`TEAM 0 KNOWN`) instead of being omitted",
+  "            if (s.team_total == 0) { n = snprintf(out, cap, \"TEAM\"); break; }",
+  "            if (false) { n = snprintf(out, cap, \"TEAM\"); break; }"),
+ ("S20 the INBOX item's token becomes the RAW SUM (the strip's 99+ and Home's label stop agreeing)",
+  "            ui_fmt_mail(tok, sizeof tok, overflow ? kMailMax : uint8_t(total), overflow);",
+  "            snprintf(tok, sizeof tok, \"%u\", unsigned(total));"),
+ ("S21 the INBOX item's count is shown at ZERO (`INBOX 0 NEW`) instead of being omitted",
+  "            if (total == 0) { n = snprintf(out, cap, \"INBOX\"); break; }",
+  "            if (false) { n = snprintf(out, cap, \"INBOX\"); break; }"),
+ ("S22 ★★★ MY DEVICE splits the name at 16 instead of 19 (the Home budget reused: three cells of row 0 wasted)",
+  "    const uint8_t n0 = (len < kMyDeviceRowCols) ? len : kMyDeviceRowCols;",
+  "    const uint8_t n0 = (len < kHomeNameCols) ? len : kHomeNameCols;"),
+ ("S23 ★★ MY DEVICE's second row skips the sanitizer (raw high bytes reach the panel on row 1 only)",
+  "    for (uint8_t i = n0; i < len && w + 1u < cap1; ++i) r1[w++] = ui_display_byte(uint8_t(s.own_name[i]));",
+  "    for (uint8_t i = n0; i < len && w + 1u < cap1; ++i) r1[w++] = s.own_name[i];"),
+ ("S24 ⛔ an UNNAMED device's My device rows are blank instead of `NO NAME SET` (unnamed is a real state, D10)",
+  "        snprintf(r0, cap0, \"%s\", kNoNameSetText);",
+  "        r0[0] = '\\0';"),
+ ("S25 ⛔ no name AND no key hash fabricate an identity on Home row 0 — `ME 0x00000000` (was: `ME` alone)",
+  "                                                                      : snprintf(out, cap, \"ME\");",
+  "                                                                      : snprintf(out, cap, \"ME 0x%08lX\", (unsigned long)s.my_key_hash32);"),
+ ("S26 the blocked note offers `IN SETTINGS` for CFG UNAVAILABLE too (a remedy Settings cannot give)",
+  "    return (b == ProvBlock::conflict || b == ProvBlock::unsaved) ? kInSettingsText : \"\";",
+  "    return (b != ProvBlock::none) ? kInSettingsText : \"\";"),
+ ("S27 ★★ the body invalidation compares the name's LENGTH only (a same-length rename never repaints)",
+  "    for (uint8_t i = 0; i < a.own_name_len && i < sizeof a.own_name; ++i)",
+  "    for (uint8_t i = 0; i < 0; ++i)"),
+ ("S28 the body invalidation ignores the SCREEN (it repaints on TEAM for a Home fact nobody can see)",
+  "    return emg == Emergency::idle && !compose_open && st.detail == InboxModal::closed && st.screen == Screen::status;",
+  "    return emg == Emergency::idle && !compose_open && st.detail == InboxModal::closed;"),
 ]
 
 MUTS_UITEAM = [
@@ -11797,6 +11889,115 @@ MUTS_W4AIDENT = [
   "    if (len > 0 && key_hash32 == 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read"),
 ]
 
+# ★★★★ W4b (standalone Home, brief §2.9) — HOME, THE FOCUS MODEL, THE TYPED SETUP ORIGIN AND THE SEND LIST, attacked on the
+#      ONE file that decides them (`src/firmware_ui_model.h`). The brief's ten (H01, H02, H04, H05/H06, H07, H08, H09, H10,
+#      H11, H12) plus the Home copies of the invitation open (H13-H15, V03/B249's twins — the SETTINGS copies keep those
+#      labels) and the admission, return, origin and Send-list arms the native `w4b-` matrix pins. Each must redden
+#      `test_firmware_ui_model.cpp` (the `w4b-` cases) — ⛔ a GREEN entry is a hole in that matrix, never a pass.
+MUTS_W4BHOME = [
+ ("H01 ★★★ a missing key no longer OUTRANKS a pending ID (the key-missing profile hides behind ID-pending)",
+  "    if (!s.team_key_present) return HomeProfile::key_missing;   // ★ a missing key OUTRANKS a pending ID (§6.3)\n"
+  "    if (s.my_team_id == 0)   return HomeProfile::id_pending;",
+  "    if (s.my_team_id == 0)   return HomeProfile::id_pending;\n"
+  "    if (!s.team_key_present) return HomeProfile::key_missing;   // ★ a missing key OUTRANKS a pending ID (§6.3)"),
+ ("H02 ★★ the JOIN TEAM item bypasses its CAPABILITY (a build that cannot join offers the act)",
+  "            if (s.prov_join_team)   add(HomeItem::join);",
+  "            add(HomeItem::join);"),
+ ("H03 ★★ the INVITE MEMBER item bypasses its CAPABILITY",
+  "            if (s.prov_invite) add(HomeItem::invite);",
+  "            add(HomeItem::invite);"),
+ ("H04 ★★★ the arrow is kept by ROW instead of by IDENTITY (a list change moves the arrow onto another item, silently)",
+  "        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; n.changed = true; }",
+  "        else { const uint8_t k_ = home_index_of(c, c.selected); n.selected = n.items[k_ < n.count ? k_ : 0]; }"),
+ ("H05 ★★★ OPTIONS CHANGED is never RAISED (the arrow jumps to item 1 with no word said)",
+  "        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; n.changed = true; }",
+  "        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; }"),
+ ("H06 ★★★ OPTIONS CHANGED does not refuse the DOUBLE (the press the operator aimed at the old item opens item 1)",
+  "        if (_st.home.changed) {\n"
+  "            if (note_was_up) _st.home.changed = false;",
+  "        if (_st.home.changed && g == Gesture::short_press) {\n"
+  "            if (note_was_up) _st.home.changed = false;"),
+ ("H07 ★★★ MENU leaves the operator in LIST FOCUS on Home instead of MENU MODE (the rail cannot be walked)",
+  "        (void)list_view_reset_on_leave(_st.list_view);  // → menu mode",
+  "        ;"),
+ ("H08 ★★★★ a BLANK RE-HOMES — the power action throws away the screen, the focus and the arrow (rule 7)",
+  "            _st.blanked = true; _st.dirty = true;",
+  "            _st.blanked = true; _st.dirty = true; home_return();"),
+ ("H09 ★★★★ an OQ-3 CANCELLATION IS REMOVED — the saved-key offer survives the blank, one double from a SECRET install",
+  "            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);",
+  "            ;"),
+ ("H10 ★★★ the Home-origin exit goes to the PROVISION MENU (the typed origin ignored at the return sites)",
+  "        if (_setup_origin == SetupOrigin::home) { home_return(); return; }\n"
+  "        enter_provision(Provision::menu);",
+  "        enter_provision(Provision::menu);"),
+ ("H10b ★★★ the PROVISION menu's own BACK ignores the Home origin (lands on the Settings menu)",
+  "                if (_setup_origin == SetupOrigin::home) { home_return(); return; }\n"
+  "                close_provisioning(); return;",
+  "                close_provisioning(); return;"),
+ ("H11 ★★★ the blocked reason is RE-READ, not FROZEN — a recovery under the note changes it, or resumes nothing honestly",
+  "    void sync_home(const UiSnapshot& s) {",
+  "    void sync_home(const UiSnapshot& s) {\n"
+  "        if (_st.home_view == HomeView::setup_block) { _st.prov_block = ProvBlock::none; if (provision_admit()) _st.home_view = HomeView::list; else if (_st.prov_block == ProvBlock::none) _st.prov_block = ProvBlock::unavailable; }"),
+ ("H12 ★★★★ a Send `PRESET CHANGED` press SENDS — the catalog moved under the operator's thumb and the press is honoured",
+  "        if (_st.compose == Compose::channel && _st.home.changed) { _st.home.changed = false; _st.dirty = true; return; }",
+  "        if (_st.compose == Compose::channel && _st.home.changed) { _st.home.changed = false; _st.dirty = true; }"),
+ ("H13 ★★ the Home INVITE open never takes the member SNAPSHOT (the window opens with no authorities)",
+  "                enter_setup_from_home();\n"
+  "                load_invite(s);",
+  "                enter_setup_from_home();\n"
+  "                ;"),
+ ("H14 ★★★ the Home INVITE open never requests the team announcement",
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) _invite_dev->request_team_announcement();\n"
+  "                return;\n"
+  "            case HomeItem::none: return;",
+  "                enter_provision(Provision::invite);\n"
+  "                return;\n"
+  "            case HomeItem::none: return;"),
+ ("H15 ★★★ the Home INVITE open requests the announcement TWICE",
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) _invite_dev->request_team_announcement();\n"
+  "                return;\n"
+  "            case HomeItem::none: return;",
+  "                enter_provision(Provision::invite);\n"
+  "                if (_invite_dev) { _invite_dev->request_team_announcement(); _invite_dev->request_team_announcement(); }\n"
+  "                return;\n"
+  "            case HomeItem::none: return;"),
+ ("H16 ★★★★ Home JOIN/CREATE SKIP THE SETTINGS GATE (a dirty or conflicted draft is carried into a provisioning act)",
+  "                if (!provision_admit()) {",
+  "                if (false) {"),
+ ("H17 ★★ an unavailable service is refused with NO reason (the note says nothing the operator can read)",
+  "                    if (_st.prov_block == ProvBlock::none) _st.prov_block = ProvBlock::unavailable;",
+  "                    ;"),
+ ("H18 ★★★ a return lands on item 1 instead of its OPENER (the operator loses their place on every way back)",
+  "        n.selected = (home_index_of(n, preferred) < n.count) ? preferred : n.items[0];",
+  "        n.selected = n.items[0];"),
+ ("H19 ★★ the SETTINGS PROVISION row does not type the origin (a stale Home origin sends Settings' exits Home)",
+  "                    _setup_origin = SetupOrigin::settings;   // W4b: a SETTINGS entry types the setup origin (§6.6)",
+  "                    ;"),
+ ("H20 ★★ the origin is NOT RETIRED when the flow leaves SETTINGS (a later flow inherits a dead session's exits)",
+  "        _setup_origin = SetupOrigin::none;   // W4b: the setup flow RETIRES when it genuinely leaves SETTINGS (§6.6)",
+  "        ;"),
+ ("H21 ★★★ acknowledging a Send result CLOSES the Send list instead of returning to it on item 1",
+  "            if (send_list && _st.compose == Compose::none) open_send_list(s);",
+  "            ;"),
+ ("H22 ★★★ a catalog change CLOSES the Send list (the DM rule applied to the top-level list: the operator is thrown out)",
+  "        if (_st.compose == Compose::channel && preset_generation_moved(s)) preset_catalog_moved(s);",
+  "        ;"),
+ ("H23 ★★ a press on the SAME tick the item vanished clears the note it could not have seen (ruling)",
+  "            if (note_was_up) _st.home.changed = false;",
+  "            _st.home.changed = false;"),
+ ("H24 ★★ a `short` on My device's one BACK row LEAVES (the sub-view has one row; only `double` returns)",
+  "                if (g == Gesture::double_press) home_return();",
+  "                home_return();"),
+ # ★★★★ [[B457]] (design r2.22 §6.1, brief rev 3 §2.9 entry 11): the one authority that keeps a Settings MENU off a
+ #      closed service. Without it an emergency-pre-empted ungated flow (Home INVITE, a TEAM-roster grant) leaves a menu
+ #      the renderer cannot draw — `CFG UNAVAILABLE` over rows nobody sees, walked forever by a wrapping list.
+ ("H25 ★★★★ the Settings MENU is shown over a CLOSED service (B457 — a pre-empted ungated flow leaves an invisible menu)",
+  "        if ((_st.settings == Settings::browsing || _st.settings == Settings::editing) && !(_cfg && _cfg->is_open())) {",
+  "        if (false) {"),
+]
+
 MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE, 'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
                   "remoteactivation": MUTS_REMOTEACTIVATION, "fwactivation": MUTS_FWACTIVATION,
                   "radmin7transcript": MUTS_RADMIN7TRANSCRIPT,
@@ -11848,7 +12049,7 @@ MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE
                   "uinearby": MUTS_UINEARBY, "uinearbyrow": MUTS_UINEARBYROW,
                   "uiinvite": MUTS_UIINVITE,
                   "w1cname": MUTS_W1CNAME, "w1cretain": MUTS_W1CRETAIN,
-                  "w4aident": MUTS_W4AIDENT}
+                  "w4aident": MUTS_W4AIDENT, "w4bhome": MUTS_W4BHOME}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

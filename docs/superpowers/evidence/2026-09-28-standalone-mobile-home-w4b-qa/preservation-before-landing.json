@@ -1,0 +1,20 @@
+[
+  {
+    "repository": "/home/staszek/MeshRoute",
+    "head": "c8e36d8d5d32f29edf408b36b60d8977993f5ad4",
+    "files_checked": 1674,
+    "changed": [],
+    "missing": [],
+    "git_status_identical": true,
+    "staged": []
+  },
+  {
+    "repository": "/home/staszek/lora-universal-simulator",
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "files_checked": 285,
+    "changed": [],
+    "missing": [],
+    "git_status_identical": true,
+    "staged": []
+  }
+]

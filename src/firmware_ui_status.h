@@ -1,6 +1,14 @@
 // MeshRoute — src/firmware_ui_status.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
+// ★★★★ W4b (design §6.2–§6.7, 2026-09-27) — THE LANDING SCREEN IS NOW **HOME**, AND THIS FILE COMPOSES ITS BYTES:
+//      Home's rows 0–1 (who, which team), its item labels and notes, My device's four rows, the key-help and
+//      blocked-setup notes, and the body invalidation that repaints them when a visible fact changes with no press.
+//      The §UI-17 STATUS body's four row helpers (`ui_status_team` / `_me` / `_known` / `_unread_home`) and its two
+//      column budgets RETIRED with the 24x24 mark and the x = 40 rows (brief §2.9); `ui_status_have_fix` and
+//      `ui_status_location` are KEPT — My device's position row is exactly the old row 4 without its restart arm.
+//      ⓘ The paragraphs below are §UI-17 S3's and are kept as that slice's record; where they describe the STATUS
+//      geometry (the mark, the 14-column rows) they are history, and the W4b blocks further down are current.
 // §UI-17 slice S3 — THE STATUS BODY'S FIVE FACTS, AS PURE STRINGS. Every byte the STATUS screen draws is composed
 // here: the five rows of spec §2.2, each substitution, and row 4's deterministic priority. The renderer
 // (`src/firmware_ui.cpp`'s `draw_status_screen`) does nothing but place them beside the reserved 24x24 mark.
@@ -54,11 +62,11 @@
 
 namespace mrui {
 
-// ---- the two budgets (spec §2.1), stated as the numbers the cases assert against ---------------------------------
-// ⛔ DERIVED IN THE RENDERER, NEVER A SECOND LITERAL THERE: `src/firmware_ui.cpp` static_asserts its own pixel
-//    arithmetic against both of these, so a mark slot that moved and a column budget that did not cannot coexist.
-inline constexpr std::size_t kStatusNarrowCols = 14;   // rows 0-2 at x = 40 -> 88 px / 6 px per column
-inline constexpr std::size_t kStatusWideCols   = 19;   // rows 3-4 at x = 12 -> 116 px, the body's own width
+// ---- W4b: the Home body's one budget ------------------------------------------------------------------------------
+// ★ Home draws at the ORDINARY body — x = 12, 19 columns (design §6.2) — so there is ONE width now. ⛔ DERIVED IN THE
+//   RENDERER, NEVER A SECOND LITERAL THERE: `src/firmware_ui.cpp` static_asserts `kHomeCols == kBodyCols`.
+// ⓘ RETIRED WITH THE MARK (brief §2.9): `kStatusNarrowCols` (14, rows 0-2 at x = 40) and `kStatusWideCols` (19).
+inline constexpr std::size_t kHomeCols = 19;
 
 // The scratch buffer a caller hands these formatters. ⚠ DELIBERATELY OVERSIZED vs the 19 visible columns, for the
 // reason `kLineCap` states next door and NOT as slack for its own sake: every line here is `snprintf`, and
@@ -66,106 +74,168 @@ inline constexpr std::size_t kStatusWideCols   = 19;   // rows 3-4 at x = 12 -> 
 // the widest expansion fits, and it cannot prove a bound on a `%ld` degree field. ⛔ Shrinking this to 20 would buy
 // nothing (the margin costs stack, not flash) and would cost the warning census its pin.
 inline constexpr std::size_t kStatusLineCap = 48;
-// `9+` / `99+` / `--` + NUL — the widest token `ui_fmt_team` or `ui_fmt_mail` can hand back.
-inline constexpr std::size_t kStatusCountCap = 4;
+// `9+` / `99+` + NUL — the widest count token `ui_fmt_team` or `ui_fmt_mail` can hand back to a Home label.
+inline constexpr std::size_t kHomeCountCap = 4;
 
-// ================================================================================== ROW 0 — WHICH TEAM (S-1 / S-2)
-// ★★ `TEAM %08lX` IS A **THIRD SPELLING** OF THE TEAM ID AND IT IS DECLARED, NOT ACCIDENTAL (spec §2.2 note j, the
-//    [[B224]] declared-duplication idiom). The existing pure token is `ui_fmt_team_id_full` = `0x%08lX`
-//    (`firmware_ui_chrome.h`), and with the `TEAM ` prefix that is **15 columns — one past the 14 this row has at
-//    `x = 40`**, so it cannot be reused here as-is. The shipped STATUS row already omitted the `0x`
-//    (`team %08lx`); this slice only uppercases it, per the fingerprint's own uppercase rule.
-// ⇒ ★ THE HONEST CURE IS A REFACTOR AND C1 FORBIDS IT RIDING A FEATURE SLICE: hoist the eight digits into one
-//   `ui_fmt_team_id_hex8` that `ui_fmt_team_id_full` then composes. That is spec §1.9 **F-6**'s first deferred
-//   refactor and it owns a slice of its own; ⛔ when it lands, THESE TWO MOVE TOGETHER.
-// ⓘ `team_id == 0` is the CORE's own "we are not in a team" (`node.h:261`), read as the field's meaning rather
-//   than reinterpreted — the same test `ui_chrome` makes one file over.
-inline void ui_status_team(char* out, std::size_t cap, const UiSnapshot& s) {
-    const int n = (s.team_id == 0) ? snprintf(out, cap, "NO TEAM")
-                                   : snprintf(out, cap, "TEAM %08lX", (unsigned long)s.team_id);
-    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);   // the neighbours' rule: the WHOLE buffer is defined
-}
-
-// ================================================================================ ROW 1 — WHICH LOCAL ID (S-3 / S-4)
-// ★ ROW 1 IS **BLANK** WITH NO TEAM, NOT A SECOND `NO TEAM` (spec §2.2 note a — ⚠ REPORTED, NOT INVENTED). The note
-//   this spec is built from says the ME row shows `NO TEAM` when there is none; rendering it on both rows would
-//   spend two of five body rows on ONE fact. ⇒ row 0 owns the token, row 1 says nothing.
-// ★★ `ME NO ID` IS A CASE THE NOTE DOES NOT COVER AND THE CODE MAKES REACHABLE (note b): `Node::team_local_id()`
-//    documents **0 as "not team-DAD'd"** — and `firmware_ui_model.h`'s own team-cursor code relies on exactly that
-//    — so an in-team node before DAD would otherwise render `ME T0`, ⛔ a PLAUSIBLE id for a node that has none.
-inline void ui_status_me(char* out, std::size_t cap, const UiSnapshot& s) {
-    if (s.team_id == 0) { ui_pad_token(out, cap, 0); return; }    // note a: row 0 already said it
-    const int n = (s.my_team_id == 0) ? snprintf(out, cap, "ME NO ID")
-                                      : snprintf(out, cap, "ME T%u", unsigned(s.my_team_id));
+// ================================================================== W4b — HOME ROW 0: WHO THIS DEVICE IS (§4.2)
+// ★★ `ME ` + THE W4a IDENTITY LABEL IN 16 CELLS (3 + 16 = 19): the full counted name through `ui_fmt_identity` —
+//    sanitized, abbreviated with the generated `»` past 16 cells, or `0x<HASH8>` WHOLE for an unnamed key (W4a's
+//    one formatter, ⛔ never pre-clipped here). ⛔ `IdentityFmt::none` (no name AND no key hash) reads `ME` alone —
+//    never a fabricated identity (§4.1's no-fabrication rule).
+inline constexpr uint8_t kHomeNameCols = 16;
+inline void ui_home_me_line(char* out, std::size_t cap, const UiSnapshot& s) {
+    char id[kHomeNameCols + 1];
+    const IdentityFmt f = ui_fmt_identity(id, sizeof id, s.own_name, s.own_name_len, s.my_key_hash32, kHomeNameCols);
+    const int n = (f == IdentityFmt::name || f == IdentityFmt::hash) ? snprintf(out, cap, "ME %s", id)
+                                                                      : snprintf(out, cap, "ME");
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
 }
 
-// ============================================================================ ROW 2 — HOW MANY, AND CAN WE READ THEM
-// ★★★★ THE WORD IS `KNOWN` (S-5, QA/owner-ruled 2026-08-20), AND IT IS AN HONESTY FIX RATHER THAN A PREFERENCE.
-//      ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** the design note and the spec's first draft both said `4 HEARD`. The
-//      count is `rt_team_count()` — ROUTE EVIDENCE — and a multihop route says somebody ELSE heard that teammate,
-//      which is exactly the "seen"/"heard" language spec §3.3 forbids for this quantity. ⛔ And not `MEMBERS`
-//      either: the route table is not an authoritative membership roster.
-// ★ THE VALUE IS `ui_fmt_team`'s — the STRIP's own already-clamped `0..9` / `9+` token (U1) — so the two surfaces
-//   that draw this one number cannot disagree. ⛔ Never `team_shown` (the UI's 8-row capacity, the retired `T8/12`
-//   fraction), always `team_total`.
-// ★★ `NO TEAM KEY` OUTRANKS THE COUNT (note c) because it is the ACTIONABLE half: without the team CONTENT key the
-//    routes are real but every post is unreadable, and `team_key_present` is that fact and no other.
-// ⚠⚠ REPORTED, NOT INVENTED — THE ONE COMBINATION THE SPEC'S TABLE LEAVES OPEN, AND THE READING TAKEN.
-//    §2.2's row-2 column names two substitutions (`!team_build` ⇒ empty, and `team_id != 0 && !team_key_present` ⇒
-//    `NO TEAM KEY`) and is silent on **`team_build` true with `team_id == 0`** — a Heltec V3 that has the team
-//    plane but is in no team. Rendering the count there means calling `ui_fmt_team(configured = false, …)`, whose
-//    answer is `--` ⇒ the row would read **`-- KNOWN`**. ⇒ THIS ROW IS **EMPTY WHENEVER THE TEAM IS NOT
-//    CONFIGURED**, for three reasons stated so an owner can reverse it in one line: (i) `ui_fmt_team`'s own note
-//    says `--` means *"NO TEAM — which is not 'a team with zero teammates'"*, i.e. that token IS row 0's fact, and
-//    note a forbids spending a second body row on one fact; (ii) note d describes the reused value as the
-//    *"already-clamped 0..9/9+"* one and never the `--` arm; (iii) spec S3 pin 6 requires the non-team shape to
-//    *"claim nothing"*. ⓘ `configured` is `ui_chrome`'s definition verbatim (`team_build && team_id != 0`), so the
-//    strip and this row answer the same question with the same expression.
-inline void ui_status_known(char* out, std::size_t cap, const UiSnapshot& s) {
-    const bool configured = s.team_build && s.team_id != 0;
-    if (!configured) { ui_pad_token(out, cap, 0); return; }
+// ============================================================== W4b — HOME ROW 1: THE TEAM LINE (design §6.2)
+// ★★ `TEAM 12A1B2C3 T220` (18) · `TEAM 12A1B2C3 NO ID` (19) · `NO TEAM` · blank on a build with no team plane.
+// ★ THE EIGHT DIGITS ARE `ui_fmt_team_id_full`'s — the existing full team-ID formatter (U1) — with its `0x`
+//   dropped: they end with the six-digit nearby/invite fingerprint, so the displays agree WITHOUT a new format.
+//   ⛔ Not the retired `ui_status_team`'s declared third spelling (`TEAM %08lX`), which this row replaces.
+// ⛔ A pending team-DAD is `NO ID`, never `T0` (the "no plausible substitute" rule above); the team ID is the
+//   core's `team_id != 0` fact, read as its meaning.
+inline void ui_home_team_line(char* out, std::size_t cap, const UiSnapshot& s) {
+    if (!s.team_build) { ui_pad_token(out, cap, 0); return; }        // no team plane: the row is blank
     int n;
-    if (!s.team_key_present) {
-        n = snprintf(out, cap, "NO TEAM KEY");
+    if (s.team_id == 0) {
+        n = snprintf(out, cap, "NO TEAM");
     } else {
-        char tok[kStatusCountCap];
-        const bool overflow = s.team_total > kTeamMax;
-        ui_fmt_team(tok, sizeof tok, /*configured=*/true, overflow ? kTeamMax : s.team_total, overflow);
-        n = snprintf(out, cap, "%s KNOWN", tok);
+        char full[kTeamIdTokenCap];
+        ui_fmt_team_id_full(full, sizeof full, s.team_id);
+        const char* hex8 = full + 2;                                  // the eight digits of `0x%08lX`
+        n = (s.my_team_id == 0) ? snprintf(out, cap, "TEAM %s NO ID", hex8)
+                                : snprintf(out, cap, "TEAM %s T%u", hex8, unsigned(s.my_team_id));
     }
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
 }
 
-// =========================================================================== ROW 3 — UNREAD, AND THE HOME (S-7/S-8)
-// ★ THE SATURATION TOKEN IS `ui_fmt_mail`'s `99+` (note e), ⛔ NOT `kUnreadCap`'s 999: this row states the same
-//   COMBINED count the strip's envelope draws, and one fact must have one token (U1). Widest expansion
-//   `99+ NEW / HOME 59m` = **18** of 19, proven by a case.
-// ⚠ THE THREE-LINE CLAMP BELOW IS A **DECLARED DUPLICATE** of `ui_chrome`'s §4.1 block, and it is declared rather
-//   than shared because spec S3 rules `firmware_ui_chrome.h` **read-only for this slice** (hoisting the clamp into
-//   it is a refactor of a probe-pinned file — C1). ⛔ The two must move together; the TOKEN itself is already
-//   shared, which is the half that decides what the operator reads.
-// ★★ `HOME --`, NOT `HOME UNKNOWN` (note f): `ui_fmt_home_age` is design §4.2's ruled table, is bounded to three
-//    columns BY CONSTRUCTION and already renders `--` for "never confirmed" — while `99+ NEW / HOME UNKNOWN` is 22
-//    columns and would clip. (S-15 is WITHDRAWN in the string inventory for exactly that reason.)
-// ⛔⛔ AND ON A BUILD WITH NO MOBILE PLANE THE HOME HALF IS **OMITTED ENTIRELY** rather than rendered `--`. Design
-//     §4.2's distinction between *"not applicable"* and *"never confirmed"* is already law for the strip's home
-//     icon (`ui_chrome` blanks the slot on `!mobile_build`), and this row must not contradict the icon six pixels
-//     above it. ⓘ `gateway_heltec` is a REAL `OLED=1 / MOBILE=0` build, so this is not hypothetical.
-inline void ui_status_unread_home(char* out, std::size_t cap, const UiSnapshot& s) {
-    const uint32_t mail_total = uint32_t(s.unread_dm) + uint32_t(s.unread_ch);
-    const bool     overflow   = mail_total > uint32_t(kMailMax);
-    char mail[kStatusCountCap];
-    ui_fmt_mail(mail, sizeof mail, overflow ? kMailMax : uint8_t(mail_total), overflow);
-    int n;
-    if (!s.mobile_build) {
-        n = snprintf(out, cap, "%s NEW", mail);
-    } else {
-        char age[kAgeTokenCap];
-        ui_fmt_home_age(age, sizeof age, s.home_confirmed_ever, s.home_confirm_age_ms);
-        n = snprintf(out, cap, "%s NEW / HOME %s", mail, age);
+// ================================================================= W4b — HOME's ITEM LABELS (design §6.2/§6.3)
+// ★★ STATUS RIDES IN THE LABELS: `INBOX 3 NEW` (the strip's own `99+` token, `ui_fmt_mail`, omitted at zero) and
+//    `TEAM 4 KNOWN` (the strip's `9+` token, `ui_fmt_team`, omitted at zero — `KNOWN`, never `HEARD`, S-5's honesty
+//    rule above). ⛔ A count changing inside a label is NOT a change of item (the arrow keeps it).
+// ★ THE ACTION WORDS ARE CALLED, NOT COPIED: JOIN/CREATE/INVITE are `provision_row_label`'s own (S-12: one spelling
+//   for one operation), and `MENU` is `kListMenuText`.
+inline void ui_home_item_label(char* out, std::size_t cap, HomeItem it, const UiSnapshot& s) {
+    int n = 0;
+    switch (it) {
+        case HomeItem::inbox: {
+            const uint32_t total = uint32_t(s.unread_dm) + uint32_t(s.unread_ch);
+            if (total == 0) { n = snprintf(out, cap, "INBOX"); break; }
+            const bool overflow = total > uint32_t(kMailMax);
+            char tok[kHomeCountCap];
+            ui_fmt_mail(tok, sizeof tok, overflow ? kMailMax : uint8_t(total), overflow);
+            n = snprintf(out, cap, "INBOX %s NEW", tok);
+            break;
+        }
+        case HomeItem::team: {
+            if (s.team_total == 0) { n = snprintf(out, cap, "TEAM"); break; }
+            const bool overflow = s.team_total > kTeamMax;
+            char tok[kHomeCountCap];
+            ui_fmt_team(tok, sizeof tok, /*configured=*/true, overflow ? kTeamMax : s.team_total, overflow);
+            n = snprintf(out, cap, "TEAM %s KNOWN", tok);
+            break;
+        }
+        case HomeItem::send:      n = snprintf(out, cap, "SEND TO TEAM");                                  break;
+        case HomeItem::invite:    n = snprintf(out, cap, "%s", provision_row_label(ProvRow::invite));      break;
+        case HomeItem::my_device: n = snprintf(out, cap, "MY DEVICE");                                     break;
+        case HomeItem::menu:      n = snprintf(out, cap, "%s", kListMenuText);                             break;
+        case HomeItem::join:      n = snprintf(out, cap, "%s", provision_row_label(ProvRow::join_team));   break;
+        case HomeItem::create:    n = snprintf(out, cap, "%s", provision_row_label(ProvRow::create_team)); break;
+        case HomeItem::key_help:  n = snprintf(out, cap, "NO TEAM KEY - HELP");                            break;
+        case HomeItem::none:      ui_pad_token(out, cap, 0); return;
     }
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
+}
+// ★ `OPTIONS CHANGED` (15 columns) replaces ITEM 1's label while the note is up (design §6.4).
+inline constexpr const char* kHomeOptionsChangedText = "OPTIONS CHANGED";
+// A list row: ONE marker cell, then the label — `>NO TEAM KEY - HELP` is the widest, 19 of 19. ⛔ The arrow is drawn
+// only in LIST FOCUS; a menu-mode preview is the same rows with a blank marker cell (design §6.1 rule 4).
+inline void ui_home_row(char* out, std::size_t cap, bool arrow, const char* label) {
+    const int n = snprintf(out, cap, "%c%s", arrow ? '>' : ' ', label);
+    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
+}
+
+// ======================================================================= W4b — MY DEVICE (design §4.2 / §6.7)
+// ★★★ THE FULL NAME OVER TWO ROWS: raw counted bytes 0–18 on row 0 and 19–31 on row 1, EACH BYTE through
+//     `ui_display_byte` — ⛔ never a 19-cell abbreviation split afterwards (that would lose bytes and split a `»`).
+//     32 bytes <= 38 cells, so the whole stored name is always on the panel. An unnamed device reads `NO NAME SET`
+//     on row 0 and a blank row 1 (W1c D10: unnamed is a real state, never a default name).
+inline constexpr uint8_t kMyDeviceRowCols = 19;
+inline constexpr const char* kNoNameSetText = "NO NAME SET";
+inline void ui_my_device_name_rows(char* r0, std::size_t cap0, char* r1, std::size_t cap1, const UiSnapshot& s) {
+    if (!r0 || !r1 || cap0 == 0 || cap1 == 0) return;
+    const uint8_t len = (s.own_name_len > sizeof s.own_name) ? uint8_t(sizeof s.own_name) : s.own_name_len;
+    if (len == 0) {
+        snprintf(r0, cap0, "%s", kNoNameSetText);
+        r1[0] = '\0';
+        return;
+    }
+    const uint8_t n0 = (len < kMyDeviceRowCols) ? len : kMyDeviceRowCols;
+    uint8_t w = 0;
+    for (uint8_t i = 0; i < n0 && w + 1u < cap0; ++i) r0[w++] = ui_display_byte(uint8_t(s.own_name[i]));
+    r0[w] = '\0';
+    w = 0;
+    for (uint8_t i = n0; i < len && w + 1u < cap1; ++i) r1[w++] = ui_display_byte(uint8_t(s.own_name[i]));
+    r1[w] = '\0';
+}
+// `ID 0x<HASH8>` — the stable device identity, W4a's full member token (U1).
+inline void ui_my_device_id(char* out, std::size_t cap, const UiSnapshot& s) {
+    char h[kMemberHashCap];
+    ui_fmt_member_hash_full(h, sizeof h, s.my_key_hash32);
+    const int n = snprintf(out, cap, "ID %s", h);
+    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
+}
+
+// ============================================================ W4b — THE TWO HOME NOTES (design §6.5 / §6.6)
+// ★ KEY HELP — the existing procedure, as a note (a key holder uses INVITE MEMBER or TEAM → GRANT KEY). ⛔ No
+//   automatic key request. Either press returns Home on its opener.
+inline constexpr const char* kKeyHelpRows[5] = { "NO TEAM KEY", "A MEMBER WHO HAS IT", "MUST GRANT IT TO",
+                                                 "THIS DEVICE", "press = back" };
+// ★★ THE BLOCKED SETUP — the reason on body row 1 (`prov_block_note`, the SAME words the Settings menu says), and
+//    `IN SETTINGS` on row 2 for the two draft states the operator can resolve there; ⛔ blank for `CFG UNAVAILABLE`,
+//    which Settings cannot resolve either. No arrow; the rail box is on SETTINGS (`ui_nav_slot`).
+inline constexpr const char* kInSettingsText = "IN SETTINGS";
+inline const char* ui_setup_block_row2(ProvBlock b) {
+    return (b == ProvBlock::conflict || b == ProvBlock::unsaved) ? kInSettingsText : "";
+}
+
+// ============================================================= W4b — THE BODY INVALIDATION (design §6.7, §2.10)
+// ★★★★ A FACT THE HOME OR MY-DEVICE BODY DRAWS CAN CHANGE WITH NO PRESS AND NO STRIP TOKEN MOVING — a console
+//      rename, a team-DAD answer, the key arriving, a `cfg set lat` — and `FrameGate::step` answers `idle` while the
+//      model is clean, so without this the lit body would go STALE. ⇒ the `ui_team_invalidate` shape (U3): a
+//      visibility predicate, a field-wise comparison of the frozen frame against the live snapshot, and ONLY a
+//      paint request — ⛔ it clears nothing and moves nothing; the frame being drawn stays ONE snapshot (§5).
+inline bool ui_home_body_visible(const UiState& st, bool compose_open, Emergency emg) {
+    return emg == Emergency::idle && !compose_open && st.detail == InboxModal::closed && st.screen == Screen::status;
+}
+inline bool ui_home_facts_equal(const UiSnapshot& a, const UiSnapshot& b) {
+    if (a.own_name_len != b.own_name_len) return false;
+    for (uint8_t i = 0; i < a.own_name_len && i < sizeof a.own_name; ++i)
+        if (a.own_name[i] != b.own_name[i]) return false;
+    return a.my_key_hash32    == b.my_key_hash32
+        && a.team_build       == b.team_build
+        && a.team_id          == b.team_id
+        && a.my_team_id       == b.my_team_id
+        && a.team_key_present == b.team_key_present
+        && a.prov_join_team   == b.prov_join_team
+        && a.prov_create_team == b.prov_create_team
+        && a.prov_invite      == b.prov_invite
+        && a.unread_dm        == b.unread_dm
+        && a.unread_ch        == b.unread_ch
+        && a.team_total       == b.team_total
+        && a.own_fix          == b.own_fix
+        && a.own_lat_e7       == b.own_lat_e7
+        && a.own_lon_e7       == b.own_lon_e7;
+}
+inline bool ui_home_invalidate(UiModel& m, const UiSnapshot& live, const UiSnapshot& frozen) {
+    if (!ui_home_body_visible(m.state(), m.compose_open(), m.emergency())) return false;   // ⛔ nothing cleared
+    if (ui_home_facts_equal(live, frozen)) return false;
+    m.mark_dirty();
+    return true;
 }
 
 // ============================================================== ROW 4 — WHERE WE ARE, OR WHAT MUST HAPPEN (S-9/S-10)

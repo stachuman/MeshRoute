@@ -368,6 +368,18 @@ inline NavSlot ui_nav_slot(const UiState& st, Emergency emg) {
         case Settings::provisioning: return NavSlot::settings;
         case Settings::closed:  break;
     }
+    // ★★★ W4b (design §6.5/§6.6) — HOME's SUB-VIEWS: the blocked-setup note lives in the SETTINGS slot (it is the
+    //     settings gate's answer, R-4 — ⛔ never configuration text on the Home body, UI-17 R-3); My device and the
+    //     key-help note are Home's own, so they fall through to STATUS. ⓘ Only on the Home screen: `home_view` is
+    //     meaningless anywhere else.
+    if (st.screen == Screen::status) {
+        switch (st.home_view) {
+            case HomeView::setup_block: return NavSlot::settings;
+            case HomeView::list:
+            case HomeView::my_device:
+            case HomeView::key_help:    break;
+        }
+    }
     switch (st.screen) {
         case Screen::status:   return NavSlot::status;
         case Screen::team:     return NavSlot::team;
@@ -384,6 +396,10 @@ inline NavSlot ui_nav_slot(const UiState& st, Emergency emg) {
 // §5.3 — is the rail drawn at all? ⓘ The top status strip REMAINS VISIBLE during an emergency, as today; only the
 // rail goes, and only so the `Font::large` headlines keep `x=0` and the full 128 px.
 inline bool ui_rail_visible(Emergency emg) { return emg == Emergency::idle; }
+
+// ★★★ W4b (design §6.1 rule 4) — MENU MODE IS `ListView::passive`, the one focus authority, READ — never stored twice.
+//     List focus draws no bar; the body's `>` is the list's own cue.
+inline bool ui_menu_cue(const UiState& st) { return st.list_view == ListView::passive; }
 
 // §6 — the badge, and the priority is the enumerator order (see `CfgBadge`).
 // ⓘ The three inputs are INDEPENDENT FACTS, never collapsed into one "config is odd" flag: §3.6.1 rules that a save
@@ -452,6 +468,11 @@ struct UiChrome {
     bool     rail_visible  = false;
     NavSlot  nav           = NavSlot::none;   // ⛔ `none` whenever the rail is suppressed — see the normalisation note
     uint8_t  slots         = 0;               // OR of slot_bit(); 0 whenever the rail is suppressed
+    // ★★★ W4b (design §6.1 rule 4) — THE MENU-MODE CUE: a 2-px bar in the gutter beside the boxed slot, drawn in MENU
+    //     MODE ONLY. It is a PROJECTION of the model's one focus authority (`ListView`), ⛔ not a second one, and it is
+    //     frozen here so the frame that draws it and §8.3's comparison agree. ⓘ COST: 0 — it lands in the tail
+    //     padding (`sizeof(UiChrome)` stays 20). ⛔ `false` whenever the rail is suppressed, like `nav`/`slots`.
+    bool     menu_cue      = false;
 };
 
 // ★★★ FIELD-BY-FIELD, AND ⛔ NEVER `memcmp` (§8.2). `UiChrome` has padding — after `mail_overflow`, around
@@ -478,7 +499,8 @@ inline bool ui_chrome_equal(const UiChrome& a, const UiChrome& b) {
         && a.badge           == b.badge
         && a.rail_visible    == b.rail_visible
         && a.nav             == b.nav
-        && a.slots           == b.slots;
+        && a.slots           == b.slots
+        && a.menu_cue        == b.menu_cue;   // W4b: entering/leaving menu mode repaints, strip tokens or not
 }
 
 // ============================================================ §8.3 / §8.3.1 — THE REPAINT INVALIDATION, AS A RULE
@@ -591,6 +613,7 @@ inline UiChrome ui_chrome(const UiSnapshot& s, const UiState& st, Emergency emg,
         // are durable on every build, `gateway_heltec` included.
         c.slots = uint8_t(slot_bit(NavSlot::status) | slot_bit(NavSlot::inbox) | slot_bit(NavSlot::settings));
         if (s.team_build) c.slots = uint8_t(c.slots | slot_bit(NavSlot::team) | slot_bit(NavSlot::send));
+        c.menu_cue = ui_menu_cue(st);
     }
     return c;
 }

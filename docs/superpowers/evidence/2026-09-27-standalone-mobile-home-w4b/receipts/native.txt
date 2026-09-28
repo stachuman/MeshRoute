@@ -1,0 +1,5 @@
+# native (fresh pio test -e native, then the binary)
+[doctest] test cases:   3031 |   3031 passed | 0 failed | 0 skipped
+[doctest] assertions: 198613 | 198613 passed | 0 failed |
+[doctest] Status: SUCCESS!
+PIN re-synced: PIN_CASES, PIN_ASSERTS = 3031, 198613 (derivation line in tools/probe_ui_model_mutations.py)

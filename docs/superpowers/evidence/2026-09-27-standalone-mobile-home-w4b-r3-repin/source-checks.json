@@ -1,0 +1,94 @@
+{
+  "scope": "Read-only source review; no native build, runtime proof or mutation rerun",
+  "source_witnesses": [
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4105,
+      "source": "void go_menu_home(const UiSnapshot& s) {"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4391,
+      "source": "void settings_follow_screen() {"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4406,
+      "source": "_cfg_sel_valid = false;\n        _setup_origin = SetupOrigin::none;"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4608,
+      "source": "                close_settings_menu();\n                go_menu_home(s);"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4421,
+      "source": "        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4446,
+      "source": "void sync_settings(const UiSnapshot& s) {"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 5993,
+      "source": "if (_st.settings == Settings::provisioning) close_provisioning();"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4701,
+      "source": "void close_provisioning() {\n        _st.settings = Settings::browsing;"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 2991,
+      "source": "const bool note_was_up = _st.home.changed;\n        sync_home(s);"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 4157,
+      "source": "if (note_was_up) _st.home.changed = false;"
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "line": 1776,
+      "source": "if (idx == 0 && preset_changed) { snprintf(out, cap, \"%c%s\", selected ? '>' : ' ', kSendPresetChangedText); return true; }"
+    },
+    {
+      "path": "src/firmware_ui.cpp",
+      "line": 2185,
+      "source": "if (!c.open) { body_text(2, \"CFG UNAVAILABLE\"); return; }"
+    }
+  ],
+  "m103": {
+    "harness_line": 3514,
+    "label": "M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
+    "anchor": "        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;",
+    "replacement": "        _st.settings = Settings::closed;   _st.dirty = true;",
+    "matches": 1,
+    "close_settings_menu_code_occurrences": [
+      4420,
+      4608
+    ],
+    "note": "One definition and one caller. Mutation removes cursor and selection-valid resets. MENU repeats both via go_menu_home/settings_follow_screen. R3 normalization can change reachability; retirement deferred."
+  },
+  "coder_log": {
+    "path": "artifacts/2026-09-27-standalone-mobile-home-w4b/prerun-union/mut-model-1.log",
+    "sha256": "5208ea883442116239c070c38e10e8a06aab051ee0d2e9572c696b5081df78e1",
+    "excerpts": [
+      {
+        "line": 133,
+        "text": "  [w5]   FAIL M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index \u2014 the suite still PASSES; nothing measures this"
+      },
+      {
+        "line": 389,
+        "text": "  FAIL M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index \u2014 the suite still PASSES; nothing measures this"
+      }
+    ],
+    "note": "Worker and aggregate repeats of one result, not two runs. Initial excerpt-count assertion expected one; corrected to distinguish both records.",
+    "independently_rerun": false
+  },
+  "base_bug_source_anchors_confirmed": true
+}

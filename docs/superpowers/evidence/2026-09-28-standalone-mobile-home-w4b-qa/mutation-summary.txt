@@ -1,0 +1,7 @@
+model: 239 configured, 238 RED, 1 surviving; 8 workers at 3031/198613/0; 62 target files unchanged
+sliceCbudget: 1 configured, 1 RED, 0 surviving; 1 workers at 3031/198613/0; 62 target files unchanged
+w4aident: 9 configured, 9 RED, 0 surviving; 8 workers at 3031/198613/0; 62 target files unchanged
+chrome: 48 configured, 48 RED, 0 surviving; 8 workers at 3031/198613/0; 62 target files unchanged
+uistatus: 19 configured, 19 RED, 0 surviving; 8 workers at 3031/198613/0; 62 target files unchanged
+w4bhome: 26 configured, 26 RED, 0 surviving; 8 workers at 3031/198613/0; 62 target files unchanged
+TOTAL: 342 configured / 341 RED / 1 surviving M103; no vacuous or failed-compilation entry. M103 disposition is explicit in the QA receipt.

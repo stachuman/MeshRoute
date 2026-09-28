@@ -420,16 +420,39 @@ int rail_frames_on_page(int page = 0) {
     }
     return n;
 }
-// The rects the BODY drew — everything `[rect]` that is NOT the rail's selection frame. ⓘ §UI-17 S3's STATUS mark
-// placeholder was the only one; S6 REPLACED IT WITH A REAL BITMAP, so this now answers 0 on EVERY screen, STATUS
-// included. ⛔ It is kept, not deleted: a body that starts drawing frames of its own is exactly what it exists to
-// catch (C99's "put the mark in the chrome" edit is the shipped example), and P14a asserts the 0 on both arms.
+// ★★★★ W4b (design §6.1 rule 4) — THE MENU CUE, a 2-px bar in the gutter at `x = 10..11`, one rail slot high,
+//      beside the boxed slot — in MENU MODE only. Stated here INDEPENDENTLY of the renderer's `kCueX`/`kCueW`, the
+//      rule every geometry reader in this file follows. ⛔ It is ⛔ NOT a selection box and is never counted as one:
+//      `rail_boxed_slot` / `rail_frames_on_page` match only `x = 0, w = 10`, so EXACTLY ONE box stays asserted.
+constexpr int kCueXExpected = 10, kCueWExpected = 2;
+// Which slot the cue is beside: 0..4, -1 if none (list focus), -2 if MORE THAN ONE (the same fail-closed reading as
+// the box's, so a renderer that drew a cue for every slot cannot pass as "a cue is drawn").
+int rail_cue_slot(int page = 0) {
+    int found = -1;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text || r.page != page || r.bits != nullptr || strcmp(r.s, "[rect]") != 0) continue;
+        if (r.x != kCueXExpected || r.w != kCueWExpected) continue;
+        int sl = -1;
+        for (int k = 0; k < 5; ++k) if (r.y == kRailSlotY[k] && r.h == kRailH) sl = k;
+        if (sl < 0 || found >= 0) return -2;                 // a bar of the wrong height, or a second bar
+        found = sl;
+    }
+    return found;
+}
+bool is_cue_rect(const Canvas::Rec& r) { return r.x == kCueXExpected && r.w == kCueWExpected; }
+// The rects the BODY drew — everything `[rect]` that is NEITHER the rail's selection frame NOR the gutter cue.
+// ⓘ §UI-17 S3's STATUS mark placeholder was the only one; S6 REPLACED IT WITH A REAL BITMAP and W4b removed the mark
+// from Home, so this answers 0 on EVERY screen. ⛔ It is kept, not deleted: a body that starts drawing frames of its
+// own is exactly what it exists to catch (C99's "put the mark in the chrome" edit and C124's empty reserved rectangle
+// are the shipped examples), and P14a asserts the 0 on both arms. ⓘ W4b: the cue is excluded by its OWN geometry
+// (`x = 10, w = 2`), never by "anything narrow" — a body rect at x = 10 of another width still counts.
 int body_rects_on_page(int page = 0) {
     int n = 0;
     for (int i = 0; i < g_c.n_rec; ++i) {
         const Canvas::Rec& r = g_c.rec[i];
         if (r.is_text || r.page != page || strcmp(r.s, "[rect]") != 0) continue;
-        if (!(r.x == kRailX && r.w == kRailW)) ++n;
+        if (!(r.x == kRailX && r.w == kRailW) && !is_cue_rect(r)) ++n;
     }
     return n;
 }
@@ -466,16 +489,16 @@ int body_text_max_x() {
     }
     return m;
 }
-// ★★★ §UI-17 S3 — THE BODY NOW HAS **TWO** ORIGINS ON ONE SCREEN, so `body_text_min_x()` alone can no longer say
-//     what P14f used to ask it. Spec §2.1: STATUS reserves `x = 12..35, y = 12..35` for a 24x24 mark and draws its
-//     first three rows at `x = 40` (88 px = 14 columns); rows 3-4 stay at `kBodyX` with the full 19. Every other
-//     screen keeps ONE origin. ⇒ the three readers below let P14f express *"a per-screen expected origin SET, plus
-//     positive terms so it can still fail"* — ⛔ NEVER the `min_x >= 12` relaxation, which is the
-//     instrument-that-cannot-fail shape this project has registered twenty-one times.
+// ★★★ §UI-17 S3 gave the STATUS body TWO origins (a reserved 24x24 mark at `x = 12..35, y = 12..35` and its first
+//     three rows at `x = 40`), which is why the three readers below exist: they let P14f express *"a per-screen
+//     expected origin SET, plus positive terms so it can still fail"* — ⛔ NEVER the `min_x >= 12` relaxation, which
+//     is the instrument-that-cannot-fail shape this project has registered twenty-one times.
+// ★★★★ W4b (design §6.2): Home REPLACED that body and draws NO mark and NO `x = 40` row, so every screen has ONE
+//      origin again. The OLD geometry stays stated here, as the FORBIDDEN coordinates the negative witnesses read
+//      (P14a/P14f/P17a: no mark in the old slot, no Home row at 40; P18a: no TEAM row at 40 — C108).
 // ⚠ THE GEOMETRY IS STATED HERE, independently of `src/firmware_ui.cpp`'s own table, exactly as `kBodyXExpected`
 //   and `kRailSlotY` are: a bound imported from the code under test agrees with a layout that has drifted.
-constexpr int kStatusTextXExpected  = 40;   // spec §2.1: past the 24x24 slot plus a 4-px gutter
-constexpr int kStatusNarrowColsExp  = 14;   // (128 - 40) / 6
+constexpr int kStatusTextXExpected  = 40;   // the retired STATUS narrow origin (spec §2.1): now a FORBIDDEN one
 constexpr int kStatusMarkXExpected  = 12, kStatusMarkYExpected = 12;
 constexpr int kStatusMarkWExpected  = 24, kStatusMarkHExpected = 24;
 
@@ -1256,9 +1279,10 @@ uint32_t walk_to(uint32_t t, const char* want) {
 //   the walk to the wrong screen — and every content check the caller then makes would fail. That direction is safe
 //   (it makes a defect louder, never quieter); what it cannot do is stand in for a check ON the rail, which is why
 //   P14 asserts the mapping directly instead of inferring it from a successful walk.
-// ★★★★ §UI-17 S1 — AND IT LEAVES AN ENTERED TEAM/INBOX LIST FIRST, because `short` can no longer walk out of one:
-//      the walk off the last row returns to the FIRST row (the contained-`BACK` rule), so a screen walk that started
-//      inside an interactive list would press against a wall for 22 iterations and then measure the wrong screen.
+// ★★★★ W4b — AND IT REACHES MENU MODE FIRST (`leave_list`), because `short` walks the rail ONLY there: in list focus
+//      every top-level list wraps (§UI-17 S1's contained rule, Settings and Home included since W4b), so a screen
+//      walk that started inside a list would press against a wall for 22 iterations and then measure the wrong
+//      screen. (Was §UI-17 S1's TEAM/INBOX-only escape.)
 uint32_t leave_list(uint32_t t);
 uint32_t walk_to_slot(uint32_t t, int slot) {
     t = leave_list(t);
@@ -1276,18 +1300,12 @@ constexpr int kBodyXExpected = 12;
 // ★★ §UI-15 slice 5 — THE BODY'S FIVE ROW BASELINES, stated here INDEPENDENTLY of the renderer's own table (P13's and
 //    P14's rule: a bound imported from the code under test agrees with a layout that has drifted). Design §3.2 puts
 //    them at 19/29/39/49/59.
-// ⓘ MOVED OUT OF THE `MR_N_LAYERS < 2` GUARD BY §UI-17 S3: `status_row` below reads the SAME baselines at the
-//   narrowed origin and runs on BOTH arms, so the table can no longer belong to one of them.
+// ⓘ MOVED OUT OF THE `MR_N_LAYERS < 2` GUARD BY §UI-17 S3: every phase on BOTH arms reads these baselines (W4b's
+//   Home and My device rows included), so the table can no longer belong to one of them.
 constexpr int kBodyY0Expected = 19, kBodyDyExpected = 10;
 int body_y_expected(int row) { return kBodyY0Expected + row * kBodyDyExpected; }
-// ★ §UI-17 S3's SIBLING ROW READER, at `x = 40`. `text_at` is EXACT-COORDINATE, so reading a STATUS row 0-2 through
-//   `body_row` (x = 12) answers `nullptr` — the failure direction is loud, which is why the two readers are
-//   separate rather than one reader with a tolerance.
-const char* status_row(int row) { return text_at(kStatusTextXExpected, body_y_expected(row)); }
-bool status_row_is(int row, const char* want) {
-    const char* s = status_row(row);
-    return s != nullptr && strcmp(s, want) == 0;
-}
+// ⓘ W4b: §UI-17 S3's sibling row reader at `x = 40` (`status_row`) is RETIRED with the STATUS rows it read — Home
+//   draws every row at `kBodyX`, and the old origin is now only a FORBIDDEN one (`body_rows_at_x`).
 // ⛔⛔ AND THE ROW IS WHY THIS READER EXISTS AT ALL, rather than a `strstr` over `page_text`: the success screen draws
 //    the FULL id `0x12A1B2C3` and the fingerprint `A1B2C3`, and the fingerprint is by definition the LAST SIX
 //    CHARACTERS OF THE ID — so a substring search for it matches inside the id token and would pass on a renderer
@@ -1312,19 +1330,27 @@ bool body_row_unmarked(int row) {
     return s != nullptr && strchr(s, '>') == nullptr;
 }
 
-// ★★★★ §UI-17 S1 — ESCAPE AN ENTERED TEAM/INBOX LIST, and it is a NO-OP everywhere else by two independent tests:
-//      the boxed slot must be TEAM or INBOX (so the SETTINGS menu, a compose modal — which boxes SEND by the §5.2
-//      ruling — and every other screen are left alone), and a DETAIL modal is recognised by its own lowercase
-//      `>back` and never operated on here.
-// ⓘ ON A PASSIVE LIST IT COSTS AT MOST TWO PRESSES and they are ordinary navigation: `short` moves TEAM -> INBOX ->
-//   SEND, the slot test then stops it, and `walk_to_slot`'s own loop puts the caller where it asked to be.
+// ★★★★ W4b (design §6.1) — REACH **MENU MODE**, because the rail walks only there now. Every top-level list — Home,
+//      TEAM, INBOX, the Send list and the Settings menu — is LEFT through its final `MENU` row, which enters menu
+//      mode on the Home slot; a short in list focus WRAPS inside the list, so a walk that starts in one would press
+//      against it for ever. (Was §UI-17 S1's TEAM/INBOX-only `>BACK` escape.)
+// ⓘ MENU MODE IS READ OFF THE PANEL — the gutter cue — never assumed: it is a no-op when the cue is already drawn.
+// ⛔ A DETAIL modal (its own lowercase `>back`) is never operated on here, as before; any other sub-view (My device,
+//    a note, a provisioning arm, a compose modal) never shows `>MENU`, so the walk ends bounded and the caller's own
+//    check is what fails — the loud direction.
 uint32_t leave_list(uint32_t t) {
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 16; ++i) {
         paint(t);
-        const int slot = rail_boxed_slot();
-        if (slot != kSlotTeam && slot != kSlotInbox) return t;         // not on a list screen at all
+        if (rail_cue_slot() >= 0) return t;                            // already in menu mode
         if (strstr(g_c.page_text, ">back") != nullptr) return t;       // the DETAIL modal owns the body — leave it
-        if (strstr(g_c.page_text, ">BACK") != nullptr) { t = double_press(t + 500); paint(t); return t; }
+        if (strstr(g_c.page_text, ">MENU") != nullptr) {
+            // ⚠ PAST THE 2 Hz THROTTLE BEFORE THE READ, and it is measured rather than tidy: the MENU press lands a
+            //   whole screen away (Home), and a paint inside the window re-reads the list's own stale frame — whose
+            //   rail still boxes the slot the caller may be walking TO, so the walk would stop on a screen that is
+            //   no longer there.
+            t = double_press(t + 500); t += 700; paint(t);
+            return t;
+        }
         t = settle(t + 500);
     }
     return t;
@@ -1361,10 +1387,10 @@ uint32_t open_in_list(uint32_t t, int slot, const char* want) {
 
 // ★★★★ [[B232]] — REACH THE SETTINGS **MENU**, WHICH IS NOW A PLACE YOU HAVE TO ENTER. The screen LANDS on a CLOSED
 //      single-entry view: `short` passes it in ONE press and `double` opens the menu (the PROVISION-child idiom).
-// ⛔⛔ AND IT MUST WORK FROM WHATEVER STATE THE PREVIOUS PHASE LEFT BEHIND, which is why it walks to the closed view
+// ⛔⛔ AND IT MUST WORK FROM WHATEVER STATE THE PREVIOUS PHASE LEFT BEHIND, which is why it reaches the closed view
 //     FIRST rather than double-pressing wherever it happens to be: a `double` in the menu ACTIVATES the highlighted
-//     row (`>DISCARD` is one of them), and the ordinary `settle` cycle can no longer wander back into the menu on its
-//     own — walking off the last row lands on the closed view and the next press leaves the screen entirely.
+//     row (`>DISCARD` is one of them). ⓘ W4b: the menu WRAPS now, so the way out is its `MENU` row (menu mode on
+//     Home, `leave_list`) and the rail walk back — never a walk off the last row.
 // ⇒ every caller starts at ROW 0 of the menu, exactly as a fresh arrival plus one `double` does.
 uint32_t to_cfg_menu(uint32_t t) {
     t = walk_to_slot(t, kSlotSettings);
@@ -1474,9 +1500,10 @@ int main() {
     run_ticks(t + 100, 8, 10);
     CHK("P2b the paint RESUMES once the queue is empty",     g_c.begin_frame == 1 && g_c.next_page == 8);
 
-    // ★★★ W3 STAGE A — THE ONE WINDOW IN WHICH THE CONFIG SERVICE CAN BE SEEN **UNAVAILABLE** ON GLASS. P3's `settle`
-    //     below is this binary's FIRST ARRIVAL on SETTINGS (P2b leaves the panel on SEND; measured 2026-09-25: the fake
-    //     store's load count is 0 at P3 and 1 at P4). `ConfigService::open` latches `_open` on its first success and
+    // ★★★ W3 STAGE A — THE ONE WINDOW IN WHICH THE CONFIG SERVICE CAN BE SEEN **UNAVAILABLE** ON GLASS. P3's walk
+    //     below is this binary's FIRST ARRIVAL on SETTINGS (measured 2026-09-25: the fake store's load count is 0 at
+    //     P3 and 1 at P4; ⓘ W4b: the arrival is a MENU-MODE walk — the panel boots on Home's list, where a `settle`
+    //     moves Home's arrow, not the rail). `ConfigService::open` latches `_open` on its first success and
     //     nothing ever clears it, so this is the only moment a refused load can be drawn at all. ⇒ the fake refuses
     //     every load across P3 — whose checks count FRAMES and read no body text, so the refusal is invisible to them
     //     — and P3u below reads the closed view, then lets the service open.
@@ -1486,7 +1513,8 @@ int main() {
     // THE 2 Hz THROTTLE, as INTEGRATION. The decision itself is `FrameGate::step`, pure and natively driven; what no
     // native case can see is whether this file routes through it at all — a tick that painted unconditionally would
     // keep every native case green. `kPaintThrottleMs` = 500 ms.
-    t = settle(t + 2000);
+    t = walk_to_slot(t + 2000, kSlotSettings);               // W4b fixture: the rail walks in menu mode only
+    t += 700; tick(t);                                       // > kPaintThrottleMs since that walk's last paint
     dirty_the_model(t);
     g_c = Canvas{};
     run_ticks(t, 8, 1);                                      // frame 1 completes inside 8 ms
@@ -1500,8 +1528,8 @@ int main() {
     // ---- ★★★ P3u (W3 stage A) — THE UNAVAILABLE VIEW, THEN THE RETRY ---------------------------------------------
     // ★ What the renderer draws when `open()` has never succeeded (`draw_settings_screen`'s `!c.open` arm), at its
     //   exact row, and that the MODEL keeps retrying the open — the repeat-safe opener W3 extracts must not grow an
-    //   "attempted" latch. ⓘ The press here is a `double`, so it cannot move the screen: P4 and P5 start where they
-    //   always did.
+    //   "attempted" latch. ⓘ The press here is a `double`, so it cannot move the screen (menu mode over a closed
+    //   service stays in menu mode): P4 and P5 start where they always did.
     {
         ProbeCfgStore& st = probe_store();
         const int l0 = st.loads, w0 = st.writes;
@@ -1513,14 +1541,56 @@ int main() {
             body_row(0) == nullptr && body_row(1) == nullptr && body_row(3) == nullptr && body_row(4) == nullptr);
         CHK("P3u ...the double wrote nothing, and every sync re-tried the load",
             rail_boxed_slot() == kSlotSettings && st.writes == w0 && st.loads > l0);
+#if MR_N_LAYERS < 2
+        // ---- ★★★★ W4b / [[B457]] (design r2.22 §6.1, brief rev 3 §2.9) — NEVER A MENU OVER A CLOSED SERVICE, ON THE GLASS.
+        // ★ THIS IS THE ONE WINDOW WITH A CLOSED SERVICE (see above), and only this arm offers Home's ungated
+        //   `INVITE MEMBER` (`prov_invite`). A ready profile is set up for the duration of this block (team, key,
+        //   local ID) and put back. Home INVITE runs — ⛔ ungated — then an emergency hold ARMS (pre-empting the
+        //   window) and is released (cancelled): the panel must be SETTINGS' closed `CFG UNAVAILABLE` view in MENU
+        //   MODE — the cue beside SETTINGS, no arrow anywhere — and a `short` must reach the next rail screen.
+        {
+            uint8_t kp[32], kv[32];
+            for (int i = 0; i < 32; ++i) { kp[i] = uint8_t(0x21 + i); kv[i] = uint8_t(0x61 + i); }
+            const uint32_t team0 = g_node.config().team_id;
+            const uint8_t  lid0  = g_node.team_local_id();
+            const bool     key0  = g_node.team_channel_key_present();
+            g_node.mutable_config().team_id = 0xB4570001u;
+            g_node.set_team_local_id(33);
+            g_node.team_channel_key_load(kp, kv, /*present=*/true);
+            t = walk_to_slot(t + 500, kSlotStatus);                   // menu mode on Home
+            t = double_press(t + 500); t += 700; paint(t);           // Home's list
+            t = open_highlighted(t, ">INVITE MEMBER");
+            t += 700; paint(t);
+            CHK("P3v precondition: Home INVITE MEMBER opened its window over the CLOSED service (ungated)",
+                rail_boxed_slot() == kSlotSettings && st.loads > l0 && strstr(g_c.page_text, "CFG UNAVAILABLE") == nullptr);
+            g_c.button_down = true;                                   // hold past arm_ms -> the alarm ARMS
+            for (int i = 0; i < 15; ++i) tick(t + 100 + uint32_t(i) * 100);
+            g_c.button_down = false;                                  // ...released before fire: CANCELLED
+            for (int i = 0; i < 10; ++i) tick(t + 1700 + uint32_t(i) * 100);
+            t += 4000; paint(t); t += 700; paint(t);
+            CHK("P3v after the pre-emption SETTINGS shows exactly CFG UNAVAILABLE on body row 2, nothing else",
+                rail_boxed_slot() == kSlotSettings && body_row_is(2, "CFG UNAVAILABLE") && body_row(0) == nullptr &&
+                body_row(1) == nullptr && body_row(3) == nullptr && body_row(4) == nullptr);
+            CHK("P3v ...in MENU MODE: the cue beside SETTINGS and no arrow anywhere",
+                rail_cue_slot() == kSlotSettings && strstr(g_c.page_text, ">") == nullptr);
+            t = settle(t + 500); paint(t);
+            CHK("P3v ...and a short reaches the next rail screen (Home), the cue with it",
+                rail_boxed_slot() == kSlotStatus && rail_cue_slot() == kSlotStatus);
+            g_node.mutable_config().team_id = team0;
+            g_node.set_team_local_id(lid0);
+            g_node.team_channel_key_load(kp, kv, key0);
+            t = walk_to_slot(t + 500, kSlotSettings);                 // back where P3u's recovery expects the panel
+        }
+#endif
         // The store recovers: the NEXT sync opens the service. ⓘ `dirty_the_model` is only the repaint trigger — the
         //   property is the open, which the load count and the entry row both witness.
         const int l1 = st.loads;
         st.can_load = true;
         dirty_the_model(t); paint(t); paint(t + 700); t += 800;
-        char entry[24]; snprintf(entry, sizeof entry, ">%s", mrui::kSettingsEnterText);
+        // ⓘ W4b (design §6.5): the preview is `ENTER SETTINGS` WITHOUT the body `>` — menu mode draws no arrow.
         CHK("P3u once the store answers, the next sync OPENS it: the entry row replaces the notice",
-            body_row_is(0, entry) && body_row(2) == nullptr && st.loads == l1 + 1 && st.writes == w0);
+            body_row_is(0, mrui::kSettingsEnterText) && body_row(2) == nullptr && st.loads == l1 + 1 &&
+            st.writes == w0);
     }
 
     // ============================================================================================================ P4
@@ -1679,22 +1749,27 @@ int main() {
     CHK("P6i a double ENTERS the list: a row is marked",   strstr(g_c.page_text, ">") != nullptr);
     CHK("P6i ...and it is the FIRST row of the list",      strstr(g_c.page_text, ">DM  ") != nullptr);
     CHK("P6i ...and the entering press did not move the rail", rail_boxed_slot() == kSlotInbox);
-    // ★ THE CONTAINED WALK: `short` reaches BACK and the press past it comes HOME — ⛔ it never leaves the screen.
-    t = walk_to(t + 500, ">BACK");
-    CHK("P6j the walk reaches the BACK row without leaving the screen",
-        strstr(g_c.page_text, ">BACK") != nullptr && rail_boxed_slot() == kSlotInbox);
+    // ★ THE CONTAINED WALK: `short` reaches MENU and the press past it comes HOME — ⛔ it never leaves the screen.
+    // ⓘ W4b (design §6.1 rule 2 — REWRITTEN, brief §2.9): the list's exit row is `MENU` (was `BACK`), and list focus
+    //   draws NO menu cue — the body's `>` is the list's own cue.
+    t = walk_to(t + 500, ">MENU");
+    CHK("P6j the walk reaches the MENU row without leaving the screen",
+        strstr(g_c.page_text, ">MENU") != nullptr && rail_boxed_slot() == kSlotInbox && rail_cue_slot() == -1);
     t = settle(t + 500); paint(t);
     CHK("P6j one more short comes HOME to row 0, never off the screen",
-        rail_boxed_slot() == kSlotInbox && strstr(g_c.page_text, ">BACK") == nullptr &&
+        rail_boxed_slot() == kSlotInbox && strstr(g_c.page_text, ">MENU") == nullptr &&
         strstr(g_c.page_text, ">") != nullptr);
-    // ★ AND `BACK` RETURNS TO THE PASSIVE FORM OF THE SAME SCREEN, which one further `short` then passes.
-    t = walk_to(t + 500, ">BACK");
+    // ★ AND `MENU` ENTERS MENU MODE ON THE **HOME** SLOT (W4b rule 2): the box and the gutter cue on STATUS, no arrow
+    //   in the body — and one further `short` walks the rail from Home, to TEAM.
+    t = walk_to(t + 500, ">MENU");
     t = double_press(t + 500); paint(t);
-    CHK("P6k a double on BACK returns to the PASSIVE list, not elsewhere",
-        rail_boxed_slot() == kSlotInbox && strstr(g_c.page_text, "BACK") == nullptr &&
-        strstr(g_c.page_text, ">") == nullptr);
+    // ⓘ Home's preview is its BODY WITHOUT THE ARROW (design §6.1), so its own `MENU` item is drawn — the absent `>`
+    //   is the menu-mode term, and the cue on STATUS is the focus.
+    CHK("P6k a double on MENU enters MENU MODE on the HOME slot, not elsewhere",
+        rail_boxed_slot() == kSlotStatus && rail_cue_slot() == kSlotStatus && strstr(g_c.page_text, ">") == nullptr);
     t = settle(t + 500); paint(t);
-    CHK("P6k ...and one further short then passes the screen", rail_boxed_slot() == kSlotSend);
+    CHK("P6k ...and one further short walks the rail from Home to TEAM, the cue with it",
+        rail_boxed_slot() == kSlotTeam && rail_cue_slot() == kSlotTeam);
 
     // ---- (a) A CHANNEL record, opened while its same-numbered DM is still live -------------------------------------
     t = open_in_list(t + 500, kSlotInbox, ">CH7 ");
@@ -1984,7 +2059,8 @@ int main() {
         t = walk_to_slot(t + 500, kSlotStatus);
         CHK("P7b the SETTINGS rail badge carries the unsaved state",
             rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved);
-        CHK("P7b ...and the STATUS body no longer carries the withdrawn marker TEXT",
+        // ⓘ W4b: the landing body is HOME now (C84 re-anchored there, brief §2.9 — R-3: no configuration text on it).
+        CHK("P7b ...and the Home body carries no configuration marker TEXT (R-3)",
             strstr(g_c.page_text, "CFG* UNSAVED") == nullptr && strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
         CHK("P7b ...and it is NOT the word `dirty` in any form", strstr(g_c.page_text, "dirty") == nullptr);
         // ---- SAVE ------------------------------------------------------------------------------------------------
@@ -2033,6 +2109,9 @@ int main() {
         t = walk_to_slot(t + 500, kSlotStatus);
         CHK("P7e a reboot-class difference renders RESTART NEEDED",
             strstr(g_c.page_text, "RESTART NEEDED") != nullptr);
+        // ★ W4b (design §6.2, C35 re-anchored): ON HOME's ROW 2, not selectable, and the list window moves to rows 3-4.
+        CHK("P7e ...on Home's row 2, the list window shrunk to rows 3-4",
+            body_row_is(2, "RESTART NEEDED") && body_row(3) != nullptr && body_row(4) != nullptr);
         // ★★ §6's PRIORITY, THROUGH THE SHIPPED PATH: a durable save that needs a reboot is NO LONGER unsaved, so the
         //    badge must be the RESTART one — ⛔ not the unsaved one, and not the clean gear either.
         CHK("P7e ...and the badge is RESTART, not unsaved",     rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsRestart);
@@ -2164,7 +2243,10 @@ int main() {
         g_exec.code = MESHROUTE_NS::CmdCode::queued;
         g_exec.ctr  = 300;                                   // ★ ABOVE 255 on purpose — §b40's 16-bit handle
         uint32_t t9 = settle(400000);
-        t9 = open_highlighted(t9, "SEND to team");            // the SEND screen -> the canned CHANNEL list
+        t9 = enter_list(t9, kSlotSend);                       // the SEND screen -> the canned CHANNEL list
+        // ⓘ W4b fixture: SEND is reached BY THE RAIL in menu mode and entered with `double` (the Send LIST, design
+        //   §6.5) — ⛔ never by walking to the passive `SEND to team` preview, which an acknowledged result no longer
+        //   returns to (it returns to the list itself, on item 1).
         t9 = double_press(t9 + 500); paint(t9);               // ...and send its first text
         CHK("P9a the canned post really reached the executor", g_exec.calls == 1);
         CHK("P9a an ACCEPTED post reads QUEUED, never SENT",
@@ -2180,7 +2262,7 @@ int main() {
         // ---- ⛔ P9c (design P7): an UNCORRELATED airing moves NOTHING. Re-send so a fresh QUEUED is on screen.
         g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 301;
         t9 = settle(t9 + 1000);
-        t9 = open_highlighted(t9, "SEND to team");
+        t9 = enter_list(t9, kSlotSend);                       // W4b fixture: by the rail, as above
         t9 = double_press(t9 + 500); paint(t9);
         CHK("P9c precondition: the new post is QUEUED",  strstr(g_c.page_text, "QUEUED") != nullptr);
         mr_ui_on_push(aired_push(/*dst=*/0, /*ctr=*/45));     // ⛔ 301 & 0xff == 45: the TRUNCATED handle
@@ -2665,6 +2747,15 @@ int main() {
         //    record at its own coordinates.
         t16 = walk_to_slot(t16, kSlotInbox);
         paint(t16);
+        // ★★★★ W4b (design §6.1 rule 4) — `walk_to_slot` arrives in MENU MODE, so this frame carries the GUTTER CUE
+        //      beside the boxed slot. It is asserted HERE, by its own geometry, and the census below is then taken in
+        //      LIST FOCUS (one `double` into the list), where the tally is the unchanged 6 + 5 + 1.
+        CHK("P14a menu mode draws ONE gutter cue, x=10..11 and one slot high, beside the boxed slot",
+            rail_cue_slot() == kSlotInbox && rail_boxed_slot() == kSlotInbox);
+        CHK("P14a ...and the cue is not a second selection box", rail_frames_on_page(0) == 1);
+        t16 = double_press(t16 + 500); t16 += 700; paint(t16);   // into the INBOX list: list focus
+        CHK("P14a list focus draws NO cue — the body's `>` is the list's own", rail_cue_slot() == -1 &&
+            rail_boxed_slot() == kSlotInbox && strstr(g_c.page_text, ">") != nullptr);
 
         // ---- (a) THE FIVE SLOTS, each glyph by POINTER IDENTITY, each at its canonical y ------------------------
         CHK("P14a the STATUS slot draws the information disc",
@@ -2684,7 +2775,8 @@ int main() {
             for (int i = 0; i < g_c.n_rec; ++i) {
                 const Canvas::Rec& r = g_c.rec[i];
                 if (r.is_text || r.page != 0 || r.y <= 9) continue;
-                if (r.bits == nullptr) {                        // the selection frame
+                if (r.bits == nullptr) {                        // the selection frame (W4b: or the gutter cue)
+                    if (is_cue_rect(r)) continue;               // ⓘ asserted by its own check above, never a rail draw
                     if (r.x != kRailX || r.w != kRailW || r.h != kRailH) geom_ok = false;
                 } else {                                        // a slot glyph
                     if (r.x != kRailIconX || r.w != int(mrui::icons::kIconW) ||
@@ -2708,34 +2800,33 @@ int main() {
         //   instrument-that-cannot-fail shape; the number stays EXACT on both arms of the split.
         CHK("P14a the frame draws exactly 6 + 5 glyphs and 1 frame", bitmaps_on_page(0) == 12);
         CHK("P14a ...and an ordinary screen's body draws no rect of its own", body_rects_on_page(0) == 0);
-        // ---- (a2) §UI-17 S6 — THE STATUS BODY's 24x24 MARK, NOW THE REAL ASSET -------------------------------------
-        // ★★★★ RE-POINTED BY §UI-17 S6, ⛔ NOT WEAKENED, and the re-point is the MEASUREMENT of the slice: S3 drew a
-        //      `draw_rect` placeholder in this slot and S6 draws `icons::kMarkMeshRoute` there instead. ⇒ the census
-        //      MOVES in exactly two ways and both are asserted: `body_rects_on_page(0)` **1 -> 0** (the placeholder
-        //      rect is gone from every screen, STATUS included) while `bitmaps_on_page(0)` **stayed put** — that
-        //      counter tallies EVERY non-text record, rect or glyph, so the twelfth record changed KIND, not count.
-        // ★★ THE MARK'S EXACT RECT IS STILL ASSERTED, through the bitmap record instead of the rect record, and with
-        //    the asset's POINTER IDENTITY added on top — the same standard `bitmap_at` holds the strip's glyphs to.
-        //    ⛔ "a 24x24 bitmap appeared at 12,12" would pass against any icon in the header drawn at the wrong size.
-        // ⓘ The mark is a BODY draw and must never be mistaken for the rail's selection frame — hence the geometry,
-        //   and hence `rail_glyphs_on_page`'s x-band scoping, which the mark at x=12 stays outside of.
+        // ---- (a2) W4b — HOME DRAWS **NO MARK**, AND ITS ROWS ARE THE ORDINARY BODY's --------------------------------
+        // ★★★★ REWRITTEN BY W4b (design §6.2, brief §2.7/§2.9): Home replaced the STATUS body, and Home draws NO 24x24
+        //      mark (the asset is KEPT for W5) and NO x = 40 row. ⇒ the §UI-17 S6 positive mark checks are RETIRED with
+        //      the removed draw (C96/C121/C122/C123 retired with them) and replaced by the NEGATIVE WITNESS below —
+        //      no mark bitmap, no rectangle in the old 12,12,24,24 slot, no row at the old x = 40 origin — plus the
+        //      POSITIVE term that makes it able to fail: Home's row 0 is drawn at the ordinary `kBodyX`. The exact
+        //      census stays exact: in menu mode Home owes 6 + 5 + the box + the cue = 13 records, and 0 body rects.
+        // ⓘ THE OLD MARK GEOMETRY IS STATED HERE AS LITERALS (`kStatusMark*Expected`), independently of the renderer,
+        //   which no longer has those constants — the negative witness must not import the thing it forbids.
         {
             t16 = walk_to_slot(t16 + 500, kSlotStatus);
-            CHK("P14a STATUS draws exactly ONE more non-text record, and NO body rect at all",
-                bitmaps_on_page(0) == 13 && body_rects_on_page(0) == 0);
-            bool mark_ok = false;
+            bool no_mark = true;
             for (int i = 0; i < g_c.n_rec; ++i) {
                 const Canvas::Rec& r = g_c.rec[i];
-                if (r.is_text || r.page != 0 || r.bits != mrui::icons::kMarkMeshRoute) continue;
+                if (r.is_text || r.page != 0) continue;
+                if (r.bits == mrui::icons::kMarkMeshRoute) no_mark = false;
                 if (r.x == kStatusMarkXExpected && r.y == kStatusMarkYExpected &&
-                    r.w == kStatusMarkWExpected && r.h == kStatusMarkHExpected) mark_ok = true;
+                    r.w == kStatusMarkWExpected && r.h == kStatusMarkHExpected) no_mark = false;
             }
-            CHK("P14a ...and it is the MeshRoute mark ASSET, at 24x24 on 12,12", mark_ok);
+            CHK("P14a Home draws NO mark: no mark bitmap and no record in the old 12,12,24,24 slot", no_mark);
+            CHK("P14a ...and no Home row at the old x=40 origin", body_rows_at_x(kStatusTextXExpected) == 0);
+            CHK("P14a ...and Home row 0 is drawn at the ordinary x=12 origin",
+                body_row(0) != nullptr && strncmp(body_row(0), "ME", 2) == 0);
+            CHK("P14a Home in menu mode draws exactly 6 + 5 glyphs, the box and the cue — and NO body rect",
+                bitmaps_on_page(0) == 13 && body_rects_on_page(0) == 0 && rail_cue_slot() == kSlotStatus);
             CHK("P14a ...and STATUS still boxes exactly ONE rail slot",
                 rail_frames_on_page(0) == 1 && rail_boxed_slot() == kSlotStatus);
-            // ⛔ THE POSITIVE TERM FOR THE NARROWED GEOMETRY, read through the sibling row reader at `x = 40`: row 0
-            //    always draws (`TEAM …` or `NO TEAM`), so a renderer that left every row at `kBodyX` reads nullptr.
-            CHK("P14a ...and STATUS row 0 is drawn at the narrowed x=40 origin", status_row(0) != nullptr);
         }
 
         // ---- (b) EXACTLY ONE FRAME, AND IT NAMES THE SCREEN ------------------------------------------------------
@@ -2788,8 +2879,9 @@ int main() {
             t16 = walk_to_slot(t16 + 500, kSlotTeam);
             CHK("P14d TEAM lands passive: no teammate row is marked",
                 strstr(g_c.page_text, ">id 60") == nullptr);
-            CHK("P14d ...and its passive form offers no BACK row",
-                strstr(g_c.page_text, "BACK") == nullptr);
+            // ⓘ W4b: the exit row an entered list draws is `MENU` (was `BACK`), so that is the word a leak would show.
+            CHK("P14d ...and its passive form offers no exit row",
+                strstr(g_c.page_text, "MENU") == nullptr && strstr(g_c.page_text, "BACK") == nullptr);
             t16 = settle(t16 + 500); paint(t16);
             CHK("P14d a short on passive TEAM moves the RAIL, never a row",
                 rail_boxed_slot() == kSlotInbox);
@@ -2860,36 +2952,25 @@ int main() {
         //     rail. A renderer that moved only SOME sites would satisfy neither.
         // ⚠ THE WALK COVERS THE MODAL BODIES TOO, because those are the widest lines in the tree (the inbox preview
         //   row and the detail header).
-        // ⛔⛔ RE-POINTED BY §UI-17 S3, ⛔ NOT WEAKENED, AND THE SHAPE OF THE RE-POINT IS THE WHOLE POINT. Spec §2.1
-        //   reserves `x = 12..35, y = 12..35` of the STATUS body for a 24x24 mark and moves that screen's first
-        //   three rows to `x = 40`; every other screen keeps the one `kBodyX`. ⇒ the assertion becomes a PER-SCREEN
-        //   EXPECTED ORIGIN **SET** — STATUS `{12, 40}`, everything else `{12}` — over EVERY body text record, plus
-        //   THREE POSITIVE TERMS so it can still fail: STATUS drew at least one row at 40, at least one at 12, and
-        //   no `x = 40` row exceeds 14 columns (88 px).
+        // ⛔⛔ RE-POINTED BY §UI-17 S3, and RE-POINTED BACK BY W4b (design §6.2, brief §2.7): Home replaced the
+        //   STATUS body and draws EVERY row at the one `kBodyX` — no mark, no `x = 40` rows. ⇒ the per-screen origin
+        //   SET is `{12}` on every screen again, and the STATUS-only positive terms (a row at 40, the 14-column
+        //   budget, the rows-0-2 split) are RETIRED with the geometry they measured (C97/C98 retired with them).
+        //   The positive term that keeps the set able to fail on Home is kept: Home drew rows at 12, and none at 40.
         // ⛔ NEVER `min_x >= 12`. That was the tempting one-line "fix" and it is the instrument-that-cannot-fail
         //   shape this project has registered twenty-one times: it would pass for a body drawn anywhere to the
         //   right of the rail, including one whose STATUS rows had silently lost five columns of meaning.
         {
-            bool x_ok = true, w_ok = true, narrow_ok = true;
+            bool x_ok = true, w_ok = true, home_ok = true;
             int  widest = 0, widest_right = 0;
             static const int kOneOrigin[1]    = { kBodyXExpected };
-            static const int kStatusOrigins[2] = { kBodyXExpected, kStatusTextXExpected };
             for (int k = 0; k < 5; ++k) {
                 t16 = walk_to_slot(t16 + 500, k);
-                const bool status = (k == kSlotStatus);
-                if (!body_x_only_in(status ? kStatusOrigins : kOneOrigin, status ? 2 : 1)) x_ok = false;
-                if (status) {
-                    // the two positive terms + the narrowed budget, all three measured on the real renderer
-                    if (body_rows_at_x(kStatusTextXExpected) < 1) narrow_ok = false;
-                    if (body_rows_at_x(kBodyXExpected)       < 1) narrow_ok = false;
-                    if (body_max_cols_at_x(kStatusTextXExpected) > kStatusNarrowColsExp) narrow_ok = false;
-                    // ...and the ROW-LEVEL split, which the set alone cannot see: rows 0-2 belong to the narrowed
-                    // origin and rows 3-4 to the wide one. A single row that slipped back under the mark is a row
-                    // drawn ON TOP of the artwork S6 is about to land there.
-                    for (int row = 0; row <= 2; ++row)
-                        if (text_at(kBodyXExpected, body_y_expected(row)) != nullptr) narrow_ok = false;
-                    for (int row = 3; row <= 4; ++row)
-                        if (text_at(kStatusTextXExpected, body_y_expected(row)) != nullptr) narrow_ok = false;
+                if (!body_x_only_in(kOneOrigin, 1)) x_ok = false;
+                if (k == kSlotStatus) {
+                    // Home's positive term, so the one-origin set cannot pass over an empty body, and ⛔ no row at 40
+                    if (body_rows_at_x(kBodyXExpected) < 3 || body_rows_at_x(kStatusTextXExpected) != 0) home_ok = false;
+                    if (body_max_cols_at_x(kBodyXExpected) > 19) home_ok = false;
                 }
                 if (body_text_max_x() > 127) w_ok = false;
                 if (body_max_cols() > widest) widest = body_max_cols();
@@ -2903,7 +2984,7 @@ int main() {
             if (body_text_max_x() > widest_right) widest_right = body_text_max_x();
             t16 = double_press(t16 + 500); paint(t16);
             CHK("P14f every body draw starts at its screen's own origin", x_ok);
-            CHK("P14f ...STATUS uses BOTH origins, rows 0-2 at 40 in 14 cols", narrow_ok);
+            CHK("P14f ...Home draws its rows at the ONE ordinary origin, in 19 columns, none at 40", home_ok);
             CHK("P14f ...and no ordinary body line exceeds 116 px", w_ok);
             printf("  INFO §7.3 audit: widest ordinary body line = %d columns, right edge x = %d (bound 19 / 127)\n",
                    widest, widest_right);
@@ -3011,17 +3092,18 @@ int main() {
     }
 
     // ============================================================================================================ P17
-    // ★★★★ §UI-17 S3 — THE **PRODUCTION HANDOFF**, AND IT IS THE ONE THING THE PURE SUITE STRUCTURALLY CANNOT SEE.
-    //      `test/test_firmware_ui_status.cpp` proves what `mrui::ui_status_*` RETURNS and `--target=uistatus` proves
-    //      each substitution is load-bearing — but BOTH call the formatters directly. Delete `status_text(2, l)`
-    //      from `draw_status_screen`, or point it at row 1, and every native case stays green, all THIRTEEN
-    //      `uistatus` mutations stay RED, and P14's geometry stays green: the panel simply loses a row.
-    //      ⇒ this phase drives DISTINCTIVE facts through the REAL node and asserts EVERY row's EXACT BYTES AT ITS
-    //      EXACT COORDINATE. That is the [[B226]] discipline (a token the pure suite proves and the production
-    //      renderer never shows is not proven), applied at the HANDOFF SEAM.
-    // ★★ THE VALUES ARE CHOSEN SO NO TWO ROWS CAN BE CONFUSED FOR ONE ANOTHER: `TEAM 3D9348A5` · `ME T220` ·
-    //    `3 KNOWN` · the unread/home line · `52.123,21.456`. No row's text is a substring of another's, so a
-    //    misroute cannot pass by coincidence.
+    // ★★★★ W4b — HOME AND MY DEVICE, **THE PRODUCTION HANDOFF** (REWRITTEN from §UI-17 S3's STATUS body; brief §2.9 /
+    //      §2.10). `test/test_firmware_ui_status.cpp` proves what the Home and My-device formatters RETURN and
+    //      `--target=uistatus` proves each substitution is load-bearing — but BOTH call the formatters directly, and
+    //      `test_build_src = no` keeps `src/firmware_ui.cpp` out of the native build. ⇒ this phase drives DISTINCTIVE
+    //      facts through the REAL node and asserts EVERY row's EXACT BYTES AT ITS EXACT COORDINATE ([[B226]]), and it
+    //      owns the three things no native case can reach (§2.10): the OWN-NAME PUBLICATION (`build_snapshot` ->
+    //      `g_node.effective_name`), the FROZEN PAGES of one frame, and the BODY REFRESH WITHOUT A PRESS.
+    // ⓘ RETIRED WITH THE STATUS ROWS (brief §2.9's ledger): the five `P17a` STATUS-row checks at x = 40 / x = 12 and
+    //   the split check — Home has no x = 40 row (asserted below as a NEGATIVE term). The position proof (P17b/P17c)
+    //   is KEPT and MOVED to My device's row 3, which is where the position lives now (design §6.7).
+    // ★★ THE VALUES ARE CHOSEN SO NO TWO ROWS CAN BE CONFUSED: `ME probe` · `TEAM 3D9348A5 T220` · the INBOX and TEAM
+    //    items carrying the STRIP's own tokens · `52.123,21.456`.
     {
         // ---- the fixture, through the core's own public seams (⛔ never a poked snapshot) ----------------------
         uint8_t s_pub[32], s_priv[32];
@@ -3032,115 +3114,195 @@ int main() {
         scfg.lat_e7  = 521234567;        // ->  52.123
         scfg.lon_e7  = 214567890;        // ->  21.456
         g_node.on_init(scfg);
-        g_node.set_team_local_id(220);   // -> `ME T220`
+        g_node.set_team_local_id(220);   // -> `T220`
         g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
         g_node.test_learn_route(/*dest=*/70, /*via=*/70, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
         g_node.test_learn_route(/*dest=*/71, /*via=*/71, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
         g_node.test_learn_route(/*dest=*/72, /*via=*/72, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+        const char kProbeName[] = "probe";                  // the name this binary's node was constructed with
+        g_node.set_name(kProbeName, uint8_t(sizeof kProbeName - 1));
+        char me_hash[24];
+        snprintf(me_hash, sizeof me_hash, "ME 0x%08lX", (unsigned long)g_node.key_hash32());
+        char id_row[24];
+        snprintf(id_row, sizeof id_row, "ID 0x%08lX", (unsigned long)g_node.key_hash32());
 
         uint32_t t18 = settle(1400000);
-        t18 = walk_to_slot(t18 + 500, kSlotStatus);
-        paint(t18);
+        t18 = walk_to_slot(t18 + 500, kSlotStatus);          // menu mode on Home
+        t18 = double_press(t18 + 500); t18 += 700; paint(t18);   // Home's LIST, the arrow on item 1
+        // A repaint driven by a PUSH (never a press — a `short` on Home moves the arrow) past the 2 Hz throttle.
+        auto repaint = [&]() { t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200; };
+        // ...and a frame with NO trigger at all: only a body invalidation can open it (§2.10's press-free refresh).
+        auto frame_only = [&]() { t18 += 1000; paint(t18); t18 += 100; };
 
-        // ---- (a) EVERY ROW, EXACT BYTES AT ITS EXACT COORDINATE ------------------------------------------------
+        // ---- (a) EVERY HOME ROW, EXACT BYTES AT ITS EXACT COORDINATE --------------------------------------------
         {
-            const char* r[5] = { status_row(0), status_row(1), status_row(2), body_row(3), body_row(4) };
-            printf("  INFO §UI-17 STATUS body: [%s] [%s] [%s] [%s] [%s]\n",
-                   r[0] ? r[0] : "-", r[1] ? r[1] : "-", r[2] ? r[2] : "-",
-                   r[3] ? r[3] : "-", r[4] ? r[4] : "-");
+            const char* r[5] = { body_row(0), body_row(1), body_row(2), body_row(3), body_row(4) };
+            printf("  INFO W4b Home body: [%s] [%s] [%s] [%s] [%s]\n", r[0] ? r[0] : "-", r[1] ? r[1] : "-",
+                   r[2] ? r[2] : "-", r[3] ? r[3] : "-", r[4] ? r[4] : "-");
         }
-        CHK("P17a STATUS row 0 is `TEAM 3D9348A5` at x=40",  status_row_is(0, "TEAM 3D9348A5"));
-        CHK("P17a row 1 is `ME T220` at x=40",               status_row_is(1, "ME T220"));
-        // ★★★ ROWS 2 AND 3 ARE ASSERTED AGAINST THE **STRIP's OWN TOKENS**, not against literals, and that is
-        //     STRONGER rather than weaker. Spec §2.2 notes d and e both rule that these two rows state the SAME two
-        //     facts the strip's people-count and envelope already draw, through the SAME `ui_fmt_team` /
-        //     `ui_fmt_mail` tokens, *"so the two surfaces cannot disagree"* (U1). Comparing the surfaces measures
-        //     exactly that rule. ⛔ It is not a tautology: the two tokens are produced at DIFFERENT call sites from
-        //     DIFFERENT structs (`UiChrome` vs `UiSnapshot`), and a body that stopped agreeing with the strip is
-        //     precisely the defect the rule exists to forbid. ⓘ And it is immune to how many routes an earlier
-        //     phase happened to leave behind, which a literal would not be.
-        // ⓘ The strip's slot coordinates are stated here independently of the renderer's table, as P13's are.
+        CHK("P17a Home row 0 is `ME probe`, the node's own stored name, at x=12", body_row_is(0, "ME probe"));
+        CHK("P17a row 1 is the team line `TEAM 3D9348A5 T220`", body_row_is(1, "TEAM 3D9348A5 T220"));
+        // ★★★ THE TWO COUNTED ITEMS ARE ASSERTED AGAINST THE **STRIP's OWN TOKENS** (design §6.3: the same
+        //     `ui_fmt_mail` / `ui_fmt_team` tokens, so the two surfaces cannot disagree), and the INBOX count is
+        //     OMITTED at zero. ⓘ The strip's slot coordinates are stated here independently, as P13's are.
         {
-            // ⓘ RE-ANCHORED 2026-08-23 (§CHROME-5): the people token moved 64 -> 62 when the sixth slot took the
-            //   strip's reserve. ⛔ Not weakened — the coordinate is still stated here rather than imported, and a
-            //   stale 64 would have read `nullptr` and reddened both checks for the wrong reason. The mail token is
-            //   UNCHANGED at 8 (only home, people and key moved; the battery did not move at all).
             const char* team = text_at(/*people text_x=*/62, /*strip baseline=*/7);
             const char* mail = text_at(/*mail   text_x=*/ 8, /*strip baseline=*/7);
-            char want2[32], want3[40];
-            snprintf(want2, sizeof want2, "%s KNOWN", team ? team : "?");
-            snprintf(want3, sizeof want3, "%s NEW / HOME --", mail ? mail : "?");
-            CHK("P17a row 2 is the STRIP's own team token + KNOWN, at x=40",
-                team != nullptr && status_row_is(2, want2));
-            CHK("P17a row 3 is the STRIP's own unread token + HOME, at x=12",
-                mail != nullptr && body_row_is(3, want3));
+            char want2[32], want4[32];
+            if (mail != nullptr && strcmp(mail, "0") == 0) snprintf(want2, sizeof want2, ">INBOX");
+            else snprintf(want2, sizeof want2, ">INBOX %s NEW", mail ? mail : "?");
+            snprintf(want4, sizeof want4, " TEAM %s KNOWN", team ? team : "?");
+            CHK("P17a row 2 is the ARROWED INBOX item, with the STRIP's own unread token", mail != nullptr &&
+                body_row_is(2, want2));
+            CHK("P17a row 3 is ` SEND TO TEAM`, unarrowed", body_row_is(3, " SEND TO TEAM"));
+            CHK("P17a row 4 is the TEAM item, with the STRIP's own team token", team != nullptr &&
+                body_row_is(4, want4));
         }
-        CHK("P17a row 4 is the configured position at x=12", body_row_is(4, "52.123,21.456"));
-        // ⛔ ...AND NO ROW IS DRAWN AT THE OTHER SCREEN'S ORIGIN. Without this a renderer that drew row 2 at BOTH
-        //    origins would satisfy every check above while overprinting the reserved mark.
-        {
-            bool split_ok = true;
-            for (int row = 0; row <= 2; ++row)
-                if (text_at(kBodyXExpected, body_y_expected(row)) != nullptr) split_ok = false;
-            for (int row = 3; row <= 4; ++row)
-                if (text_at(kStatusTextXExpected, body_y_expected(row)) != nullptr) split_ok = false;
-            CHK("P17a ...and no STATUS row is drawn at the other origin", split_ok);
-        }
+        CHK("P17a ...and no Home row is drawn at the old x=40 origin", body_rows_at_x(kStatusTextXExpected) == 0);
 
-        // ---- (b) ★★★ THE FROZEN FRAME: A POSITION THAT MOVES **BETWEEN PAGES** MAY NOT TEAR THE ROW -------------
-        // ⛔⛔ THIS IS THE CONTROL FOR A DEFECT THAT SHIPPED IN S3's FIRST CUT: `draw_status_screen` read
-        //     `g_node.config()` LIVE, and `draw_frame` runs ONCE PER OLED PAGE. U8g2 re-clips the WHOLE scene per
-        //     page, so a `cfg set lat` landing between two of the eight replays drew half the coordinate row from
-        //     each fix. The cure is the snapshot (`own_lat_e7` / `own_lon_e7` / `own_fix`), and THIS is the only
-        //     venue in the tree that can see it — the same shape P13d uses for the strip's frozen chrome.
-        // ⚠ `mutable_config()` is the core's OWN live-tweak seam — exactly what a device `cfg set lat` writes.
-        // ⛔ NO `settle()` ANYWHERE BELOW, AND THAT IS LOAD-BEARING RATHER THAN TIDY: a `short` on STATUS is
-        //    ordinary NAVIGATION — it moves the rail to TEAM — so a press between these steps would measure the
-        //    wrong screen. The repaints are driven by a PUSH (`dirty_the_model`) plus time past the 2 Hz throttle,
-        //    which is exactly how a snapshot-only change reaches the panel on device. ⚠ The whole block stays well
-        //    inside `kBlankMs` (15 s) of the walk's last real press, or the panel would blank underneath it.
+        // ---- (b) MY DEVICE: the full name, the stable identity, the position, BACK --------------------------------
+        t18 = open_highlighted(t18, ">MY DEVICE");            // the arrow walks by identity; `double` opens it
+        t18 += 700; paint(t18);
         {
-            t18 += 1000;                                      // past the 500 ms paint throttle
+            const char* r[5] = { body_row(0), body_row(1), body_row(2), body_row(3), body_row(4) };
+            printf("  INFO W4b My device body: [%s] [%s] [%s] [%s] [%s]\n", r[0] ? r[0] : "-", r[1] ? r[1] : "-",
+                   r[2] ? r[2] : "-", r[3] ? r[3] : "-", r[4] ? r[4] : "-");
+        }
+        CHK("P17m My device row 0 is the full stored name, row 1 blank under 20 bytes",
+            body_row_is(0, "probe") && body_row(1) == nullptr);
+        CHK("P17m ...row 2 is the stable identity `ID 0x<HASH8>`", body_row_is(2, id_row));
+        CHK("P17m ...row 3 is the configured position", body_row_is(3, "52.123,21.456"));
+        CHK("P17m ...row 4 is `>BACK`, its only row, and the rail still boxes STATUS",
+            body_row_is(4, ">BACK") && rail_boxed_slot() == kSlotStatus && rail_cue_slot() == -1);
+
+        // ---- (c) ★★★ THE FROZEN FRAME: A POSITION THAT MOVES **BETWEEN PAGES** MAY NOT TEAR THE ROW -------------
+        // ⛔⛔ THE CONTROL FOR A DEFECT THAT SHIPPED IN S3's FIRST CUT (C102, re-anchored on My device's row 3): a row
+        //     that re-reads `g_node.config()` LIVE draws half the coordinate from each fix, because `draw_frame` runs
+        //     ONCE PER OLED PAGE. ⛔ NO press below — the repaints are pushes plus time past the 2 Hz throttle.
+        {
+            t18 += 1000;
             dirty_the_model(t18);
             run_ticks(t18 + 100, 3, 10);                      // open the frame and push three pages
-            const char* p0 = text_at(kBodyXExpected, body_y_expected(4), 0);
+            const char* p0 = text_at(kBodyXExpected, body_y_expected(3), 0);
             char frozen[24];
             snprintf(frozen, sizeof frozen, "%s", p0 ? p0 : "?");
-            CHK("P17b precondition: page 0 drew the ORIGINAL position",
-                strcmp(frozen, "52.123,21.456") == 0);
+            CHK("P17b precondition: page 0 drew the ORIGINAL position", strcmp(frozen, "52.123,21.456") == 0);
             g_node.mutable_config().lat_e7 = -891234567;      // ⚡ the fix MOVES under the open frame
             g_node.mutable_config().lon_e7 = -1791234567;
             run_ticks(t18 + 140, 6, 10);                      // ...and the remaining pages replay
             bool same_every_page = true;
             for (int p = 0; p < 8; ++p) {
-                const char* r = text_at(kBodyXExpected, body_y_expected(4), p);
+                const char* r = text_at(kBodyXExpected, body_y_expected(3), p);
                 if (r == nullptr || strcmp(r, frozen) != 0) same_every_page = false;
             }
             CHK("P17b every page of that frame drew the SAME position row", same_every_page);
             CHK("P17b ...including the pages drawn AFTER the fix moved",
-                text_at(kBodyXExpected, body_y_expected(4), 7) != nullptr &&
-                strcmp(text_at(kBodyXExpected, body_y_expected(4), 7), "52.123,21.456") == 0);
+                text_at(kBodyXExpected, body_y_expected(3), 7) != nullptr &&
+                strcmp(text_at(kBodyXExpected, body_y_expected(3), 7), "52.123,21.456") == 0);
             // ★ AND THE MOVE IS NOT LOST (§8.3 rule 5 / §B107): the NEXT frame renders the newer position.
             t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200;
-            CHK("P17b ...and the NEXT frame renders the new position",
-                body_row_is(4, "-89.123,-179.123"));
+            CHK("P17b ...and the NEXT frame renders the new position", body_row_is(3, "-89.123,-179.123"));
         }
-
-        // ---- (c) THE PUBLISH SITE's OWN TWO ANSWERS, through the real renderer ---------------------------------
-        // ⛔ `(0,0)` IS `NO LOCATION`, NEVER `0.000,0.000` — the core refuses a located send there, so the panel
-        //    must not claim the Gulf of Guinea. And ONE non-zero coordinate IS a fix: the predicate is an OR,
-        //    because that is what the refusal is keyed on. Both are decided at `build_snapshot`'s publish site,
-        //    which no native case compiles.
+        // ---- (d) THE PUBLISH SITE's OWN TWO ANSWERS (C103/C104, verbatim) -------------------------------------------
         {
             g_node.mutable_config().lat_e7 = 0;
             g_node.mutable_config().lon_e7 = 0;
-            t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200;
-            CHK("P17c no fix at all renders NO LOCATION, never 0.000,0.000",
-                body_row_is(4, "NO LOCATION"));
+            repaint();
+            CHK("P17c no fix at all renders NO LOCATION, never 0.000,0.000", body_row_is(3, "NO LOCATION"));
             g_node.mutable_config().lon_e7 = 214567890;       // on the equator: lat 0, lon set -> STILL a fix
+            repaint();
+            CHK("P17c one non-zero coordinate IS a fix (the predicate is an OR)", body_row_is(3, "0.000,21.456"));
+        }
+        // ---- (e) §2.10 — THE POSITION REFRESHES MY DEVICE WITH NO PRESS AND NO STRIP TOKEN MOVING -----------------
+        {
+            t18 = settle(t18 + 500);                          // a keep-alive: a `short` on My device stays on BACK
+            const char* before_mail = text_at(8, 7);
+            char strip_mail[8]; snprintf(strip_mail, sizeof strip_mail, "%s", before_mail ? before_mail : "?");
+            g_node.mutable_config().lat_e7 = 521234567;
+            frame_only();
+            CHK("P17r the fix moving repaints My device's position with NO press",
+                body_row_is(3, "52.123,21.456") && body_row_is(4, ">BACK"));
+            CHK("P17r ...and no strip token moved (the repaint is the BODY's)",
+                text_at(8, 7) != nullptr && strcmp(text_at(8, 7), strip_mail) == 0);
+        }
+        // ---- (f) §2.10 — THE OWN-NAME PUBLICATION, through the real `build_snapshot` -> `effective_name` ----------
+        // ★ Four names: EMPTY (the unnamed identity), SHORT, the 32-byte CAP and HIGH BYTES. My device shows the two
+        //   counted, sanitized rows (or `NO NAME SET`); Home's row 0 the 16-cell identity (or `ME 0x<HASH8>`).
+        // ⓘ Each is repainted by a PUSH, so a missing BODY INVALIDATION cannot mask a publication defect (that is
+        //   (h)'s question, asked separately).
+        struct Nm { const char* bytes; uint8_t len; const char* dev0; const char* dev1; const char* home0; };
+        const Nm names[] = {
+            { "",                                    0, "NO NAME SET",         nullptr,          me_hash },
+            { "Ann",                                 3, "Ann",                 nullptr,          "ME Ann" },
+            { "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456",   32, "ABCDEFGHIJKLMNOPQRS", "TUVWXYZ123456", "ME ABCDEFGHIJKLMNO" "\xBB" },
+            { "\xC5\x82" "ANA" "\xBB",               6, "..ANA.",              nullptr,          "ME ..ANA." },
+        };
+        for (const Nm& n : names) {
+            char lab[112];
+            g_node.set_name(n.bytes, n.len);
+            repaint();
+            snprintf(lab, sizeof lab, "P17n a %u-byte name is published to My device as its counted, sanitized rows",
+                     unsigned(n.len));
+            CHK(lab, body_row_is(0, n.dev0) && (n.dev1 ? body_row_is(1, n.dev1) : body_row(1) == nullptr));
+        }
+        t18 = settle(t18 + 500);                              // keep-alive on My device (BACK stays)
+        t18 = double_press(t18 + 500); t18 += 700; paint(t18); // BACK -> Home, the arrow on MY DEVICE
+        CHK("P17n BACK returns Home with the arrow ON MY DEVICE",
+            rail_boxed_slot() == kSlotStatus && strstr(g_c.page_text, ">MY DEVICE") != nullptr);
+        for (const Nm& n : names) {
+            char lab[112];
+            g_node.set_name(n.bytes, n.len);
+            repaint();
+            snprintf(lab, sizeof lab, "P17n a %u-byte name is published to Home row 0 as the 16-cell identity",
+                     unsigned(n.len));
+            CHK(lab, body_row_is(0, n.home0));
+        }
+        // ---- (g) §2.10 — THE FROZEN PAGES: the name changes WHILE a frame's pages are drawn ----------------------
+        {
+            g_node.set_name("Ann", 3);
+            repaint();
+            t18 += 1000;
+            dirty_the_model(t18);
+            run_ticks(t18 + 100, 3, 10);                      // three of the eight pages drawn with `Ann`
+            g_node.set_name("Bob", 3);                        // ⚡ the name changes under the open frame
+            run_ticks(t18 + 140, 6, 10);
+            bool same_every_page = true;
+            for (int p = 0; p < 8; ++p) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(0), p);
+                if (r == nullptr || strcmp(r, "ME Ann") != 0) same_every_page = false;
+            }
+            CHK("P17g every page of that frame drew the OLD name, including those after the change", same_every_page);
             t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200;
-            CHK("P17c one non-zero coordinate IS a fix (the predicate is an OR)",
-                body_row_is(4, "0.000,21.456"));
+            CHK("P17g ...and the NEXT complete frame shows the new name", body_row_is(0, "ME Bob"));
+        }
+        // ---- (h) §2.10 — THE BODY REFRESH WITHOUT A PRESS: name, local ID, full team ID, the profile ---------------
+        // ⛔ NO press and NO push: `frame_only` just lets the clock run past the throttle, so a frame opens ONLY if the
+        //    tick's Home invalidation raised it. Each fact is one Home cannot show without that call.
+        {
+            t18 = settle(t18 + 500);                          // keep-alive: MY DEVICE -> MENU (the arrow only)
+            t18 += 700; paint(t18);
+            const char* strip0 = text_at(62, 7);
+            char strip_team[8]; snprintf(strip_team, sizeof strip_team, "%s", strip0 ? strip0 : "?");
+            g_node.set_name("Cy", 2);
+            frame_only();
+            CHK("P17r a new name repaints Home row 0 with NO press", body_row_is(0, "ME Cy"));
+            g_node.set_team_local_id(221);
+            frame_only();
+            CHK("P17r a new local ID repaints the team line with NO press", body_row_is(1, "TEAM 3D9348A5 T221"));
+            g_node.mutable_config().team_id = 0x3D9348A6u;
+            frame_only();
+            CHK("P17r a new full team ID repaints the team line with NO press", body_row_is(1, "TEAM 3D9348A6 T221"));
+            CHK("P17r ...and no strip token moved for any of the three (the repaint is the BODY's)",
+                text_at(62, 7) != nullptr && strcmp(text_at(62, 7), strip_team) == 0);
+            g_node.set_team_local_id(0);                      // the ID is LOST: the profile moves to ID-pending
+            frame_only();
+            CHK("P17r the profile moving (the ID lost) repaints the team line with NO press",
+                body_row_is(1, "TEAM 3D9348A6 NO ID") && strstr(g_c.page_text, "SEND TO TEAM") == nullptr);
+            g_node.set_team_local_id(220);                    // ...and an ID ARRIVING brings SEND TO TEAM back
+            g_node.mutable_config().team_id = 0x3D9348A5u;
+            frame_only();
+            CHK("P17r an ID arriving repaints the team line with NO press", body_row_is(1, "TEAM 3D9348A5 T220"));
+            g_node.set_name(kProbeName, uint8_t(sizeof kProbeName - 1));
         }
 
         // ---- restore the fixture P15/P16 inherit (P9d's team + P13's content key) ------------------------------
@@ -3273,7 +3435,8 @@ int main() {
             tb = double_press(tb); paint(tb);
             CHK("P18b entering marks row 0 and moves no other column",
                 body_row_is(0, ">Wolfg" "\xBB" "  3m        "));
-            CHK("P18b ...and the last row is the shared BACK row", body_row_is(3, " BACK"));
+            // ⓘ W4b (design §6.1 rule 2 — REWRITTEN, brief §2.9): the shared exit row reads `MENU` (was `BACK`).
+            CHK("P18b ...and the last row is the shared MENU row", body_row_is(3, " MENU"));
             // One `short` walks the list — ⛔ it does not leave the screen (the contained-`BACK` rule) — and the
             // marker moves ONE row. ⚠ The rows are re-stamped first so the walk's own ~1.2 s cannot move a token.
             stamp_min(tb + 400);
@@ -7120,14 +7283,16 @@ int main() {
             CHK(lab, body_row_is(1, sel_loc));
             snprintf(lab, sizeof lab, "P29b %s compose: the plain phrase UNSELECTED renders whole at row 2", k.who);
             CHK(lab, body_row_is(2, un_plain));
-            snprintf(lab, sizeof lab, "P29b %s compose: BACK follows unchanged at row 3", k.who);
-            CHK(lab, body_row_is(3, " back, don't send"));
+            // ⓘ W4b (design §6.5): the CHANNEL list is the top-level Send list now, so its exit row is ` MENU` (was
+            //   ` back, don't send`, which the DM sub-view keeps). The width property this phase pins is unchanged.
+            snprintf(lab, sizeof lab, "P29b %s compose: the exit row follows unchanged at row 3", k.who);
+            CHK(lab, body_row_is(3, dm ? " back, don't send" : " MENU"));
             t29 = see(settle(t29 + 500));
             snprintf(lab, sizeof lab, "P29b %s compose: after one short the located phrase is UNSELECTED, whole", k.who);
             CHK(lab, body_row_is(1, un_loc));
             snprintf(lab, sizeof lab, "P29b %s compose: ...and the plain phrase SELECTED, whole", k.who);
             CHK(lab, body_row_is(2, sel_plain));
-            t29 = open_highlighted(t29 + 500, ">back, don't send");   // leave without sending
+            t29 = open_highlighted(t29 + 500, dm ? ">back, don't send" : ">MENU");   // leave without sending
         }
         CHK("P29b `preset reset all` restores the compiled catalog",
             run_preset_cmd("preset reset all") &&
@@ -7143,7 +7308,8 @@ int main() {
             ProbeCfgStore& st = probe_store();
             ProbeCfgLive&  lv = probe_live();
             const mrnv::Blob rec0 = st.rec;
-            char entry[24]; snprintf(entry, sizeof entry, ">%s", mrui::kSettingsEnterText);
+            // ⓘ W4b (design §6.5): the closed view is a menu-mode PREVIEW, so the entry row carries no `>` any more.
+            char entry[24]; snprintf(entry, sizeof entry, "%s", mrui::kSettingsEnterText);
             t29 = to_cfg_closed(t29 + 500);
             CHK("P29c precondition: the configuration is CLEAN (no marker above the entry row)", body_row_is(0, entry));
             auto edit_dm_crypt = [&]() {                  // P7a's editor walk: enter, cycle the DRAFT, accept
@@ -7182,6 +7348,60 @@ int main() {
             t29 = walk_to(t29 + 500, ">DISCARD"); t29 = see(double_press(t29 + 500));
             t29 = to_cfg_closed(t29 + 500);
             CHK("P29c the phase leaves the configuration CLEAN again", body_row_is(0, entry));
+
+            // ---- (d) ★★★★ W4b — HOME's SETUP ITEMS ON THE GLASS (design §6.6, brief §2.5/§2.9) ------------------
+            // ★ The admission runs AT ACTIVATION; a refusal opens the SETTINGS-slot note with its FROZEN reason at an
+            //   exact row (row 1) and `IN SETTINGS` on row 2, no arrow; either press returns Home ON ITS OPENER. And
+            //   an admitted CREATE TEAM reaches the BACK-first confirmation, whose BACK — origin `home` — returns Home.
+            //   ⓘ The Settings-path refusals above are UNCHANGED (W3-U1/W3-N1 keep their meaning): these rows are
+            //   the Home origin's own, with their own control (W4b-N6).
+            // ⓘ On this arm only: the l2 build publishes neither JOIN TEAM nor CREATE TEAM (no child), so Home never
+            //   offers them there — ⛔ never bypassed to make an arm pass (brief §2.3).
+            {
+                const uint32_t team0 = g_node.config().team_id;
+                g_node.mutable_config().team_id = 0;          // NO TEAM: Home offers JOIN TEAM and CREATE TEAM
+                t29 = walk_to_slot(t29 + 500, kSlotStatus);
+                t29 = double_press(t29 + 500); t29 += 700; paint(t29);   // Home's list
+                t29 = open_highlighted(t29, ">CREATE TEAM");
+                t29 += 700; paint(t29);
+                CHK("P29d Home CREATE TEAM opens the BACK-first confirmation, the rail on SETTINGS",
+                    rail_boxed_slot() == kSlotSettings && strstr(g_c.page_text, ">BACK") != nullptr);
+                t29 = see(double_press(t29 + 500));
+                CHK("P29d ...and its BACK returns HOME in list focus, the arrow on CREATE TEAM",
+                    rail_boxed_slot() == kSlotStatus && rail_cue_slot() == -1 &&
+                    strstr(g_c.page_text, ">CREATE TEAM") != nullptr);
+                struct Blk { const char* what; const char* note; };
+                auto blocked = [&](const Blk& b) {
+                    char lab[112];
+                    t29 = walk_to_slot(t29 + 500, kSlotStatus);
+                    t29 = double_press(t29 + 500); t29 += 700; paint(t29);
+                    const int w0 = st.writes, a0 = lv.applies, l0 = st.loads;
+                    t29 = open_highlighted(t29, ">JOIN TEAM");
+                    t29 += 700; paint(t29);
+                    snprintf(lab, sizeof lab, "P29d %s: Home JOIN TEAM shows exactly %s / IN SETTINGS on rows 1-2", b.what,
+                             b.note);
+                    CHK(lab, body_row_is(1, b.note) && body_row_is(2, "IN SETTINGS") && body_row(0) == nullptr &&
+                             body_row(3) == nullptr && body_row(4) == nullptr);
+                    snprintf(lab, sizeof lab, "P29d %s: ...no arrow, the rail boxing SETTINGS", b.what);
+                    CHK(lab, strstr(g_c.page_text, ">") == nullptr && rail_boxed_slot() == kSlotSettings);
+                    snprintf(lab, sizeof lab, "P29d %s: ...and the refused activation saved, applied and loaded nothing",
+                             b.what);
+                    CHK(lab, st.writes == w0 && lv.applies == a0 && st.loads == l0);
+                    t29 = see(settle(t29 + 500));             // EITHER press dismisses it
+                    snprintf(lab, sizeof lab, "P29d %s: ...either press returns HOME, the arrow on JOIN TEAM", b.what);
+                    CHK(lab, rail_boxed_slot() == kSlotStatus && strstr(g_c.page_text, ">JOIN TEAM") != nullptr);
+                };
+                edit_dm_crypt();                              // UNSAVED
+                blocked({"unsaved", "SAVE OR DISCARD"});
+                st.rec.intro_attach = rec0.intro_attach ? 0 : 1;   // ...and a CONFLICT under it: conflict outranks
+                mr_ui_on_config_saved();
+                blocked({"conflict", "RELOAD OR DISCARD"});
+                st.rec = rec0;                                // restore, exactly as (c) does
+                t29 = cfg_walk_to(t29 + 500, ">DISCARD"); t29 = see(double_press(t29 + 500));
+                g_node.mutable_config().team_id = team0;
+                t29 = to_cfg_closed(t29 + 500);
+                CHK("P29d the phase leaves the configuration CLEAN again", body_row_is(0, entry));
+            }
         }
 #endif
         t29 = walk_to_slot(t29 + 500, kSlotStatus);

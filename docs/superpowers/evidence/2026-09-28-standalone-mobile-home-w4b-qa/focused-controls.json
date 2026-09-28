@@ -1,0 +1,45 @@
+[
+  {
+    "entry": "M103",
+    "label": "M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
+    "anchor_matches": 1,
+    "old": "        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;",
+    "new": "        _st.settings = Settings::closed;   _st.dirty = true;",
+    "baseline_model_sha256": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286",
+    "mutant_model_sha256": "46aef939ad1b42a1c128690e21f1d63da53f5d7e9cacb34475c94a00a2c8f097",
+    "exit_code": 0,
+    "seconds": 56.351,
+    "failures": [],
+    "count_lines": [
+      "557 passed / 0 failed / 557 total",
+      "       1023 passed / 0 failed / 1023 total",
+      "       557 passed / 0 failed / 557 total"
+    ],
+    "copy": "/tmp/meshroute-w4b-qa-20260928-9dm_qgqi/focused-copy",
+    "copied_paths": 1674
+  },
+  {
+    "entry": "H25",
+    "label": "H25 \u2605\u2605\u2605\u2605 the Settings MENU is shown over a CLOSED service (B457 \u2014 a pre-empted ungated flow leaves an invisible menu)",
+    "anchor_matches": 1,
+    "old": "        if ((_st.settings == Settings::browsing || _st.settings == Settings::editing) && !(_cfg && _cfg->is_open())) {",
+    "new": "        if (false) {",
+    "baseline_model_sha256": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286",
+    "mutant_model_sha256": "b3ac21f0fd10ba79ece3f6b25be2e01237837b21b751707b3a1c62c9ad58deee",
+    "exit_code": 1,
+    "seconds": 57.183,
+    "failures": [
+      "  FAIL the child-enabled arm is RED:",
+      "      FAIL P3v ...in MENU MODE: the cue beside SETTINGS and no arrow anywhere  rail_cue_slot() == kSlotSettings && strstr(g_c.page_text, \">\") == nullptr",
+      "      FAIL P3v ...and a short reaches the next rail screen (Home), the cue with it  rail_boxed_slot() == kSlotStatus && rail_cue_slot() == kSlotStatus",
+      "      FAIL P3u once the store answers, the next sync OPENS it: the entry row replaces the notice  body_row_is(0, mrui::kSettingsEnterText) && body_row(2) == nullptr && st.loads == l1 + 1 && st.writes == w0",
+      "FAIL"
+    ],
+    "count_lines": [
+      "557 passed / 0 failed / 557 total",
+      "       557 passed / 0 failed / 557 total"
+    ],
+    "copy": "/tmp/meshroute-w4b-qa-20260928-9dm_qgqi/focused-copy",
+    "copied_paths": 1674
+  }
+]

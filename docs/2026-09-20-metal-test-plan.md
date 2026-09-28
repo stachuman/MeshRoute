@@ -43,6 +43,7 @@ Use `OWED`, `PASS <build> <date>`, `FAIL → B###`, `N/A <reason>`, or `RETIRED 
 | [UI-18](#ui-18) | duty gauge | OWED |
 | [UI-19](#ui-19) | non-team OLED profile | OWED |
 | [UI-20](#ui-20) | identity-label glyphs, abbreviation and unnamed peers (W4a) | OWED |
+| [UI-21](#ui-21) | Home and My-device rows, name glyphs and list window (W4b) | OWED |
 | [CUSTODY-01](#custody-01) | static relay failure, persistence and deletion | OWED |
 | [CUSTODY-02](#custody-02) | translated report to the originating mobile | OWED |
 | [CUSTODY-03](#custody-03) | lost correlation and optional re-home | OWED |
@@ -282,9 +283,9 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 ### UI-01 — panel, geometry and blanking
 
 1. On H1 and V record board revision; healthy boot shows live UI and no `!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)`. Do not change pin polarity as a diagnostic experiment; retain the failed image if that line appears.
-2. Cycle STATUS/TEAM/INBOX/SEND/SETTINGS: one boxed rail icon, fixed slot heights, no body/rail overlap. Strip slots are mail, home, people, key, duty, battery; no stale STATUS/SETTINGS title. Check mail widths at 9→10 and 99→`99+`; icons do not move.
-3. On an isolated burst fixture receive over 999 posts without viewing INBOX: strip clamps at `99+`, body at `CH 999`; neither wraps nor grows a fourth digit. A fully drawn INBOX list clears session-unread to zero. If the burst was not done, leave this arm OWED.
-4. Let the panel blank; first short wakes without navigation, next short navigates. On SDA/SCL (read the current board pins), capture one blank-transition burst then a minute of quiet bus. Under DM traffic, repaints complete promptly without broken RTS/CTS exchanges.
+2. Boot lands on Home in list focus, arrow on its first applicable item, with no 24×24 mark. Each top-level list (Home/TEAM/INBOX/SEND/SETTINGS) ends in `MENU`: choosing it enters menu mode on the Home rail slot. Short walks enabled slots; double opens the preview in list focus. Exactly one x0–9 box names the body; the x10–11 gutter cue appears only in menu mode, whose previews have no body arrow. Keep fixed slot heights and no overlap. Strip slots remain mail, home, people, key, duty, battery; verify 9→10 and 99→`99+` without moving icons.
+3. On an isolated burst fixture receive over 999 posts without viewing INBOX: strip clamps at `99+`, body at `CH 999`; neither wraps nor grows a fourth digit. A complete visible INBOX list or menu-mode preview clears session-unread to zero. If the burst was not done, leave this arm OWED.
+4. On a non-first item, exercise blank, consumed short/double wake, and message wake from list focus and menu mode: the same screen, focus and selected item return; the wake press runs no action. Separately exercise OQ-3: blank cancels an unfinished grant confirmation to its list (TEAM for a roster grant), or a saved-key offer to the PROVISION menu; neither goes Home. On SDA/SCL (current board pins), capture one blank-transition burst then a minute of quiet bus. Under DM traffic, frames complete without broken RTS/CTS exchanges.
 
 **PASS:** legible, stable pixels and measured edge-only blanking while radio service continues. **STOP:** clipping, repeated blank I²C traffic, wrong wake gesture or radio starvation.
 
@@ -304,7 +305,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 ### UI-03 — settings draft, conflict and real save
 
-1. SETTINGS lands at `>ENTER SETTINGS`; one short passes it, double opens. Edit DM crypt; `CFG* UNSAVED` appears in SETTINGS and the rail dot appears elsewhere, while persisted `cfg` stays unchanged. Blank/wake and BACK/re-enter preserve the draft.
+1. SETTINGS in menu mode shows `ENTER SETTINGS` without an arrow; one short passes it, double opens over an available service. Edit DM crypt; `CFG* UNSAVED` appears in SETTINGS and the rail dot appears elsewhere, while persisted `cfg` stays unchanged. Blank/wake and `MENU`/re-enter preserve the draft. The menu wraps, and its `MENU` saves nothing before returning to menu mode on Home; sub-view BACK rows keep their own exits.
 2. Save: `SAVED`; reboot and compare `cfg`, IDs, team, SF list and counters to the baseline. Only the requested covered setting changed. Re-save unchanged: `NO CHANGE`; this sentence alone is not a physical flash-write counter.
 3. Leave a draft, change the *other* covered field with `cfg set intro_attach <opposite>`. Without a press the closed SETTINGS view says `CFG! RELOAD`; SAVE refuses. Revert the console value: conflict still stands. RELOAD merges untouched fields; save and reboot preserve the resulting record.
 4. A non-covered `cfg set beacon_ms <value>` or live `cfg set nav 1` raises no conflict. Restore values.
@@ -316,8 +317,8 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 ### UI-04 — create team on glass
 
-1. With valid persisted PHY/SF list: SETTINGS → PROVISION → CREATE TEAM. Confirm screen `CREATE NEW TEAM`, `REPLACES <6hex>` if applicable, BACK selected. BACK changes no team/key and originates no DAD.
-2. Select CREATE: `TEAM CREATED`, full `0x<8HEX>` and its last six digits; `cfg` agrees and actual DAD assigns a local ID.
+1. On a teamless OLED node with valid persisted PHY/SF list, Home → CREATE TEAM shows `CREATE NEW TEAM`, BACK selected. BACK changes no team/key and originates no DAD; it returns Home on CREATE TEAM. Re-enter. Also check the Settings → PROVISION entry: its exit keeps the Settings origin; `REPLACES <6hex>` appears when already in a team.
+2. Select CREATE: `TEAM CREATED`, full `0x<8HEX>` and its last six digits; `cfg` agrees and actual DAD assigns a local ID. Acknowledge the Home-started flow to Home. ID/key arrivals update its options without choosing an action: a retained selected item stays selected; a vanished one gives item 1 and `OPTIONS CHANGED`, whose next non-wake press only dismisses it.
 3. Power-cycle: team, key and local ID survive; no spurious fresh team-DAD. Export only disposable key material for comparison.
 4. `mobile register freq=<F2> sf=7 bw=125` creates live/persisted divergence. Another OLED create must show `PHY DIFFERS` / `USE SERIAL`, with no team change/DAD. Reboot to restore PHY.
 
@@ -340,9 +341,9 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 ### UI-06 — nearby teams and keyless join
 
-1. A teamless H1 and team owner H2 share PHY/leaf. PROVISION → JOIN TEAM opens `NEARBY` / `CURRENT PHY ONLY` / `SAME RADIO + LEAF`, with H2's six-hex team fingerprint. A peer name never replaces that fingerprint.
+1. A teamless H1 and team owner H2 share PHY/leaf. Home → JOIN TEAM opens `NEARBY` / `CURRENT PHY ONLY` / `SAME RADIO + LEAF`, with H2's six-hex team fingerprint. BACK first returns Home on JOIN TEAM without joining; re-enter and open the team row, whose confirmation also starts on BACK. A peer name never replaces the fingerprint. Settings → PROVISION → JOIN TEAM retains its original parent return.
 2. Stay in the list through a beacon: rows/ages remain frozen; re-enter to refresh. Change H1's `leaf_id` to a different nibble and reboot: `NO TEAMS NEARBY`; restore it and require the row returns on a beacon.
-3. Confirm the row: `TEAM JOINED` and full team ID. Reboot: membership survives but remains keyless unless the explicit saved-key action in UI-10 was taken. A sealed post is unreadable when keyless.
+3. Confirm the row: `TEAM JOINED` and full team ID. The Home-started terminal returns Home; local-ID and key arrivals update its options under the identity/`OPTIONS CHANGED` rule in UI-04. Reboot: membership survives but remains keyless unless the explicit saved-key action in UI-10 was taken. A sealed post is unreadable when keyless.
 4. Your own team is excluded from NEARBY. After the other team is silent for ten minutes it expires from a fresh list; BACK remains usable. Compare five minutes of entering/leaving with idle baseline: no UI query/join traffic until explicit confirmation.
 5. Live PHY divergence yields `PHY DIFFERS` / `USE SERIAL`; reboot restores the intended PHY.
 
@@ -420,7 +421,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 1. With a teammate visible, watch TEAM ages change without input during a lit interval; after blank/wake they reflect elapsed time. Do not demand a continuously lit 90-second screen with a 15-second blank timer.
 2. Set distinct nonzero coordinates on H1/H2; H2 sends `send <HASH-H1> "<TAG>-geo" -t -a -e -l`. TEAM shows distance/direction. Keep H2 beaconing but send no new position for ten minutes: the row remains, distance/direction become blank.
-3. An uncached peer has blank distance, not `0m`; coincident known positions give `0m` and no direction. Zero own coordinates: no invented vector. Compare idle STATUS versus TEAM RF baseline: viewing positions sends no location query.
+3. An uncached peer has blank distance, not `0m`; coincident known positions give `0m` and no direction. Zero own coordinates: no invented vector. Compare idle Home versus TEAM RF baseline: viewing positions sends no location query.
 4. Pick a teammate, remove it and wait for actual roster expiry: no selection marker, complete `TEAMMATE GONE, pick`, double sends nothing. Short re-picks. On a roster reorder, selection follows identity, not row number.
 
 **PASS:** time/position and identity on glass match real received evidence. **STOP:** stale vector, fabricated position, extra location traffic or wrong-target send.
@@ -485,7 +486,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 ### UI-19 — non-team OLED profile
 
-1. Flash an identified `gateway_heltec` or `gateway_heltec_v4` image. Rail has STATUS/INBOX/SETTINGS at the same heights, with TEAM/SEND slots empty; house strip slot is blank, not a fault icon.
+1. Flash an identified `gateway_heltec` or `gateway_heltec_v4` image. Rail has Home/INBOX/SETTINGS at the same heights, with TEAM/SEND slots empty; house strip slot is blank, not a fault icon. Home's items are exactly `INBOX` / `MY DEVICE` / `MENU` (INBOX may carry its unread count); its team line is blank.
 2. SETTINGS has no PROVISION row. `joinprofile list` → `> err gateway_build (joinprofile is normal-node only)`.
 3. Confirm ordinary navigation/blank/wake and a real radio receive after the profile change.
 
@@ -501,6 +502,18 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 4. Repeat with a genuinely unnamed peer and a fresh cache on the displaying peer: verify its `nameof` result has no `name` field. TEAM shows the six-digit fingerprint; the invite name field is blank beside its separate fingerprint; NEW MEMBER shows the whole `0x<HASH8>`. Empty advertisements do not erase an older cached name: such a fixture does not exercise this arm.
 
 **PASS:** the real `6x10_tf` font draws the expected cells legibly on both screens. **STOP:** missing/doubled marker, raw Latin-1, collapsed cells, clipped hash or fabricated invite name. Leave unexercised arms OWED if the cache/candidate fixture cannot be established; host byte captures do not establish glyph appearance. No new console line is introduced by W4a; the acknowledgements above establish the physical fixture.
+
+<a id="ui-21"></a>
+
+### UI-21 — Home and My device on glass (W4b)
+
+1. On H1 and V record the current name and position for restoration. Send `cfg set name ABCDEFGHIJKLMNOPQRSTUVWXYZ123456`; expect exactly `> cfg ok name (saved to /mrid)`. Without a button press, Home row 0 becomes `ME ABCDEFGHIJKLMNO»`, at the ordinary 19-cell body origin, with one legible final chevron.
+2. Choose MY DEVICE. Rows are `ABCDEFGHIJKLMNOPQRS` / `TUVWXYZ123456` / `ID 0x<HASH8>` / the three-decimal position (or `NO LOCATION`) / `>BACK`. No abbreviation, overdraw or lost tail. Short stays on BACK; double returns Home with MY DEVICE selected.
+3. Send `cfg set name łAB` (UTF-8 `C5 82 41 42`), with the same exact save acknowledgement. Home shows `ME ..AB`; My device shows `..AB` and a blank second name row. Observe live refresh and stable glyph cells, including a rename during activity; restore the recorded name afterwards.
+4. On an already unnamed spare fixture, `whoami` must contain `name=""`. Home shows `ME 0x<HASH8>`; My device shows `NO NAME SET`, blank row 1 and the full ID row. Quoted text is not an empty-name setter; leave this arm OWED if no genuinely unnamed fixture is available.
+5. On an identified OLED fixture with a reachable restart-required setting, save it: `SAVED`, then Home's `RESTART NEEDED` on row 2 and a two-row list window on rows 3–4. Arrow, scrolling and MENU remain legible. The stock BLE-row-disabled image has no BLE restart-setting arm (UI-03); do not fabricate this state or mark it passed from a host probe. Restore the setting.
+
+**PASS:** the real panel draws the counted name, whole ID, position and both list-window sizes legibly, with the stated physical gesture returns. **STOP:** clipping, missing chevron, raw UTF-8/Latin-1, wrong return or a redraw requiring an extra press. No new console command is introduced; the save acknowledgement and `whoami` establish the fixture. Unexercised arms remain OWED.
 
 ## Custody over real radios
 

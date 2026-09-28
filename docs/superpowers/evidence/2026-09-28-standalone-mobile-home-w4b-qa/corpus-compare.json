@@ -1,0 +1,256 @@
+{
+  "total": 36,
+  "all_fields_identical_per_scenario": 14,
+  "fields": [
+    "anchor_assertion_failures",
+    "anchor_events",
+    "anchor_match",
+    "anchor_md5_prefix",
+    "assertion_failures",
+    "events",
+    "exit_status",
+    "name",
+    "output_bytes",
+    "output_md5",
+    "output_sha256",
+    "promoted",
+    "scenario_path",
+    "scenario_sha256"
+  ],
+  "rows": [
+    {
+      "name": "s06_seattle_lifecycle",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s07_seattle_mobile_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s09_two_layer_gateway",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s09_two_layer_gateway_metal",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s10_two_layer_separation",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s15_three_layer",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s15_three_layer_metal",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s16_dense_gateway",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s17_metro",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s18_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s19_singlelayer_multihop_chain",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s20_random_mesh",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s21_leaf_config_divergence",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s21_mobile_dm_milestone_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s22_leaf_config_join",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s22_mobile_team_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s23_leaf_config_epoch_write",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s23_mobile_team_multihop_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s24_static_and_team_multihop_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s25_two_team_separation_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s26_team_reroute_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s27_cross_layer_mobiles_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s28_mixed_team_channels_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s29_mixed_leaf_team_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s30_team_dad_mediation_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s31_dual_carrier_gateway",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s32_dual_cr_gateway",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s33_mixed_cr_channel_overhear",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s34_team_switch_clears_plane",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s35a_cochannel_isolation_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s35b_cochannel_isolation_control_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s36_reprovision_purges_carriers",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s37_team_homed_origin_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "s38_team_origin_learn_meshroute",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "sim_9node_base",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    },
+    {
+      "name": "twin_9node_dm",
+      "keys": 14,
+      "precheck_differences": {},
+      "coder_differences": {}
+    }
+  ],
+  "s18": {
+    "anchor_assertion_failures": 0,
+    "anchor_events": 269517,
+    "anchor_match": true,
+    "anchor_md5_prefix": "32afbf11",
+    "assertion_failures": 0,
+    "events": 269517,
+    "exit_status": 0,
+    "name": "s18_meshroute",
+    "output_bytes": 38698103,
+    "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+    "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+    "promoted": true,
+    "scenario_path": "simulation/s18_meshroute.json",
+    "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+  },
+  "baseline_sha256_unchanged": true,
+  "inputs_stable": true
+}

@@ -1,0 +1,6 @@
+{
+  "stage_a_control_scripts_and_labels_equal_HEAD": 236,
+  "stage_a_accounting_byte_identical_to_final": true,
+  "accounting_sha256": "08520c37894174307d7f233dc541315d756d7f1c149af44a66cd0900f3ab3e0c",
+  "stage_a_file_sha256": "ed49e5b36ddfa5b44d9c04360eb211eea4da8b9f5df989e1cf1aec9eee91b237"
+}

@@ -1,0 +1,327 @@
+[
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/abi.log",
+    "bytes": 5471,
+    "sha256": "e7c4e1eafcc375427b458c111ff3ca45eaffca8e3303438550df8131583e6235"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/b456-regressions.log",
+    "bytes": 118,
+    "sha256": "25bb4b3dc77aefdd71f564b3ecd35ecebf483938ff63ea2578072cfb61b62808"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/board-ui-noneg.log",
+    "bytes": 1851,
+    "sha256": "5f37a77011c5dea8df02fca10d8cf8642629ced18120a4f7415580f4c32347f8"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/boards-compare.json",
+    "bytes": 1143,
+    "sha256": "19b320037daacf1e7365ced745380dd73411ba538235c1f3a5ac0a72ca44b030"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/boards.log",
+    "bytes": 964,
+    "sha256": "cc57abefe4bb1683c08fc1ef9ca8826a10eb8cbc8b2a33d9ddc9db85d565c92a"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/chk_recon.txt",
+    "bytes": 4901,
+    "sha256": "03b3ded39048d25564d0e64bbda6da3f6e4c8de3a4740ef21bdc7fc812937bc2"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/collect_results.py",
+    "bytes": 4201,
+    "sha256": "ee4524a5ed19540914fa68f1bad7d8aafd2db90a1a636fae1bf784f66831201d"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/controls-independent.json",
+    "bytes": 59280,
+    "sha256": "fa3b3d426d9e07b58c6019cc17a0270c8343e5ac9ca7912a8339d445f7240d5f"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/corpus/manifest.json",
+    "bytes": 28936,
+    "sha256": "f6f0a315ecbe508811aedf5d1bd0bbf14710855e0e408f8bf44bf1c1266845f0"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/corpus-compare.json",
+    "bytes": 6025,
+    "sha256": "b181660c3ce17935711805564396aac382767219b9cf93b4552c753c10aa6058"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/corpus-validate.log",
+    "bytes": 142,
+    "sha256": "9309dd748825f5575cbe6501b5d87c86e269b020100dc79e2a242fd56a1a83a1"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/corpus.log",
+    "bytes": 3398,
+    "sha256": "0340bda431e1d312a9e8dcfb5cfabd4d1c0bcf126fee788bead2afa86ad0b9f5"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/ctl_recon.txt",
+    "bytes": 921,
+    "sha256": "2d83acfa45225017364ed754c098062ace5b0b1dbdc56be9a7ac3f8127decda1"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/firmware-ui-noneg.log",
+    "bytes": 2669,
+    "sha256": "f94430125a78e0e7cf56f34e031d5c42ad335e2adc5f85a009e36971dd087df3"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/firmware-ui.log",
+    "bytes": 41557,
+    "sha256": "2dbca0d43181375b35ff69a0e39988fe8c46e9d547b19fd0d9d1c053f38b6c44"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/firmware_ui.cpp.semantic.diff",
+    "bytes": 10697,
+    "sha256": "4f56d4402bf6f0ea3a9d2a83c4eb4a19be67d144b90e56e58175b7056e3233e7"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/firmware_ui_chrome.h.semantic.diff",
+    "bytes": 2106,
+    "sha256": "16ad62ed2ff9e64a67c176714cb6a4e7b2ca0db2c8e02dd04592088e68a39ec4"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/firmware_ui_model.h.semantic.diff",
+    "bytes": 27056,
+    "sha256": "89e4f024feff6a3aa018034fced3e933b965a524422f992a191c83dd99b404db"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/firmware_ui_status.h.semantic.diff",
+    "bytes": 8923,
+    "sha256": "64aa340641aa0b37049c30f78aaeaab05c7fe844de8b9be8b669c0f481082263"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/first-steps.json",
+    "bytes": 413,
+    "sha256": "07070c1cf638cadf0b46c6b2f9ab80e447710d80f082cf3be35e7d1432b3bf4a"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/focused-H25.log",
+    "bytes": 3058,
+    "sha256": "1679fb55a24c9f98a83fcb8564d81486e17be9c1219d6ef4e7c98506865defdc"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/focused-M103.log",
+    "bytes": 2669,
+    "sha256": "e84de56a4d774d47a47e04b9c948b75715737415f514e1d3b362e5f41fe1ba84"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/focused-controls.json",
+    "bytes": 2336,
+    "sha256": "7b2e310b2e804f4ec545f85a3d73850fe9e758d27035d8c9c37fed5cd511e623"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/focused_controls.py",
+    "bytes": 2827,
+    "sha256": "eb20d3e79088bb5c631fd3870fdad7663bff807f32bacc5d8b92aacc4311d880"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/gate-steps.json",
+    "bytes": 3195,
+    "sha256": "c570b732ff84cd5a9e8cfac9dfe7751de9f46d18ea2db562131f86e0e3174ea2"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/inputs.json",
+    "bytes": 378713,
+    "sha256": "7441501fcb86c766e853079619e2b12f5901f7fa50b838b287647235968f4ee4"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/landing-before/MEMORY.md",
+    "bytes": 22380,
+    "sha256": "fb3826dc9254190fe66f15fa9edae81f646595601a8ac90c14bdf82d464d1092"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/landing-before/docs/2026-07-30-open-bug-register.md",
+    "bytes": 655635,
+    "sha256": "1f54f9c3cc3bb9fc83b882bb77e2beb423a3e999b61fb16d82dfd452afdbbc0f"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/landing-before/docs/2026-09-20-metal-test-plan.md",
+    "bytes": 93053,
+    "sha256": "8bcff449e7c94b88243a07a1b589afe6bb0fb8a4eb8f3430852b871a9e3e451d"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/landing-before/docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "bytes": 127602,
+    "sha256": "80f7078419c9d70a2f3f03b52375f355c10e285fa397530a0c98210cba3ccae9"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/landing-before/tracker.md",
+    "bytes": 9973,
+    "sha256": "bd1566b362047afe58be0668f74c1a2a0fedb1adf2a4b96aeb486e0ff3d399f2"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/landing-preview.diff",
+    "bytes": 61266,
+    "sha256": "fc40c2f9acd0c86f6a19d5112d723307e0223f3c397f10f9172cc287ef415b86"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/layout.json",
+    "bytes": 3450,
+    "sha256": "28f770e21dc9848924888fecd98be17b5dd16e846c2a2ac180e455e57f6f6503"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/layout.log",
+    "bytes": 551,
+    "sha256": "c389224e2ba46efc3457c29c95b779fa559f810041b6a6943c17af2a55d5e230"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut-chrome.log",
+    "bytes": 19576,
+    "sha256": "6d775565b84ff2a11758cfae1fa978d8cbadcabc9d38bc584085c166f46687c2"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut-model.log",
+    "bytes": 92478,
+    "sha256": "9a8c44dc457da70214b17c04986c2c670d39739a924b146e7d28bf369ec15685"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut-sliceCbudget.log",
+    "bytes": 1839,
+    "sha256": "2630fc89a62feb0eb8a65eda211a1db4fb07135673c073d6c49b55918c749e45"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut-uistatus.log",
+    "bytes": 11554,
+    "sha256": "75e190d4d9059effa64214933048cf81497ca11adda9a9dba2f6553489bf3ae2"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut-w4aident.log",
+    "bytes": 8573,
+    "sha256": "1c5f6961730ea2cd01462de196829f0b55a8f9d254f5724242ee03ee51cc1f72"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut-w4bhome.log",
+    "bytes": 14045,
+    "sha256": "4f6933e562725d54723909ee61b485b18d57a9a286dc894af249186f57b11923"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mut_recon.txt",
+    "bytes": 1218,
+    "sha256": "5dfb067bbf9e5d4990c5b4a4aa800a356f6bd1466de2766d00ad424477b3c509"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mutation-results.json",
+    "bytes": 133086,
+    "sha256": "1ef3e191f402d4eddba9406a792c83c093b5d18b84354aa2743234214edd8989"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/mutation-summary.txt",
+    "bytes": 736,
+    "sha256": "52dcf975a1ad640c24ca1c170738fb6964da8782f885b11f86d00bd4dcba4c27"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/native-binary.log",
+    "bytes": 409,
+    "sha256": "fb63e79105da20109a8f98e385d2b96bc03aafeebe9f47581cdc832115527edf"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/native-build.log",
+    "bytes": 414,
+    "sha256": "e2edf199fa35fe5f49bd0992aeb041a3bd0ca0f5558057d69512a24a23babd15"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/preflight.json",
+    "bytes": 10655,
+    "sha256": "19dbd1909c2876b7f1a4abd70381a89c99fdc20cc34ec8f5d766102c20401638"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/prepare_landing.py",
+    "bytes": 18454,
+    "sha256": "ad2b29db509ffd9484670486d0e6b8e3a4822f7b4b316b0fa1bc8ff2313fe223"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/preservation-before-landing.json",
+    "bytes": 469,
+    "sha256": "4cf065e8431f54e638ae01f041eb49b7061ce5d2d75c12305e8370726357e75e"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/run_steps.py",
+    "bytes": 1021,
+    "sha256": "60b291f17056f3cc8941698d31c94b783b9a0a6a46bf6b45633ad84e58d48611"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/runs.jsonl",
+    "bytes": 6098,
+    "sha256": "80f124eb951b2ff98417c95d832f68891ba1de9479600f172c5e7003dcd06cf6"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/scratch.json",
+    "bytes": 56,
+    "sha256": "655649aa558a23f658bac53949f42aeaeb145e46304ba4fb394d3553699b9c7c"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/sim-build.log",
+    "bytes": 8312,
+    "sha256": "d3064b250a7f31a8321c0a4bf1a9ad7749d8ac331212f0f42c990a2fc71ce342"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/sim-configure.log",
+    "bytes": 1006,
+    "sha256": "2f6e0b5cccbac96d35b2bfcadd9a8ced0268b6892c0f6364f7034c54ae558a19"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/source-review.md",
+    "bytes": 5990,
+    "sha256": "276f393b36d1b94c5d12c7931593cd38e36821eda0757afaaeb69c72cb60c1da"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w4b-qa/stage-a-audit.json",
+    "bytes": 297,
+    "sha256": "1478fc95bb9ce94341fa298326bac1a76268557ad28e435a201043e0f553e0c7"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/gateway/firmware.elf",
+    "bytes": 769540,
+    "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/gateway/firmware.hex",
+    "bytes": 1608800,
+    "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/gateway/symbols.txt",
+    "bytes": 288129,
+    "sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/gateway/sections.txt",
+    "bytes": 1398,
+    "sha256": "638242b4c1b530b9436f1a5315ccb48924b43568e4b76bed58cefa566774330c"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/gateway/build.log",
+    "bytes": 16778729,
+    "sha256": "f5faaa98f3ce69b05f8b0db0ea940340d32a016eb5e59675754fbc1d23b752e5"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/heltec_mobile/firmware.elf",
+    "bytes": 21630900,
+    "sha256": "66d2ac0636b50bc5a317a09842aa13ad286a2ad94691b5c6d66a2a01f629b33a"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/heltec_mobile/firmware.bin",
+    "bytes": 1398336,
+    "sha256": "6a7250e6e0a1f5ca08ee7d7385eeeabfeb07373a7bc785456267275d0a999b14"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/heltec_mobile/symbols.txt",
+    "bytes": 765058,
+    "sha256": "85fce380ad0a19c1689c5e08bdbe0e2e9db5f2b83330930db5d84545668d827b"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/heltec_mobile/sections.txt",
+    "bytes": 3673,
+    "sha256": "f336a553ca5e29fef3591c1841da7e3c931be3e834b48c5c196d0248665a5d0a"
+  },
+  {
+    "path": ".pio-measure/w4b-qa-20260928/final/heltec_mobile/build.log",
+    "bytes": 67603,
+    "sha256": "b607b8b94cf0ebf630319458b44b608bec4d48df7d3ebaf3f7574669b7d41611"
+  }
+]

@@ -1,0 +1,113 @@
+## test/test_firmware_ui_model.cpp: base 380 cases, now 421
+FIXTURE-PREFIX	ui-model: short press is SCREEN-AWARE: one press per screen, the LIST is behind the double
+FIXTURE-PREFIX	ui-model: an empty TEAM list is passed through, not a dead end
+FIXTURE-PREFIX	ui-model: a non-team build cycles STATUS -> INBOX -> SETTINGS and never reaches TEAM or SEND
+FIXTURE-PREFIX	ui-model: double on STATUS activates nothing; on INBOX it now OPENS THE DETAIL MODAL (§UI-7D)
+CHANGED	ui-model: SEND double opens the channel compose list and index 1 sends the second canned text
+CHANGED	ui-model: B64 — the refusal is retired before TEAM can be left, and never comes back
+FIXTURE-PREFIX	ui-model: an empty TEAM list opens no modal on double
+CHANGED	ui-model: dirty starts true, is cleared on demand, and an idle tick does not set it
+FIXTURE-PREFIX	ui-model: blanking KEEPS the modal, and the consumed waking press puts it back on the panel
+FIXTURE-PREFIX	ui-model: B101 — committing an alarm CLOSES the compose modal and resets its cursor
+FIXTURE-PREFIX	ui-frame: F1 — a mid-frame GESTURE is not swallowed by the completing frame
+FIXTURE-PREFIX	ui-model: R2 — two DOUBLES under the overlay cannot open and then SEND an invisible compose view
+FIXTURE-PREFIX	ui-model: R2 — a DOUBLE cannot SEND from a compose modal left open under ARMING
+FIXTURE-PREFIX	ui-model: R2 — the overlay absorbs a DOUBLE in every non-idle emergency state
+FIXTURE-PREFIX	ui7-chan: a refused canned post is TERMINAL, not a permanent SENDING...
+CHANGED	ui14-rows: the row labels are the panel's, and none exceeds the 10-column budget
+CHANGED	ui14-cycle: SETTINGS is the last slot, and it is LIST-AWARE like TEAM and INBOX
+CHANGED	ui14-back: BACK is safe — it leaves the MENU and PRESERVES the unsaved draft
+CHANGED	ui15-close: leaving SETTINGS by its BACK row retires the sub-state, and coming back opens the MENU
+CHANGED	ui17-lex: the list's BACK row is the SHIPPED spelling, and there is only one of it
+CHANGED	ui17-entered: ONE predicate answers `is this screen entered`, for every screen
+FIXTURE-PREFIX	ui17-passive: TEAM and INBOX LAND PASSIVE, and ONE press passes each of them
+CHANGED	ui17-passive: a `double` on a passive list ENTERS it and queues NOTHING
+CHANGED	ui17-empty: an empty roster and an empty inbox still offer BACK, and still leave
+FIXTURE-PREFIX	ui17-passive: a passive preview records NO pick, so a roster change raises no refusal
+CHANGED	ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserves the packed invite layout
+FIXTURE-PREFIX	ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row and opens the chain with the ROW'S hash
+FIXTURE-PREFIX	ui16-k7-keyless: pin 6 — a KEYLESS node offers nothing, and neither does a build that cannot grant
+CHANGED	ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and the published identity costs ZERO
+CHANGED	ui16-K4: the note occupies the panel's ONE transient team answer, and every entry retires it
+CHANGED	ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both land in EXISTING padding
+CHANGED	ui16-k6-resources: the retention carriers cost exactly themselves, and NO landed field moved
+CHANGED	ui10-p3-resources: the list projection costs 328 B of UiSnapshot and ZERO of UiState
+RENAMED	ui-model: the channel list's last row is `back` and sends nothing  ->  ui-model: the channel list's last row is `back` — MENU since W4b — and sends not
+RENAMED	b232-exit: BOTH menu exits return to the CLOSED view — ⛔ never straight off the   ->  b232-exit: BOTH menu exits return to the CLOSED view — W4b: MENU goes Home in me
+RENAMED	ui17-back: BACK closes the list to the SAME screen, and one further press then p  ->  ui17-back: BACK closes the list to the SAME screen — W4b: MENU enters menu mode 
+NEW	w4b-profile: the five profiles, in the design's order; a missing key OUTRANKS a pending ID
+NEW	w4b-profile: an action item needs its CAPABILITY — a build without one omits the item, never bypasses it
+NEW	w4b-refresh: the pure capture refresh — entry, list focus, a vanished item, the latch, and menu mode
+NEW	w4b-boot: every profile boots on HOME in LIST FOCUS, the arrow on item 1, no note, no cue
+NEW	w4b-menu: menu mode walks the rail — gateway skips TEAM and SEND — and double opens each in list focus
+NEW	w4b-menu: the MENU row of every top-level list lands in MENU MODE on the HOME slot; double enters item 1
+NEW	w4b-wrap: list focus WRAPS on every top-level list — Settings included — and never leaves the screen
+NEW	w4b-items: INBOX, TEAM and SEND open their LIST in list focus on the first row; MENU is menu mode
+NEW	w4b-items: MY DEVICE — short stays on its one BACK row, double returns Home ON MY DEVICE
+NEW	w4b-items: KEY HELP is a note — either press returns on it; a key arriving under it lands on item 1
+NEW	w4b-items: a Home-opened setup returns ON ITS OPENER, or on item 1 when the act removed it
+NEW	w4b-changed: a vanished item in list focus moves the arrow to item 1 and RAISES the note, lit or dark
+NEW	w4b-changed: while the note shows, a short or a double CLEARS it and runs NOTHING
+NEW	w4b-changed: the WAKE press only wakes; a further change keeps item 1; an emergency leaves the note
+NEW	w4b-changed: a press in the SAME tick as the change that raises the note is consumed and the note STAYS (design r2.22 §6
+NEW	w4b-blank: five screens x list/menu focus — the blank keeps screen, focus and arrow; the wake only wakes
+NEW	w4b-blank: Home's sub-views and the setup-block note survive the blank and the wake, and wrap-safe
+NEW	w4b-emergency: arm + cancel from every ordinary state leaves the focus, the arrow and Home's item
+NEW	w4b-emergency: a FIRED alarm from Home and from the Send list — afterwards the ordinary focus returns
+NEW	w4b-admit: a CLEAN Home JOIN/CREATE is admitted AT ACTIVATION — one open, no save, no apply, origin home
+NEW	w4b-admit: UNSAVED, CONFLICT and BOTH refuse with a FROZEN reason — no load, save or apply; press returns
+NEW	w4b-admit: UNAVAILABLE (a failed open) and NO ADAPTER say CFG UNAVAILABLE; a recovery never resumes setup
+NEW	w4b-admit: Home INVITE takes NO gate — a dirty or conflicted draft still opens the window ONCE, announced ONCE
+NEW	w4b-origin: §2.5's TRACE — Home JOIN, saved-key offer, BLANK, wake, BACK -> HOME on item 1 (JOIN left)
+NEW	w4b-origin: the SETTINGS counterpart of the trace ends on the SETTINGS MENU, as today
+NEW	w4b-origin: every return site that lands on the PROVISION menu today goes HOME for origin home, only
+NEW	w4b-origin: the Home-opened flows' own exits — NEARBY BACK, the saved-key DECLINE — and their SETTINGS twins
+NEW	w4b-origin: Home INVITE — the list's BACK, a grant's verdict and the closed window go HOME; SETTINGS keeps the menu
+NEW	w4b-origin: a FRESH action from the Home-origin PROVISION menu keeps origin home; a new entry re-types it
+NEW	w4b-origin: the origin RETIRES on pre-emption and on leaving SETTINGS; ⛔ GrantOrigin stays separate
+NEW	w4b-send: acknowledging a result — either press — returns to the Send LIST on item 1, sending nothing more
+NEW	w4b-send: a catalog change under the open list RE-READS it, arrow to item 1, PRESET CHANGED until a press
+NEW	w4b-send: the note's press table — short clears without moving, the wake only wakes, a same-tick press is consumed
+NEW	w4b-send: the Send list's labels — PRESET CHANGED on item 1 while noted, MENU for the exit row, else compose's
+NEW	w4b-inbox: the INBOX list AND its menu preview commit the frozen arrivals; Home and an aborted frame do not
+NEW	w4b-freeze: the frame's COPY of the state carries focus, capture and view; the live model moves on alone
+NEW	w4b-resources: the owner-ruled shape — HomeCapture 9, UiState 520, UiSnapshot 1368, UiModel 944
+NEW	b457: Home INVITE over a CLOSED service runs ungated; pre-empted, it lands on CFG UNAVAILABLE in menu mode
+NEW	b457: a TEAM-roster grant over a CLOSED service runs ungated; pre-empted, it lands on CFG UNAVAILABLE in menu mode
+NEW	b457: the OPEN-service counterparts still land in the Settings menu, in list focus (pre-emption unchanged)
+NEW	w4b-send: with NO phrases, PRESET CHANGED covers the Send list's MENU row for ONE press (design r2.22 §6.5)
+## test/test_firmware_ui_status.cpp: base 12 cases, now 13
+CHANGED	ui17-status: row 4's priority is RESTART NEEDED > coordinates > NO LOCATION, and never both
+CHANGED	ui17-status: (0,0) is NO LOCATION — the CORE's own predicate, never a plausible 0.000,0.000
+CHANGED	ui17-status: the coordinate TRUNCATES toward zero, in all four quadrants, and -0.000 keeps its sign
+REMOVED	ui17-status: row 0 names the team in EIGHT uppercase hex, and says NO TEAM for id 0
+REMOVED	ui17-status: row 1 is the team-local id, BLANK with no team, and ME NO ID before team-DAD
+REMOVED	ui17-status: row 2 says KNOWN — never HEARD, never MEMBERS — and saturates at 9+
+REMOVED	ui17-status: row 2's NO TEAM KEY outranks the count, and no team at all is SILENCE
+REMOVED	ui17-status: row 3 combines the two unread counts and saturates at the STRIP's 99+
+REMOVED	ui17-status: row 3's HOME half is `--` when never confirmed and ABSENT with no mobile plane
+REMOVED	ui17-status: gateway_heltec's shape — no team plane, no mobile plane — claims NOTHING
+REMOVED	ui17-status: EVERY row of the fully-populated body fits its own column budget
+NEW	w4b-home: row 0 is ME plus the W4a identity in 16 cells — whole, abbreviated, the full hash, or ME alone
+NEW	w4b-home: row 1's team line — T<id>, NO ID before team-DAD, NO TEAM, blank with no team plane
+NEW	w4b-home: INBOX and TEAM carry the STRIP's tokens — n NEW to 99+, n KNOWN to 9+ — and omit them at zero
+NEW	w4b-home: the action words are provision_row_label's, MENU is kListMenuText, and every row fits 19
+NEW	w4b-mydevice: the name is split RAW 0-18 / 19-31, each byte sanitized; an unnamed device is NO NAME SET
+NEW	w4b-mydevice: ID 0x<HASH8> is the stable identity, and the position row is the location without restart
+NEW	w4b-notes: key help is five fixed rows; the blocked setup says its reason, IN SETTINGS only when resolvable
+NEW	w4b-home: the body invalidation repaints Home for a visible fact change with NO press, and only on Home
+NEW	w4b-home: gateway_heltec's shape — no team plane — has a blank team line and INBOX / MY DEVICE / MENU
+## test/test_firmware_ui_chrome.cpp: base 38 cases, now 41
+FIXTURE-PREFIX	chrome-nav: a REAL outcome landing on a live compose modal leaves the rail on SEND
+CHANGED	chrome-nav: the mapping tracks the LIVE model, not a renderer-local cursor
+NEW	w4b-chrome: the cue is MENU MODE on every screen, the box still names the screen, and emergency drops both
+NEW	w4b-chrome: entering or leaving menu mode is a VISIBLE chrome change with no strip token moving
+NEW	w4b-chrome: Home's sub-views keep the rail on STATUS; the blocked-setup note boxes SETTINGS
+## test/test_firmware_ui_team.cpp: base 23 cases, now 23
+## test/test_firmware_ui_send.cpp: base 117 cases, now 117
+FIXTURE-PREFIX	ui-recv: the arrival serial WRAPS without losing the unread count
+FIXTURE-PREFIX	ui-frame: F2 — an Inbox frame under an open COMPOSE modal reads nothing
+FIXTURE-PREFIX	ui-frame: F3 — a consumed press never operates the screen under the overlay
+FIXTURE-PREFIX	ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle, and moves neither DM nor alarm
+FIXTURE-PREFIX	ui7-slot: a late_ack slot is released once the sub-view has closed
+FIXTURE-PREFIX	ui7-slot: an UNANSWERED late_ack slot is released once the sub-view has gone, or the device is bricked

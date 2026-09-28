@@ -1,0 +1,33 @@
+== gateway
+  measurements: 0 field(s) differ
+  artifacts: 0 field(s) differ
+  toolchain: 0 field(s) differ
+  fixed_identity: 0 field(s) differ
+  paths: 0 field(s) differ
+  source: 3 field(s) differ
+  environment: 0 field(s) differ
+  RAM-section OBJECT symbols that changed: 0, symbol-size sum +0
+== heltec_mobile
+  measurements: 8 field(s) differ
+    measurements.flash_bytes: 1394840 -> 1397696
+    measurements.loadable_sections..dram0.data: 25260 -> 25324
+    measurements.loadable_sections..flash.rodata: 218084 -> 218180
+    measurements.loadable_sections..flash.text: 1072626 -> 1075322
+    measurements.ram_bytes: 211724 -> 211788
+    measurements.symbol_count: 13298 -> 13311
+    measurements.symbol_size_total: 1496263 -> 1498867
+    measurements.symbols_sha256: e1aa13504ab1be78f94950caee335b680b7b37d66e8348c9d094659864d750a8 -> 85fce380ad0a19c1689c5e08bdbe0e2e9db5f2b83330930db5d84545668d827b
+  artifacts: 4 field(s) differ
+    artifacts.elf.bytes: 21603360 -> 21630900
+    artifacts.elf.sha256: 9543b9c3bb8116c8f1d77c6e181d84db37414ec79812cc6c53f8b95159e47d15 -> 66d2ac0636b50bc5a317a09842aa13ad286a2ad94691b5c6d66a2a01f629b33a
+    artifacts.payload.bytes: 1395472 -> 1398336
+    artifacts.payload.sha256: 820b8bd30655d698abbf78c9c4d752de62ff7b732c705fa4b5aec73b66fe8a11 -> 6a7250e6e0a1f5ca08ee7d7385eeeabfeb07373a7bc785456267275d0a999b14
+  toolchain: 0 field(s) differ
+  fixed_identity: 0 field(s) differ
+  paths: 0 field(s) differ
+  source: 3 field(s) differ
+  environment: 0 field(s) differ
+  RAM-section OBJECT symbols that changed: 3, symbol-size sum +72
+    .dram0.data  _ZN12_GLOBAL__N_112s_frame_snapE                               1336 ->   1368 (+32)
+    .dram0.data  _ZN12_GLOBAL__N_113s_frame_stateE                               504 ->    520 (+16)
+    .dram0.data  _ZN12_GLOBAL__N_17s_modelE                                      912 ->    936 (+24)

@@ -92,6 +92,18 @@
 // arms share one rule). ⛔ ONE landing moved: the failure pair (`TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT`) and
 // every other terminal — `TEAM CREATED`, `TEAM JOINED`, `ADOPTED`, every refusal, K5's two endings — land exactly where
 // they landed before, and ⛔ the note's ARRIVAL still navigates nothing and wakes nothing (spec §4-K4 pin 3).
+// DONE here (2026-09-27, W4b — standalone HOME and NAVIGATION, design r2.21 §6.1–§6.7): the passive STATUS screen is
+// replaced by HOME — a pure profile selector (`home_profile` / `home_items_of`), a nine-byte list CAPTURE with the arrow
+// by IDENTITY and the `OPTIONS CHANGED` note (`HomeCapture` / `home_capture_refresh`, owner-ruled shape §11.1) and three
+// sub-views (`HomeView`: My device, the key-help note, the blocked-setup note). ⚠ IT SUPERSEDES PART OF THE TWO ENTRIES
+// ABOVE, which stay as history: `ListView` is now the ONE focus authority on EVERY top-level screen (list focus vs MENU
+// MODE; Home and SEND read it too), the final row of every top-level list is `MENU` (menu mode on the Home slot —
+// `go_menu_home`; ⛔ `close_list_view` / `list_follow_screen` are RETIRED), the Settings menu WRAPS, SEND is the
+// channel compose list promoted to a top-level list, and the key-received landing is Home in LIST FOCUS. The setup
+// flow carries a TYPED origin (`SetupOrigin`, `provision_menu_exit`): Home-opened flows return Home on their opener.
+// ⛔ STILL MISSING, BY THE W-PLAN (brief §0): the splash (W5), the Home card (W9 — only the list window's geometry
+//    seam is kept), newest-first Inbox (W4c/W4d), the editor and name prompt (W7), `WRITE MESSAGE` (W8) and phrases v2
+//    (W6) — none is half-built here.
 // ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement): §3.6.4's
 //    nearby-team scan and its sealed key grant are §UI-16's, and ⛔ [[B215]] — the audit finding that
 //    `reset_join_for_reprovision()` cancels only the claim guard and not the old listen/retry timers — is ITS OWN
@@ -301,12 +313,16 @@ inline ListRow list_row_kind(uint8_t cursor, uint8_t shown) {
 // ⓘ ⛔ AND THE THREE ARE NOT UNIFIED INTO ONE TABLE HERE: those two are other screens' row tables, and merging them is
 //   a refactor of shipped code, which may not ride a feature slice (C1).
 inline constexpr const char* kListBackText = "BACK";
+// ★★★★ W4b (design §6.1 rule 2) — EVERY TOP-LEVEL LIST ENDS WITH `MENU`: Home, TEAM, INBOX, the Send list and the
+//      Settings menu, and it enters menu mode on the Home slot. `kListBackText` above stays the SUB-VIEW spelling
+//      (PROVISION's BACK, My device's BACK): two different acts, two words — S-12's one-spelling-per-ACT rule.
+inline constexpr const char* kListMenuText = "MENU";
 
 // ★★★★ §UI-17 S1 — **HOW LONG IS A LIST SCREEN?** ⛔ ONE decision for BOTH lists (QG-RULED 2026-08-21): TEAM and
 //      INBOX had this written out twice, so a mutation could redden one arm and leave the other unprotected —
 //      the shape [[B217]] exists to prevent. Only the DATA differs per screen (which roster), never the decision.
 // ★ A screen that has NOT been entered is ONE row, which is the whole of "one press passes the screen"; an ENTERED
-//   list is the published rows PLUS the `BACK` row that leaves it.
+//   list is the published rows PLUS the exit row that leaves it (`MENU` since W4b — design §6.1 rule 2).
 inline uint8_t list_len_of(bool entered, uint8_t shown) {
     return entered ? uint8_t(shown + 1) : uint8_t(1);
 }
@@ -366,10 +382,13 @@ inline bool list_view_reset_on_leave(ListView& view) {
     return changed;
 }
 
-// ★★★★ **HAS THIS SCREEN BEEN ENTERED?** — ONE predicate, for all three list screens, and it is what keeps `ListView`
-//      from becoming a second authority. It reads `Settings` for SETTINGS ([[B232]]'s closed view) and `ListView` for
-//      TEAM and INBOX; STATUS and SEND have no interaction to enter, so they answer false and their `double` stays the
-//      no-op it has always been.
+// ★★★★ **HAS THIS SCREEN BEEN ENTERED?** — ONE predicate, for all five top-level screens, and it is what keeps
+//      `ListView` from becoming a second authority. It reads `Settings` for SETTINGS ([[B232]]'s closed view) and
+//      `ListView` everywhere else. ★ W4b (design §6.1): `ListView` is now the ONE FOCUS AUTHORITY of every top-level
+//      screen — `interactive` is LIST FOCUS (the body's `>` arrow) and `passive` is MENU MODE (the rail has focus, the
+//      body shows that screen's preview). On SETTINGS the invariant is "list focus ⇔ the menu is up", so the
+//      `Settings` arm answers the same question from the richer enum. ⓘ CORRECTED 2026-09-27 (V1): this read
+//      "STATUS and SEND have no interaction to enter, so they answer false" — Home and the Send list now have one.
 // ⛔ `default`-LESS, so `-Werror=switch` fails the build when a sixth screen is added without stating which side of
 //    this question it is on — the same discipline `cfg_row_field` and `cfg_field_name` hold one screen over. That is
 //    the whole reason it is a `switch` over `Screen` rather than a two-term boolean expression.
@@ -380,7 +399,7 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
         case Screen::inbox:    return view == ListView::interactive;
         case Screen::settings: return settings != Settings::closed;
         case Screen::status:
-        case Screen::send:
+        case Screen::send:     return view == ListView::interactive;   // W4b: Home's list and the Send list
         case Screen::count:    return false;
     }
     return false;
@@ -566,7 +585,10 @@ enum class ProvConfirm : uint8_t {
 //     firmware_config_service.h:21-22) with different escapes, so ⛔ one `bool provision_blocked` would be the same
 //     binary-test-over-a-ternary-domain defect `Settings` warns about, and the panel would then have to guess which
 //     remedy to print — the guess being SAVE, the one operation a conflict REFUSES.
-enum class ProvBlock : uint8_t { none = 0, conflict, unsaved };
+// ★ W4b (design §6.6 rule 4): `unavailable` is the reason Home's JOIN/CREATE records when the settings service is
+//   unattached or still closed after the opener ran — the branch Settings browsing cannot reach, whose first real
+//   caller is Home. ⓘ Still one byte: an enumerator, not a field.
+enum class ProvBlock : uint8_t { none = 0, conflict, unsaved, unavailable };
 
 // ★★★★ §UI-15 slice 4 / [[B223]] — **THE CLOSE-ON-LEAVE RESET, AS A PURE FUNCTION**, and it is hoisted out of
 //     `settings_follow_screen` for the [[B212]]/[[B220]] reason, the fourth time this arc: the decision was
@@ -687,7 +709,7 @@ inline const char* settings_row_label(CfgRow r) {
         case CfgRow::reload:              return "RELOAD";
         case CfgRow::save:                return "SAVE";
         case CfgRow::discard:             return "DISCARD";
-        case CfgRow::back:                return "BACK";
+        case CfgRow::back:                return kListMenuText;   // W4b: the menu's exit row is MENU (design §6.1)
         case CfgRow::count:               return "?";
     }
     return "?";
@@ -1742,6 +1764,22 @@ inline void compose_row_line(char* out, std::size_t cap, uint8_t idx, const Comp
     if (m) snprintf(out, cap, "%c%c%s", selected ? '>' : ' ', m, compose_row_text(idx, l, grant));
     else   snprintf(out, cap, "%c%s",   selected ? '>' : ' ', compose_row_text(idx, l, grant));
 }
+// ★★★★ W4b (design §6.5) — THE SEND LIST's TWO SPECIAL ROWS, and ⛔ only those: `PRESET CHANGED` replaces item 1's
+//      label while the focused list's note is up (a catalog change re-read the list; the next press sends nothing),
+//      and the exit row reads `MENU` (it enters menu mode on the Home slot) instead of `back, don't send`, which DM
+//      compose keeps. Answers false for every PHRASE row, which the renderer then draws through `compose_row_line`
+//      unchanged — so W3's compose-width controls still measure the phrase rows. ⓘ The Send list offers no grant row.
+inline constexpr const char* kSendPresetChangedText = "PRESET CHANGED";
+inline bool send_list_row_override(char* out, std::size_t cap, uint8_t idx, const ComposeList& l, bool selected,
+                                   bool preset_changed) {
+    if (!out || cap == 0) return false;
+    if (idx == 0 && preset_changed) { snprintf(out, cap, "%c%s", selected ? '>' : ' ', kSendPresetChangedText); return true; }
+    if (compose_row_kind(idx, l, /*grant=*/false) == ComposeRow::back) {
+        snprintf(out, cap, "%c%s", selected ? '>' : ' ', kListMenuText);
+        return true;
+    }
+    return false;
+}
 
 // The model NEVER sends — it ASKS. firmware_ui.cpp drains the request, performs the send and feeds back a typed outcome.
 enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
@@ -2125,7 +2163,15 @@ struct UiSnapshot {
     uint32_t    preset_generation = 0;
     ComposeList preset_dm{};
     ComposeList preset_ch{};
+    // ★★★★ W4b (design §4.2/§6.7) — THE OWN NAME, published ONCE per tick by `build_snapshot` from
+    //      `Node::effective_name` (the STORED name only, possibly empty, ⛔ never terminated — W1c D10) and frozen with
+    //      the frame, so a console rename between two OLED pages cannot tear it. RAW COUNTED BYTES: each consumer
+    //      formats them itself (`ui_fmt_identity` on Home, the two sanitized rows on My device) — ⛔ no resident
+    //      formatted copy and ⛔ no second name owner. ⓘ COST (owner-ruled §11.1): 33 logical bytes, +32 measured.
+    char    own_name[MESHROUTE_NS::protocol::peer_name_max] = {};
+    uint8_t own_name_len = 0;
 };
+static_assert(sizeof(UiSnapshot::own_name) == 32, "W4b: the own name is the codebase-wide 32-byte name cap");
 // ★ THE DEFAULT SNAPSHOT CARRIES THE COMPILED CATALOG — see the block above. It is a FUNCTION rather than a member
 //   initialiser so `UiSnapshot` stays an aggregate (`UiSnapshot s{}` is written all over this tree and in every test),
 //   and it is the ONE place the defaults are projected, so `build_snapshot`, the native suite and the probe cannot
@@ -2134,6 +2180,112 @@ inline void ui_snapshot_publish_presets(UiSnapshot& s, const mrnv::UiPresetBlob&
     s.preset_generation = cat.generation;
     compose_project(cat, mrfw::PresetKind::dm,      s.preset_dm);
     compose_project(cat, mrfw::PresetKind::channel, s.preset_ch);
+}
+
+// ======================================================================= W4b — HOME (design §6.2–§6.6, r2.21 §11.1)
+// ★★★★ THE LANDING SCREEN IS HOME (`Screen::status`, ⛔ no enum rename — C1). Its list is a PURE function of snapshot
+//      facts (the profile below) and the arrow follows an ITEM, ⛔ never a row number (design §6.4, refinement 4).
+// ⛔⛔ THE RETAINED SHAPE IS OWNER-RULED (2026-09-27, §11.1): `HomeCapture` (9 bytes) and `HomeView` in `UiState`,
+//     `HomeItem` + `SetupOrigin` in `UiModel`, the own name in `UiSnapshot`, one menu-cue bool in `UiChrome`. ANY
+//     further retained member returns to the owner — so everything else here is derived, never stored.
+enum class HomeItem : uint8_t { none = 0, inbox, send, team, invite, my_device, menu, join, create, key_help };
+// Which Home body is up. `list` is the list itself; the other three are Home's sub-views (design §6.5): My device,
+// the key-help note and the blocked-setup note. ⛔ Only meaningful on `Screen::status`.
+enum class HomeView : uint8_t { list = 0, my_device, key_help, setup_block };
+// ★★ THE SETUP FLOW's TYPED ORIGIN (design §6.6 rule 3, B250's precedent): who opened JOIN/CREATE/INVITE, recorded
+//    as an explicit value — ⛔ never inferred from the screen, the arm or `GrantOrigin` (a Home-opened invitation
+//    still has its own invitation-vs-roster grant origin).
+enum class SetupOrigin : uint8_t { none = 0, home, settings };
+inline constexpr uint8_t kHomeItemsMax = 6;   // the ready list: INBOX, SEND TO TEAM, TEAM, INVITE, MY DEVICE, MENU
+// ★★★ THE LIST CAPTURE — the full six-item shape the owner approved. `items`/`count` are the list the frame shows,
+//     `selected` is the ARROW's item (its row is DERIVED — `home_index_of`), and `changed` is the list-changed NOTE.
+// ★★ `changed` IS THE ONE NOTE OF THE **FOCUSED TOP-LEVEL LIST** (ruling, W4b coder): Home's `OPTIONS CHANGED` and the
+//    Send list's `PRESET CHANGED` (design §6.5). Only one top-level list has focus, every press that leaves it clears
+//    the note first, and a committed alarm that closes compose leaves it alone — so ONE latch serves both without a
+//    second field (the allocation is exact), and "afterwards the note is still there" holds for Send too.
+struct HomeCapture {
+    HomeItem items[kHomeItemsMax] = {};
+    uint8_t  count    = 0;
+    HomeItem selected = HomeItem::none;
+    bool     changed  = false;
+};
+static_assert(sizeof(HomeCapture) == 9 && alignof(HomeCapture) == 1,
+              "W4b: the owner-ruled full six-item capture is 9 bytes, align 1 (design r2.21 §11.1)");
+
+// ★★★ THE PROFILE — ONE pure selector over existing snapshot facts (pre-check §4). ⛔ `team_build`, never a runtime
+//     `is_mobile`: a gateway has no team PLANE, which is a build fact.
+enum class HomeProfile : uint8_t { no_plane = 0, no_team, key_missing, id_pending, ready };
+inline HomeProfile home_profile(const UiSnapshot& s) {
+    if (!s.team_build)       return HomeProfile::no_plane;
+    if (s.team_id == 0)      return HomeProfile::no_team;
+    if (!s.team_key_present) return HomeProfile::key_missing;   // ★ a missing key OUTRANKS a pending ID (§6.3)
+    if (s.my_team_id == 0)   return HomeProfile::id_pending;
+    return HomeProfile::ready;
+}
+// ★★★ THE LIST OF A PROFILE, in the design's fixed order (§6.3). ★ An ACTION item also needs its CAPABILITY
+//     (`prov_join_team`, `prov_create_team`, `prov_invite`): a build without one omits the item rather than offering an
+//     act that cannot run — ⛔ never bypassed to make a fixture pass. Counts never reorder items; the tail is defined.
+inline void home_items_of(const UiSnapshot& s, HomeCapture& c) {
+    c.count = 0;
+    const auto add = [&c](HomeItem it) { if (c.count < kHomeItemsMax) c.items[c.count++] = it; };
+    switch (home_profile(s)) {
+        case HomeProfile::no_plane:
+            add(HomeItem::inbox);
+            break;
+        case HomeProfile::no_team:
+            if (s.prov_join_team)   add(HomeItem::join);
+            if (s.prov_create_team) add(HomeItem::create);
+            add(HomeItem::inbox);
+            break;
+        case HomeProfile::key_missing:
+            add(HomeItem::key_help);
+            add(HomeItem::inbox);
+            add(HomeItem::team);
+            break;
+        case HomeProfile::id_pending:
+            add(HomeItem::inbox);
+            add(HomeItem::team);
+            break;
+        case HomeProfile::ready:
+            add(HomeItem::inbox);
+            add(HomeItem::send);
+            add(HomeItem::team);
+            if (s.prov_invite) add(HomeItem::invite);
+            break;
+    }
+    add(HomeItem::my_device);
+    add(HomeItem::menu);
+    for (uint8_t i = c.count; i < kHomeItemsMax; ++i) c.items[i] = HomeItem::none;
+}
+// The row of an item, ⛔ `count` (one past the list) when it is absent — never a row somebody could act on.
+inline uint8_t home_index_of(const HomeCapture& c, HomeItem it) {
+    for (uint8_t i = 0; i < c.count; ++i) if (c.items[i] == it) return i;
+    return c.count;
+}
+inline bool home_capture_equal(const HomeCapture& a, const HomeCapture& b) {
+    for (uint8_t i = 0; i < kHomeItemsMax; ++i) if (a.items[i] != b.items[i]) return false;
+    return a.count == b.count && a.selected == b.selected && a.changed == b.changed;
+}
+// ★★★★ THE REFRESH — design §6.4's table, EXACTLY, and it is pure so every arm is driven and mutated natively.
+//   · `selected == none` is an ENTRY (boot, `MENU` then double, a return): the arrow lands on `preferred` (the opener)
+//     if it still exists, else on item 1 — ⛔ with no note (a return is not a change the operator must acknowledge);
+//   · in HOME LIST FOCUS (lit or dark): while the note is up the arrow stays on item 1 of the NEWEST list; an arrow
+//     whose item vanished moves to item 1 and RAISES the note;
+//   · anywhere else (menu mode, a sub-view, another screen) only the items move — ⛔ menu mode never raises it.
+// ⓘ Returns whether anything visible changed, so the caller repaints for a real change and not for every tick.
+inline bool home_capture_refresh(HomeCapture& c, const UiSnapshot& s, bool list_focus, HomeItem preferred) {
+    HomeCapture n = c;
+    home_items_of(s, n);
+    if (n.selected == HomeItem::none) {
+        n.selected = (home_index_of(n, preferred) < n.count) ? preferred : n.items[0];
+        n.changed  = false;
+    } else if (list_focus) {
+        if (n.changed)                                     n.selected = n.items[0];
+        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; n.changed = true; }
+    }
+    const bool moved = !home_capture_equal(c, n);
+    c = n;
+    return moved;
 }
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -2543,7 +2695,11 @@ struct UiState {
     // ⛔ ONE field for BOTH screens, deliberately: only the CURRENT screen can be entered, and leaving resets it
     //    (`list_view_reset_on_leave`). Two fields would be two authorities that could disagree.
     // ⓘ COST: it lands in this struct's tail padding — the slice REPORTS the measured `sizeof(UiState)`.
-    ListView list_view = ListView::passive;
+    // ★★★★ W4b (design §6.1): it is now the ONE FOCUS AUTHORITY of EVERY top-level screen — `interactive` = list
+    //      focus, `passive` = menu mode — and the device BOOTS IN LIST FOCUS on Home (rule 1). ⓘ CORRECTED 2026-09-27
+    //      (V1): the two sentences above describe the §UI-17 per-screen "entered" state it replaces; leaving is no
+    //      longer an implicit reset — every screen change states its focus (see `go_menu_home`).
+    ListView list_view = ListView::interactive;
     // The last ACTION's outcome, kept VERBATIM as the service's own typed result (⛔ never a `mrui::` mirror of
     // `CfgSave` — that is the parallel enum U1 forbids, and the panel would then be able to claim an outcome the
     // service never returned). `cfg_have_save` is the separate "there is one" flag, because `CfgSave` reserves no
@@ -2714,6 +2870,11 @@ struct UiState {
     //   already opened, so it costs exactly itself. ⚠ Native alignment hides the board figure (D2's standing
     //   warning), and this struct is instantiated TWICE on the OLED envs.
     InviteGrantResult grant{};
+    // ★★★★ W4b (design r2.21 §11.1, owner-ruled 2026-09-27) — HOME's LIST CAPTURE and WHICH HOME BODY IS UP, frozen
+    //      with everything else because the renderer draws them. ⛔ The whole W4b allocation in this struct: +16 on
+    //      every ABI (504 -> 520), two instances (`s_model` + `s_frame_state`).
+    HomeCapture home{};
+    HomeView    home_view = HomeView::list;
 };
 
 // ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
@@ -2723,17 +2884,24 @@ struct UiState {
 // ★★★ "A FACT IS ESTABLISHED BY THE ACT": every string below names an outcome the SERVICE RETURNED. ⛔ There is no
 //     path that prints `SAVED` before `save()` came back, and none that prints it for a refusal — `invalid`,
 //     `conflict` and `nv_failed` each have their own words, and the last two are the SERVICE's ruled ones.
+// ★ W4b — THE BLOCKED-SETUP REASON, ONE SPELLING for its two readers: the Settings menu's note row
+//   (`settings_note`) and Home's setup-block note (design §6.6 rule 4). The three words are §3.6.5's (and W3's).
+inline const char* prov_block_note(ProvBlock b) {
+    switch (b) {
+        case ProvBlock::conflict:    return "RELOAD OR DISCARD";
+        case ProvBlock::unsaved:     return "SAVE OR DISCARD";
+        case ProvBlock::unavailable: return "CFG UNAVAILABLE";
+        case ProvBlock::none:        break;
+    }
+    return "";
+}
 inline const char* settings_note(const UiState& st) {
     // ★★★★ §4's TWO CELLS, AND THE WHOLE POINT IS THAT THEY SAY DIFFERENT THINGS. `conflict()` means `/mrcfg` moved
     //     under the draft, so ⛔ the note MUST NOT suggest SAVE: `save()` refuses a conflict outright
     //     (firmware_config_service.h's gate 2a), and pointing the operator at an operation that cannot succeed is the
     //     conflation plan §4 exists to correct. RELOAD (the three-way merge) and DISCARD are the two that work.
     // ⓘ `default`-less, so a third block reason cannot be added without a word for it.
-    switch (st.prov_block) {
-        case ProvBlock::conflict: return "RELOAD OR DISCARD";
-        case ProvBlock::unsaved:  return "SAVE OR DISCARD";
-        case ProvBlock::none:     break;
-    }
+    if (st.prov_block != ProvBlock::none) return prov_block_note(st.prov_block);
     if (st.cfg_refresh_failed) return "NV READ FAILED";
     if (!st.cfg_have_save)     return "";
     switch (st.cfg_save) {
@@ -2816,6 +2984,12 @@ public:
         sync_team_cursor(s);
         sync_inbox_cursor(s);            // ★ §UI-7D: the same re-anchoring for the INBOX row, by `(kind, seq)`
         sync_settings(s);                // ★ §UI-14: the screen owns the editor's lifetime — see the function
+        // ★★★★ W4b — HOME's CAPTURE IS RE-READ BEFORE THE PRESS ACTS ON IT, §B64's reason one screen over: the arrow
+        //      must name the item the list shows NOW. `note_was_up` is read FIRST, so a note that THIS press's own
+        //      sync raises is shown before any press may clear it (ruling: a press that could not have seen the note
+        //      runs nothing and leaves it up — design §6.4's "until the next press", read conservatively).
+        const bool note_was_up = _st.home.changed;
+        sync_home(s);
         // ★★★ §UI-14 — THE EDITOR OWNS `short`, AND THIS BRANCH IS THE WHOLE OF "short's two modes". While a value row
         //     is open a short press CYCLES that row's value and must NOT walk the list: leaving the branch out is the
         //     defect where the value the operator is looking at scrolls away under their finger.
@@ -2828,14 +3002,17 @@ public:
         //     written down anyway, so a later reader cannot make it ambiguous.
         if (_st.settings == Settings::provisioning) { provision_gesture(g, s); return; }
         if (_st.settings == Settings::editing) { settings_edit_gesture(g, s); return; }
+        // ★★★★ W4b — HOME IN LIST FOCUS OWNS THE PRESS (its list and its three sub-views), the rule this file states
+        //      for every view that owns the body. In MENU MODE Home is a preview like every other screen, so the
+        //      ordinary rail walk below handles it (design §6.1).
+        if (_st.screen == Screen::status && _st.list_view == ListView::interactive) { home_gesture(g, s, note_was_up); return; }
         // ⚠ `note_settings_cursor` runs AFTER the move and `sync_settings` BEFORE it (at the top of this function) —
         //   the same split as the other two cursors, and it is load-bearing: syncing after the move would drag the
         //   highlight straight back onto the row the operator just left.
-        // ⚠ §UI-17 S1: `list_follow_screen` runs BEFORE the two `note_*_cursor` calls, and the order is load-bearing —
-        //   they are gated on the view, so a press that left TEAM/INBOX must have retired the view before the write
-        //   side reads it. (Both would refuse anyway on the `screen` term; stating the order means a later reader
-        //   cannot make it ambiguous.)
-        if (g == Gesture::short_press)  { advance_or_next(s); list_follow_screen();
+        // ⓘ W4b: §UI-17 S1's `list_follow_screen` forward is RETIRED — a `short` in MENU MODE moves the rail with the
+        //   focus already passive, and in LIST FOCUS it stays on the screen (the containment), so no screen is left
+        //   under an entered list. The two `note_*_cursor` calls still read the view AFTER the move.
+        if (g == Gesture::short_press)  { advance_or_next(s);
                                           note_team_cursor(s); note_inbox_cursor(s);
                                           settings_follow_screen(); note_settings_cursor(s);
                                           clear_settings_note(); _st.dirty = true; }
@@ -2857,6 +3034,9 @@ public:
         //      the tick that also carries a press. ⛔ ONE authority (`preset_generation_moved`), two callers.
         // ⛔ IT IS ⛔ NOT A MODAL TIMEOUT and it does not re-open §UI-17 R-1's deleted auto-exit: the trigger is a
         //    DURABLE CHANGE TO THE WEARER'S CATALOG, never the clock. The block below still stands verbatim.
+        // ★ W4b (design §6.5): the SEND LIST no longer closes on a catalog change — it RE-READS (arrow to item 1) and
+        //   raises `PRESET CHANGED` until the next press, which sends nothing. DM compose closes exactly as before.
+        if (_st.compose == Compose::channel && preset_generation_moved(s)) preset_catalog_moved(s);
         if (preset_generation_moved(s)) close_compose();
         // ★★★★ §UI-17 S2 — **THERE ARE NO MODAL TIMEOUTS HERE ANY MORE**, and the absence is stated rather than left
         //      as a gap somebody re-fills. §3.3 (owner-ruled 2026-08-20, spec §9 R-1) is that **blanking is a POWER
@@ -2962,10 +3142,8 @@ public:
         //      that just closed gets its team cursor back the same tick"* — and the auto-exit it named is DELETED. The
         //      placement is unchanged and still load-bearing for the reason the paragraph above gives (the frame
         //      freezes immediately after this call); it simply no longer has a timeout above it to be "after".
-        // ★★ §UI-17 S1 — the SECOND forward to `list_view_reset_on_leave`, and it is here for the reason
-        //    `settings_follow_screen`'s own block gives: the frame FREEZES immediately after this call, so an
-        //    entered list must already have been retired if the screen has moved on underneath it.
-        list_follow_screen();
+        // ⓘ W4b: §UI-17 S1's second leave-reset forward (`list_follow_screen`) is RETIRED with the function — no
+        //   screen changes under a list any more without its transition STATING the focus (see `go_menu_home`).
         sync_team_cursor(s);
         // ★★★★ [[B233]] — THE SERVICED MUTATION'S ONE EXTRA FRAME, and the defect it closes is in the TICK's ORDER
         //      rather than in any single call: `mr_ui_tick` builds the snapshot FIRST, serves the erase MID-TICK
@@ -2987,6 +3165,12 @@ public:
                                          //   highlight beside the record `activate()` would actually open.
         sync_settings(s);                // ★ §UI-14: same placement, same argument — the frame FREEZES immediately
                                          //   after this call, so the service must already be open when it does.
+        // ★★★★ W4b — HOME's CAPTURE and THE SEND LIST, re-read on the TICK (lit or dark) for the reason the syncs
+        //      above give: the frame FREEZES right after this function, so the list the panel shows and the item the
+        //      arrow names must already be current. `send_list_follow` restores the Send list after a COMMITTED
+        //      alarm closed compose under it — the previous ORDINARY focus returns (design §6.1 rule 8).
+        sync_home(s);
+        send_list_follow(s);
         if (blank_due(s)) {
             _st.blanked = true; _st.dirty = true;
             // ★★★★ §UI-16 N4 / ✅ OQ-3's CLARIFICATION, AND IT IS THE ONE PLACE THE TWO HALVES DIFFER: **the
@@ -3013,6 +3197,9 @@ public:
             //   join is finished and its verdict was acknowledged (that acknowledgement is what opened this), so
             //   the honest landing is the one `BACK` itself takes. ⓘ `enter_provision` retires `saved_key_team`
             //   with it, so nothing stale is retained in the dark — the offer must be earned by a fresh join.
+            // ⓘ W4b (V1): the offer's own `BACK` now honours the typed setup origin (Home, for a Home-opened join);
+            //   this blank line stays VERBATIM (OQ-3) and lands on the PROVISION menu, with a Home origin surviving it —
+            //   so that menu's own BACK then returns Home (design §6.6's saved-key trace, `w4b-origin`).
             if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);
             // ★★ §3.6.1, VERBATIM IN SUBSTANCE: *"`BACK` and blanking PRESERVE the draft; silently discarding because
             //    attention timed out is FORBIDDEN."* `on_blank()` is the named seam the service exposes for exactly
@@ -3391,6 +3578,9 @@ public:
     //   slot (spec §3.4.1 upgrades NO CONFIRM -> DELIVERED only "while the sub-view is still showing") and, with it,
     //   the ONE normal send slot. See `ui_pump_trackers` — the obligation is discharged there, as a gate, not here.
     bool compose_open() const { return _st.compose != Compose::none; }
+    // ⓘ W4b — diagnostics for the native matrix; the renderer reads neither (they are not frozen state).
+    SetupOrigin setup_origin()     const { return _setup_origin; }
+    HomeItem    home_return_item() const { return _home_return; }
     // ⚠ Meaningful ONLY while `emergency() == Emergency::blocked`; after the retry fires the value is the spent
     // deadline. §B74: it is no longer sentinel-encoded, so there is no "no deadline" value to test for — the STATE is
     // the predicate. Any 32-bit value, `0xFFFFFFFF` included, is a legitimate deadline.
@@ -3903,15 +4093,165 @@ private:
     // Private navigation authority for the shared grant chain. The renderer never consumes it, so it stays out of
     // `UiState` and the frozen frame; the saved id is navigation-only and never reaches send/correlation.
     GrantReturn _grant_return{};
+    // ★★★★ W4b (design r2.21 §11.1, owner-ruled 2026-09-27) — THE TWO MODEL-PRIVATE NAVIGATION FACTS, ⛔ nothing else:
+    //   · `_home_return`  — the Home item that opened what is up now (My device, a note, a setup flow), so the way
+    //     back lands on it (design §6.4); `sync_home` resolves it against the FRESH list, item 1 if it is gone;
+    //   · `_setup_origin` — who opened JOIN/CREATE/INVITE (design §6.6 rule 3), TYPED, ⛔ never inferred.
+    // ⓘ Private and navigation-only, like `_grant_return`: the renderer never reads them, so they stay out of `UiState`.
+    HomeItem    _home_return  = HomeItem::none;
+    SetupOrigin _setup_origin = SetupOrigin::none;
+
+    // ============================================================ W4b — the ONE focus-transition vocabulary (§6.1)
+    // ★★★ `MENU` (rule 2): MENU MODE ON THE HOME SLOT, from any top-level list. The focus reset is the pure
+    //     `list_view_reset_on_leave` — the list the operator left may not outlive the exit ([[B223]]'s rule, now at the
+    //     one place a list is LEFT), and the picks of that list are retired rather than carried.
+    void go_menu_home(const UiSnapshot& s) {
+        _st.screen = Screen::status;
+        settings_follow_screen();                       // leaving SETTINGS closes its views (unchanged rule)
+        (void)list_view_reset_on_leave(_st.list_view);  // → menu mode
+        _st.home_view = HomeView::list;
+        _st.cursor = 0; _st.dirty = true;
+        note_team_cursor(s); note_inbox_cursor(s);
+    }
+    // ★★★ HOME IN LIST FOCUS, THE ARROW ON ITS OPENER (design §6.4): `selected = none` makes `sync_home` resolve it
+    //     against the FRESH list — `_home_return` if it still exists, else item 1, ⛔ never with a note. Boot, the
+    //     menu-mode double and every return are this ONE entry. ⓘ It needs no snapshot, so every exit site can call it:
+    //     the tick that follows every gesture (`mr_ui_tick`: on_gesture -> on_tick -> the freeze) resolves the arrow
+    //     before any frame can show it.
+    void home_return() {
+        _st.screen = Screen::status;
+        settings_follow_screen();
+        _st.list_view = ListView::interactive;
+        _st.home_view = HomeView::list;
+        _st.home.selected = HomeItem::none; _st.home.changed = false;
+        _st.cursor = 0; _st.dirty = true;
+    }
+    void home_enter_list() { _home_return = HomeItem::none; home_return(); }   // a menu-mode double: item 1
+    // ★★★ THE CAPTURE's ONE WRITER — the pure `home_capture_refresh` (design §6.4's table), fed the focus it needs.
+    //     `_home_return` is CONSUMED by the resolution it feeds, so a later entry cannot land on a stale opener.
+    void sync_home(const UiSnapshot& s) {
+        const bool list_focus = _st.screen == Screen::status && _st.list_view == ListView::interactive &&
+                                _st.home_view == HomeView::list;
+        const HomeItem preferred = _home_return;
+        if (_st.home.selected == HomeItem::none) _home_return = HomeItem::none;
+        if (home_capture_refresh(_st.home, s, list_focus, preferred)) _st.dirty = true;
+    }
+    // ★★★★ HOME's PRESS — its list in list focus, and its three sub-views (design §6.5).
+    void home_gesture(Gesture g, const UiSnapshot& s, bool note_was_up) {
+        if (g != Gesture::short_press && g != Gesture::double_press) return;
+        switch (_st.home_view) {
+            case HomeView::my_device:   // ONE row, `BACK`: short stays on it, double returns on MY DEVICE
+                if (g == Gesture::double_press) home_return();
+                _st.dirty = true;
+                return;
+            case HomeView::key_help:    // a NOTE: either press returns on its opener
+                home_return();
+                return;
+            case HomeView::setup_block: // a note with a FROZEN reason: either press dismisses it, ⛔ never resumes setup
+                _st.prov_block = ProvBlock::none;
+                home_return();
+                return;
+            case HomeView::list: break;
+        }
+        // ★★★ design §6.4's NOTE TABLE, exactly: while `OPTIONS CHANGED` shows, a short or a double clears it and
+        //     runs NOTHING (the wake press never gets here — the blanked arm consumed it; an emergency never gets
+        //     here either). A note raised by this press's own sync stays up for the operator to see.
+        if (_st.home.changed) {
+            if (note_was_up) _st.home.changed = false;
+            _st.dirty = true;
+            return;
+        }
+        const uint8_t i = home_index_of(_st.home, _st.home.selected);
+        if (g == Gesture::short_press) {             // the arrow moves by IDENTITY and wraps (rule: short wraps)
+            if (_st.home.count) _st.home.selected = _st.home.items[(i + 1u < _st.home.count) ? i + 1u : 0u];
+            _st.dirty = true;
+            return;
+        }
+        home_activate(_st.home.selected, s);
+    }
+    // ★★★★ WHAT A HOME ITEM OPENS (design §6.5 with its r2.21 interim content).
+    void home_activate(HomeItem it, const UiSnapshot& s) {
+        switch (it) {
+            case HomeItem::inbox:  _st.screen = Screen::inbox; open_list_view(s); return;   // list focus, first row
+            case HomeItem::team:   _st.screen = Screen::team;  open_list_view(s); return;
+            case HomeItem::send:   open_send_list(s);  return;
+            case HomeItem::menu:   go_menu_home(s);    return;
+            case HomeItem::my_device:
+                _home_return = it; _st.home_view = HomeView::my_device; _st.dirty = true; return;
+            case HomeItem::key_help:   // the existing procedure as a note; ⛔ no automatic key request
+                _home_return = it; _st.home_view = HomeView::key_help;  _st.dirty = true; return;
+            case HomeItem::join:
+            case HomeItem::create:
+                // ★★★ design §6.6 rule 1 — THE SETTINGS GATE, AT ACTIVATION, before any generic SETTINGS arrival can
+                //     mask the first closed-service open (W3's `provision_admit`: opener, no service, conflict before
+                //     unsaved, ⛔ never a save). A refusal records its reason — `unavailable` when the gate set none —
+                //     and opens the SETTINGS-slot note; the reason is FROZEN until the note is dismissed.
+                _home_return = it;
+                _st.prov_block = ProvBlock::none;
+                if (!provision_admit()) {
+                    if (_st.prov_block == ProvBlock::none) _st.prov_block = ProvBlock::unavailable;
+                    _st.home_view = HomeView::setup_block; _st.dirty = true;
+                    return;
+                }
+                enter_setup_from_home();
+                if (it == HomeItem::create) { enter_provision(Provision::create_confirm); return; }   // BACK first
+                load_nearby(s);                                                                    // frozen per entry
+                enter_provision(Provision::nearby);
+                return;
+            case HomeItem::invite:
+                // ★★★ design §6.6 rule 2 — NO GATE (the window changes no settings): exactly ProvRow::invite's three
+                //     steps, once per fresh window. Capability and identity checks deeper in the flow are untouched.
+                _home_return = it;
+                enter_setup_from_home();
+                load_invite(s);
+                enter_provision(Provision::invite);
+                if (_invite_dev) _invite_dev->request_team_announcement();
+                return;
+            case HomeItem::none: return;
+        }
+    }
+    // The setup flow still LIVES in the SETTINGS sub-view (rail on SETTINGS, R-4) — so the existing rule that leaving
+    // SETTINGS closes provisioning stays true. Its origin is typed HERE.
+    void enter_setup_from_home() {
+        _setup_origin = SetupOrigin::home;
+        _st.screen = Screen::settings;
+        _st.list_view = ListView::interactive;   // the sub-view is Settings' list focus
+    }
+    // ★★★ THE ORIGIN-AWARE EXIT (design §6.6 rule 3): the return sites that land on the PROVISION menu today land on
+    //     Home — on the opener, item 1 if it is gone — when Home opened the flow; `settings` and `none` keep the menu.
+    void provision_menu_exit() {
+        if (_setup_origin == SetupOrigin::home) { home_return(); return; }
+        enter_provision(Provision::menu);
+    }
+    // ★★★★ THE SEND LIST — the channel compose selection phase PROMOTED to a top-level list (design §6.5): ⛔ no
+    //      second send path; the send, the sealed {slot, generation}, the result and its acknowledgement are
+    //      today's. Its exit row is `MENU` (see `compose_gesture`).
+    void open_send_list(const UiSnapshot& s) {
+        _st.screen = Screen::send; _st.list_view = ListView::interactive;
+        _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
+        _st.compose_gen = s.preset_generation;   // ★ §UI-10/11 P3 — same freeze, the channel list's own entry
+        _st.dirty = true;
+    }
+    // After a COMMITTED alarm closed compose under the Send list, the list comes back once the overlay is gone.
+    void send_list_follow(const UiSnapshot& s) {
+        if (_st.screen == Screen::send && _st.list_view == ListView::interactive &&
+            _st.compose == Compose::none && _emg == Emergency::idle) open_send_list(s);
+    }
+    // A catalog change under the open Send list: RE-READ it (arrow to item 1, the new generation sealed) and raise
+    // `PRESET CHANGED` — the focused list's note (see `HomeCapture`). ⛔ The press that clears it sends nothing.
+    void preset_catalog_moved(const UiSnapshot& s) {
+        open_send_list(s);
+        _st.home.changed = true;
+    }
 
     void advance_or_next(const UiSnapshot& s) {
         const uint8_t n = list_len(s);
         if (n > 1 && _st.cursor + 1 < n) { ++_st.cursor; return; }
-        // ★★★ [[B232]] — WALKING OFF THE LAST SETTINGS ROW RETURNS TO THE CLOSED SINGLE-ENTRY VIEW, ⛔ NOT off the
-        //     screen. It is the PROVISION-child containment idiom (`close_provisioning` lands back in the menu it was
-        //     opened from), and it is the whole reason the ruling exists: leaving the screen from the last row is the
-        //     "where am I" jump. ⇒ one more `short` then passes SETTINGS, exactly as it does from a fresh arrival.
-        if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }
+        // ★★★★ W4b (design §6.1 — a NAMED revision of [[B232]]/§UI-14): THE SETTINGS MENU WRAPS like every list — the
+        //      walk off its last row (`MENU`) returns to its first row through the shared containment below, and the
+        //      screen is left only by `double` on `MENU`. ⛔ WITHDRAWN, KEPT VISIBLE (wrapped so no pattern matches it):
+        //      the arm that walked back to the closed view —  if (settings && browsing)
+        //                                                        { close_settings_menu(); return; }
         // ★★★★ §UI-17 S1 — THE INTERACTIVE TEAM/INBOX LIST IS **CONTAINED**: the walk off its last row (`BACK`)
         //      returns to the FIRST row, and ⛔ it never leaves the screen and never wraps into an action. It is the
         //      same "where am I" ruling [[B232]] made one screen over, with the one difference the spec states: there
@@ -3919,9 +4259,11 @@ private:
         //      lands back on row 0 and the list is left by `double`-ing `BACK`.
         // ⓘ It also REPAIRS a cursor left beyond the published rows by a roster that shrank between two ticks — which
         //   is why it is `>=` in `list_row_kind` and a wrap to 0 here rather than a decrement.
-        // ⚠ The SETTINGS arm above owns its own containment and has already returned, so this can only be TEAM/INBOX
-        //   today; it is written through the shared predicate so a later entered screen inherits the rule.
+        // ⚠ W4b: SETTINGS' menu now inherits it — exactly the "later entered screen" this line anticipated. Home owns
+        //   its own press (`home_gesture`) and the Send list is compose's, so neither reaches here in list focus.
         if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }
+        // ★★★ W4b — MENU MODE: the rail moves to the next enabled screen (skipping as today) and the focus STAYS
+        //     passive: the body shows that screen's PREVIEW, ⛔ never an entered list on arrival (M106's property).
         _st.screen = next_screen(_st.screen, s); _st.cursor = 0;
     }
     // ★★★★ §B64 IS PAID HERE (OWNER-RULED 2026-08-05) — THE SEND TARGET IS THE REMEMBERED TEAMMATE, NEVER A ROW INDEX.
@@ -3957,9 +4299,9 @@ private:
                 // C2 — FAIL LOUD, and it RE-STATES the loss rather than raising it: `sync_*_cursor` announced it
                 // edge-triggered, and this arm queues NOTHING, which is the whole assertion.
                 case ListAct::refuse: _st.dirty = true;   return;
-                // The list's last row leaves the LIST, ⛔ NEVER the SCREEN — the `close_provisioning` containment
-                // idiom, for the third time in this arc.
-                case ListAct::leave:  close_list_view(s); return;
+                // ★★★ W4b (design §6.1 rule 2 — a NAMED revision of §UI-17's containment): the list's last row is
+                //     `MENU`, and it enters MENU MODE ON THE HOME SLOT. ⓘ The refusal above still OUTRANKS it (§B64).
+                case ListAct::leave:  go_menu_home(s);    return;
                 case ListAct::member: break;
             }
         }
@@ -3982,8 +4324,7 @@ private:
             _st.compose_grant_row  = compose_grant_offered(/*dm=*/true, s.prov_invite, s.team_key_present,
                                                            _st.compose_grant_hash, s.my_key_hash32);
         } else if (_st.screen == Screen::send) {
-            _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
-            _st.compose_gen = s.preset_generation;   // ★ §UI-10/11 P3 — same freeze, the channel list's own entry
+            open_send_list(s);                       // W4b: the menu-mode double opens the Send list (design §6.5)
         } else if (_st.screen == Screen::inbox) {
             // ★★★★ §UI-7D slice B — WHAT USED TO BE A DELIBERATE NO-OP. Spec §3.2: a `double` on INBOX opens the detail
             //     modal. It is the SAME shape as §B64's TEAM activation and for the same reason: the thing activated is
@@ -4021,6 +4362,10 @@ private:
                 return;
             }
             settings_activate(s);
+        } else if (_st.screen == Screen::status) {
+            // ★ W4b: a menu-mode double on the Home preview opens Home in list focus, arrow on item 1 (design §6.4).
+            //   (Home in list focus never reaches `activate` — `home_gesture` owns its press.)
+            home_enter_list();
         }
     }
     // ================================================================================== §UI-14 — the SETTINGS screen
@@ -4046,6 +4391,9 @@ private:
     //    view and stays on SETTINGS (`advance_or_next`). The screen is left by the `short` taken FROM that closed
     //    view, which reaches this function through the same branch. ⓘ The `BACK` row was a third path and no longer
     //    is: it calls `close_settings_menu()` and the panel stays put.
+    // ⛔ CORRECTED AGAIN 2026-09-27 (W4b, V1): both sentences above describe [[B232]]'s menu. Since W4b the menu WRAPS
+    //    (no walk-off; the screen is left from MENU MODE, where a `short` walks the rail), and its last row is `MENU`,
+    //    which closes the menu and then LEAVES through `go_menu_home` — reaching this function as a screen change.
     void settings_follow_screen() {
         if (_st.screen == Screen::settings) return;
         if (_st.settings != Settings::closed) { _st.settings = Settings::closed; _st.dirty = true; }
@@ -4062,6 +4410,7 @@ private:
         if (provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite)) _st.dirty = true;
         clear_grant_return();
         _cfg_sel_valid = false;
+        _setup_origin = SetupOrigin::none;   // W4b: the setup flow RETIRES when it genuinely leaves SETTINGS (§6.6)
     }
     // ★★★ [[B232]]'s TWO PRIMITIVES, and they are two because the menu is now ENTERED and LEFT rather than merely
     //     "the state SETTINGS is in". Both re-establish the SAME three facts, which is why neither is spelled out at
@@ -4072,6 +4421,7 @@ private:
     //   PARENT here and it has one row, so there is no parent pick that a remembered child row could disagree with.
     void open_settings_menu() {
         _st.settings = Settings::browsing; _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;
+        _st.list_view = ListView::interactive;   // W4b: the menu IS Settings' list focus (the one focus authority)
     }
     void close_settings_menu() {
         _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;
@@ -4095,19 +4445,10 @@ private:
         _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;
         note_team_cursor(s); note_inbox_cursor(s);
     }
-    void close_list_view(const UiSnapshot& s) {
-        _st.list_view = ListView::passive;     _st.cursor = 0; _st.dirty = true;
-        note_team_cursor(s); note_inbox_cursor(s);
-    }
-    // ★★ THE VIEW MAY NEVER OUTLIVE ITS SCREEN, and this is the one primitive that enforces it — the
-    //    `settings_follow_screen` shape one screen over, forwarding its DECISION to the pure
-    //    `list_view_reset_on_leave` for the [[B223]] reason stated there. Both call sites are forwards: the `short`
-    //    that advances the CYCLE, and `on_tick`, so a frame frozen between two gestures cannot render an entered list
-    //    over another screen.
-    void list_follow_screen() {
-        if (_st.screen == Screen::team || _st.screen == Screen::inbox) return;
-        if (list_view_reset_on_leave(_st.list_view)) _st.dirty = true;
-    }
+    // ⓘ W4b — RETIRED WITH THE PER-SCREEN "ENTERED" STATE: `close_list_view` (the list's exit now goes to MENU MODE on
+    //   Home through `go_menu_home`) and `list_follow_screen` (the implicit leave-reset: every screen change now
+    //   STATES its focus, and `go_menu_home` forwards to the pure `list_view_reset_on_leave` at the one place a list
+    //   is left). ⛔ Not kept as dead helpers for a mutant to compile against.
     void sync_settings(const UiSnapshot& s) {
         settings_follow_screen();
         if (_st.screen != Screen::settings) return;
@@ -4115,6 +4456,21 @@ private:
         //    not produce a record, so there is no baseline and nothing may be saved. The renderer says so (C2) and
         //    every activation below refuses, because `is_open()` stays false — and the NEXT sync tries again.
         ensure_config_open();                                   // ★ ON ARRIVAL, above the closed-view return below
+        // ★★★★ W4b / [[B457]] (design r2.22 §6.1) — THE SETTINGS MENU IS SHOWN ONLY OVER AN OPEN SERVICE, and this is
+        //      its ONE authority for every path. `emergency_gesture` pre-empts provisioning through `close_provisioning`,
+        //      which lands in `browsing` — correct over an open service (unchanged), but a flow entered WITHOUT the
+        //      menu (Home's ungated `INVITE MEMBER`, a TEAM-roster grant) can run while the store refuses to load, and
+        //      the renderer's `!c.open` arm then draws only `CFG UNAVAILABLE` over a menu nobody can see — which W4b's
+        //      wrapping list made inescapable. ⇒ over a closed service the menu CLOSES to that same `CFG UNAVAILABLE`
+        //      view in MENU MODE: no arrow, the cue beside SETTINGS, `short` walks the rail, and `activate`'s existing
+        //      closed-view guard refuses `double` until the retried open above succeeds (the preview then reads
+        //      `ENTER SETTINGS`). ⛔ Provisioning is NOT touched: an active, otherwise ungated invitation or roster
+        //      grant keeps running over a closed service — only a MENU is refused. Runs before any press acts (every
+        //      `on_gesture` syncs first) and before every freeze (`on_tick`), so no frame shows the unseeable menu.
+        if ((_st.settings == Settings::browsing || _st.settings == Settings::editing) && !(_cfg && _cfg->is_open())) {
+            close_settings_menu();
+            _st.list_view = ListView::passive;                  // menu mode: SETTINGS is the closed view's preview
+        }
         // ★★★★ [[B232]] — ARRIVAL LANDS ON THE **CLOSED** SINGLE-ENTRY VIEW, and this early return is where the old
         //      auto-enter used to be (`_st.settings = Settings::browsing` on the first tick after arrival). That is
         //      what cost the operator up to NINE short presses to cycle past a screen every other screen passes in one.
@@ -4201,6 +4557,8 @@ private:
             // ⚠ NO LONGER REACHABLE, AND STATED RATHER THAN QUIETLY KEPT ([[meshroute-mark-done-vs-missing-in-code]]):
             //   since [[B232]]'s QG correction the MENU ITSELF cannot be entered while the service is not open
             //   (`activate`'s closed-view guard), and `_open` is never cleared once set (firmware_config_service.h) —
+            //   ⓘ W4b (V1): a pre-empted ungated flow reaches `browsing` WITHOUT that guard (`close_provisioning`), and
+            //   [[B457]]'s `sync_settings` authority closes it before any press acts, so the statement still holds —
             //   so no gesture sequence reaches this line with a shut service. ⇒ its mutation was WITHDRAWN from the
             //   battery (M50; the property is now measured one layer out, by M105) and this is defence in depth, the
             //   same standing as `provision_admit`'s `!_cfg || !_cfg->is_open()` refusal (W3 moved it there), which has
@@ -4229,7 +4587,11 @@ private:
             // ★ W3: THE ORDER ABOVE LIVES IN `provision_admit` (opener, no-service refusal, conflict, unsaved, admit),
             //   so this arm only performs the transition the admission allows.
             case CfgRow::provision:
-                if (provision_admit()) enter_provision(Provision::menu);
+                if (provision_admit()) {
+                    _setup_origin = SetupOrigin::settings;   // W4b: a SETTINGS entry types the setup origin (§6.6)
+                    _home_return  = HomeItem::none;
+                    enter_provision(Provision::menu);
+                }
                 break;
             case CfgRow::reload:
                 // The conflict's OTHER way out ([[B192]], owner-ruled: the three-way merge). Reported form: fields the
@@ -4262,7 +4624,12 @@ private:
                 //   ONE function that owns it rather than by re-spelling half of it here. ⓘ `Provision` needs no
                 //   retiring on this path — the sub-view owns the press while it is open, so BACK is unreachable from
                 //   it, and `settings_follow_screen` still closes everything the moment the screen itself is left.
+                // ★★★★ W4b (design §6.1 Settings — a NAMED revision of [[B232]]): the row is now `MENU`. It keeps
+                //      BACK's draft-preserving `on_back()` above, closes the menu through its own primitive, then
+                //      enters MENU MODE ON THE HOME SLOT. ⓘ The two paragraphs above describe the B232 landing it
+                //      replaces (the closed view on SETTINGS) and are kept as the history of that ruling.
                 close_settings_menu();
+                go_menu_home(s);
                 break;
             case CfgRow::ble_mode: case CfgRow::e2e_dm: case CfgRow::intro_attach:
             case CfgRow::mobile_autoregister:   // handled above by `cfg_row_field`; listed so -Wswitch stays useful
@@ -4280,9 +4647,10 @@ private:
     //     still not open; (3) CONFLICT refuses with its note; (4) UNSAVED refuses with its note; (5) admit. The order
     //     of (3) and (4) IS the behaviour — see the `CfgRow::provision` arm. ⛔ It never saves, applies or transitions:
     //     the caller performs the transition it allows.
-    // ⚠ STEP (2) IS UNREACHABLE FROM TODAY's ONLY CALLER, stated rather than implied: the SETTINGS menu cannot be
-    //   entered while the service is not open (`activate`'s closed-view guard), and `_open` is never cleared once set.
-    //   Its first reachable caller — and so its first test — is W4b's Home entry. No test hook is added to reach it.
+    // ⚠ STEP (2) IS UNREACHABLE FROM THE SETTINGS CALLER, stated rather than implied: the SETTINGS menu is never up
+    //   while the service is not open (`activate`'s closed-view guard, [[B457]]'s `sync_settings` authority), and
+    //   `_open` is never cleared once set. ★ W4b's Home JOIN/CREATE activation is its SECOND caller, and there it IS
+    //   reachable: a refused or unattached service becomes the `unavailable` note (`w4b-admit` pins it). No test hook.
     bool provision_admit() {
         ensure_config_open();
         if (!_cfg || !_cfg->is_open()) return false;
@@ -4358,6 +4726,7 @@ private:
         _st.settings = Settings::browsing;
         provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite);
         clear_grant_return();
+        _setup_origin = SetupOrigin::none;   // W4b: the setup session ends (PROVISION BACK, pre-emption, closed arm)
         _st.dirty = true;
     }
     // ★★★ THE SUB-VIEW'S GESTURES. `short` CYCLES within the arm's list and ⛔ never walks out of the screen — the
@@ -4389,7 +4758,7 @@ private:
             //      already-persisted operation"*. ⇒ the session is untouched here, deliberately and visibly: the
             //      join was durably written and DAD is running, and there is no verb on this device that could
             //      un-write it. ⛔ Nothing is cancelled, nothing is retried, nothing is said.
-            case Provision::join_waiting:   enter_provision(Provision::menu); return;
+            case Provision::join_waiting:   provision_menu_exit(); return;   // W4b: the origin-aware exit (§6.6)
             // The join RESULT is terminal in exactly the same way the create one is.
             // ⛔ CORRECTED IN PLACE 2026-08-25 (§UI-17 keyrecv), AND THE WITHDRAWN LINE IS KEPT VISIBLE: it read
             //    `case Provision::join_result:    enter_provision(Provision::menu); return;`. `ADOPTED` — and every
@@ -4401,7 +4770,7 @@ private:
             //    SAME note, so the FULL-KEYRING receipt must find its landing here too — ⛔ or one note would have
             //    two landings, which is exactly the drift the answer-keyed helpers exist to prevent.
             case Provision::join_result:
-                if (!team_key_note_ack_landed() && !team_key_full_ack_landed()) enter_provision(Provision::menu);
+                if (!team_key_note_ack_landed() && !team_key_full_ack_landed()) provision_menu_exit();
                 return;
             // §UI-16 N2 — the READ-ONLY scan list. Its `short`/`double` are `join_select`'s shape, ⛔ not
             // TEAM's: it opens on its first row and its last row is BACK.
@@ -4508,7 +4877,12 @@ private:
             //   are no retained keys" and "the store would not open" are exactly what the operator came to learn.
             // ⛔ OPENING PERFORMS NOTHING: zero writes, zero evictions, nothing chosen (spec §4-K6 pin 1).
             case ProvRow::saved_keys:  load_saved_keys();    enter_provision(Provision::saved_keys);  return;
-            case ProvRow::back:        close_provisioning(); return;
+            case ProvRow::back:
+                // ★★ W4b (brief §2.5's table, W4B-1): the PROVISION menu's OWN BACK honours the origin — Home on the
+                //    opener for `home` (also after an OQ-3 saved-key blank closed the offer here); Settings browsing,
+                //    as today, for `settings` and `none`.
+                if (_setup_origin == SetupOrigin::home) { home_return(); return; }
+                close_provisioning(); return;
             case ProvRow::count:       return;   // the enum's BOUND, listed so -Wswitch stays useful
         }
     }
@@ -4529,7 +4903,7 @@ private:
     }
     void provision_confirm_gesture(Gesture g) {
         if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
-        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }
         run_create_team();
     }
     // ★★★★ THE ACT ITSELF, AND THE ORDER OF THESE FOUR STATEMENTS IS §8 PIN 2: the transaction RUNS, RETURNS, and only
@@ -4573,7 +4947,7 @@ private:
         }
         JoinSelRow r{};
         if (!l.at(_st.cursor, r)) return;                            // fails closed — see JoinSelList::at
-        if (r.back) { enter_provision(Provision::menu); return; }
+        if (r.back) { provision_menu_exit(); return; }
         // ★ THE PICK IS THE SLOT NUMBER, ⛔ never the row index (§B66): the rows are built from the `present` flags,
         //   so index 1 is slot 2 on one record and slot 3 on another. `enter_provision` re-anchors the cursor and the
         //   BACK default, so the confirmation cannot open on the destructive choice.
@@ -4666,7 +5040,7 @@ private:
         }
         NearbySelRow r{};
         if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at
-        if (r.back) { enter_provision(Provision::menu); return; }
+        if (r.back) { provision_menu_exit(); return; }
         // ★★★ THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID, ⛔ never the cursor index (§B66) and ⛔ never the
         //     fingerprint the next screen prints (spec §3 P-7): the value acted on is the value the panel drew, and
         //     it rides the row WHOLE from the observation cache (U2). `enter_provision` re-anchors the cursor and
@@ -4751,13 +5125,14 @@ private:
     //   entry into PROVISION clears it before a pixel of it can be drawn.
     // ⓘ Returns whether it TOOK the landing, so each terminal arm keeps its own `return` and ⛔ no arm can fall
     //   through into a second landing.
+    // ★★★★ W4b — THE LANDING IS NOW HOME IN LIST FOCUS (the landing screen's ordinary state, design §6.1 rule 1),
+    //      on the opener if it still exists, else item 1 — through the ONE entry every return uses (`home_return`,
+    //      which retires SETTINGS/provisioning through `settings_follow_screen` exactly as the lines it replaces did).
+    //      ⓘ CORRECTED 2026-09-27 (V1): the paragraphs above describe the passive-STATUS landing and the retired
+    //      `list_follow_screen` forward; the destination (the landing screen) is unchanged, its focus is W4b's.
     bool team_key_note_ack_landed() {
         if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;
-        _st.screen = Screen::status;
-        _st.cursor = 0;
-        settings_follow_screen();
-        list_follow_screen();
-        _st.dirty = true;
+        home_return();
         return true;
     }
     // ★★★★ §UI-16 K6 (the QG blocker of 2026-08-25) — **A RECEIVED GRANT REFUSED BY A FULL KEYRING ACKNOWLEDGES
@@ -4840,7 +5215,7 @@ private:
             enter_provision(Provision::saved_keys);
             return;
         }
-        enter_provision(Provision::menu);
+        provision_menu_exit();
     }
     // ★★★ THE OFFER'S TWO GESTURES — `nearby_confirm`'s shape, a fifth time (U3): `short` TOGGLES and `double`
     //     PERFORMS THE SELECTED ONE, and ⛔ a `double` on BACK may NOT fall through into the act. The two branches
@@ -4855,7 +5230,7 @@ private:
     //     have landed, so declining costs the operator nothing.
     void saved_key_gesture(Gesture g) {
         if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
-        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }
         run_use_saved_key();
     }
     // ★★★★ THE ACT, AND THE ORDER OF ITS STATEMENTS IS §8 PIN 2 EXACTLY AS THE OTHER THREE ACTS' IS: the service
@@ -4916,7 +5291,7 @@ private:
         }
         SavedKeySelRow r{};
         if (!l.at(_st.cursor, r)) return;                            // fails closed — see SavedKeySelList::at
-        if (r.back) { enter_provision(Provision::menu); return; }
+        if (r.back) { provision_menu_exit(); return; }
         // ★★★ THE REMOVAL IS KEYED ON THE ROW'S OWN **FULL 32-BIT** `team_id`, ⛔ never the cursor index (§B66)
         //     and ⛔ never the fingerprint the confirmation prints (spec §3 P-7, pin 7): the record removed is the
         //     record the panel drew, and it rides the row WHOLE from the enumeration (U2). ⓘ It is written for BOTH
@@ -5021,7 +5396,7 @@ private:
         }
         InviteSelRow r{};
         if (!l.at(_st.cursor, r)) return;                            // fails closed — see InviteSelList::at
-        if (r.back) { enter_provision(Provision::menu); return; }
+        if (r.back) { provision_menu_exit(); return; }
         // ★★★ THE FREEZE (F-14, spec §4-N4's mutation): the hash AND the id of the row the cursor was on, copied
         //     WHOLE out of the row's own identity — ⛔ never the cursor index (a refresh re-indexes) and ⛔ never
         //     re-derived from the six-character fingerprint the row printed (that token is the low 24 bits and
@@ -5156,10 +5531,10 @@ private:
         const uint8_t peer = _st.compose_peer;               // read BEFORE the sub-view is retired
         _grant_return = {GrantOrigin::team_roster, peer};     // bind the caller and navigation identity together
         close_compose();
-        // ★ THE SCREEN MOVES FIRST, THEN THE LIST VIEW IS RETIRED THROUGH ITS OWN PRIMITIVES (U1) — the entered
-        //   TEAM list may not outlive the screen, and the pick may not survive as something a later press acts on.
+        // ★ THE SCREEN MOVES FIRST, THEN THE TEAM PICK IS RETIRED THROUGH ITS OWN PRIMITIVE (U1) — it may not survive
+        //   as something a later press acts on. ⓘ W4b: the FOCUS stays list focus — the grant chain is SETTINGS'
+        //   sub-view, i.e. Settings' list focus; the retired `list_follow_screen` forward is no longer spelled here.
         _st.screen = Screen::settings;
-        list_follow_screen();
         note_team_cursor(s);
         // ★★★ THE FROZEN SELECTION, WRITTEN INTO THE WINDOW CARRIER THE CHAIN ALREADY READS (U2) — ⛔ never a
         //     second field for the same fact. `sel_hash` is the identity every downstream screen and the act
@@ -5184,10 +5559,14 @@ private:
         const GrantReturn back = _grant_return;
         clear_grant_return();
         switch (back.origin) {
+            // ★★ W4b — only a TERMINAL exit honours a Home origin. ⛔ A `resume` never re-homes: it is the path the
+            //    VERBATIM OQ-3 blank cancellation takes (`on_tick`), and a blank never lands on Home (§6.1 rule 7).
             case GrantOrigin::none:
+                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }
                 enter_provision(Provision::menu);
                 return;
             case GrantOrigin::invite_window:
+                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }
                 enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);
                 return;
             case GrantOrigin::team_roster:
@@ -5472,7 +5851,10 @@ private:
         //   `short` is "advance within the current list; AT THE END, move to the next screen". The result phase has no
         //   list, so every position is the end. Neither choice can send: this branch queues nothing.
         if (_st.compose_result) {
+            const bool send_list = (_st.compose == Compose::channel);
             if (g == Gesture::short_press || g == Gesture::double_press) close_compose();
+            // ★ W4b (design §6.5): acknowledging a Send-list result returns to the Send list, arrow on item 1.
+            if (send_list && _st.compose == Compose::none) open_send_list(s);
             return;
         }
         // ★★★★ §UI-10/11 P3 — **THE RULED MODAL CLOSE, ASKED BEFORE THE PRESS IS APPLIED** (§2's table + §3.2.3:
@@ -5484,7 +5866,12 @@ private:
         // ⓘ It sits AFTER the result-phase branch above, which is the other half of the ruling: *"an already-
         //   displayed outcome may finish"* — an outcome is not a selection, and closing it would discard a verdict
         //   the wearer has not read.
+        // ★★ W4b (design §6.5): the SEND LIST re-reads instead of closing, and the note stays up for the operator to
+        //    see (this press could not have seen it — it is consumed and sends nothing).
+        if (_st.compose == Compose::channel && preset_generation_moved(s)) { preset_catalog_moved(s); return; }
         if (preset_generation_moved(s)) { close_compose(); return; }   // ⛔ CONSUMES the press — nothing is sent
+        // ★★ W4b — `PRESET CHANGED` is up: this press clears it and does NOTHING else (§6.4's table, for the Send list).
+        if (_st.compose == Compose::channel && _st.home.changed) { _st.home.changed = false; _st.dirty = true; return; }
         // ★★★ §UI-16 K7 — THE LIST IS NOW RESOLVED BY ITS OWN FUNCTIONS (§B66). ⛔ WITHDRAWN, KEPT VISIBLE:
         //     `const uint8_t n = (dm) ? kDmTextCount : kChannelTextCount;` with `back` identified by
         //     `_st.cursor + 1 == n`. With the grant act absent both express EXACTLY the same list, index for index
@@ -5499,7 +5886,10 @@ private:
         if (g == Gesture::short_press) { _st.cursor = uint8_t((_st.cursor + 1) % n); _st.dirty = true; return; }
         if (g != Gesture::double_press) return;
         switch (compose_row_kind(_st.cursor, list, grant)) {
-            case ComposeRow::back:  close_compose(); return;                                                 // `back`
+            case ComposeRow::back:                                                                           // `back`
+                // ★ W4b: on the Send list this row is `MENU` — menu mode on the Home slot; DM keeps `back, don't send`.
+                if (_st.compose == Compose::channel) { close_compose(); go_menu_home(s); return; }
+                close_compose(); return;
             // ★★★★ §UI-16 K7 / [[B250]] — THE ACT. It performs NO grant and maps NO outcome: it opens the
             //      shared preflight, ceremony, confirmation, one send forward and eleven-arm outcome mapping, while
             //      binding TEAM as the explicit return parent (see `run_roster_grant`). ⛔ Nothing transmits here.
@@ -5559,8 +5949,8 @@ private:
     //    length is not that list's length made shorter — the same statement the closed view's own note made.
     uint8_t list_len(const UiSnapshot& s) const {
         const bool entered = screen_is_entered(_st.screen, _st.settings, _st.list_view);
-        // ★ §UI-17 S1: the interactive list is the published rows PLUS the `BACK` row, which is what makes `BACK`
-        //   reachable by walking and the walk itself CONTAINED (`advance_or_next`).
+        // ★ §UI-17 S1: the interactive list is the published rows PLUS the exit row (`MENU` since W4b), which is what
+        //   makes the exit reachable by walking and the walk itself CONTAINED (`advance_or_next`).
         if (_st.screen == Screen::team)  return list_len_of(entered, s.team_shown);
         if (_st.screen == Screen::inbox) return list_len_of(entered, s.inbox_shown);
         // ★ §UI-14: SETTINGS is list-aware exactly like TEAM and INBOX (§3.2: *"`short` walks the list and leaves only

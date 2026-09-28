@@ -60,6 +60,20 @@ static UiSnapshot snap_inbox(uint8_t n, uint32_t now_ms = 1000) {
     return s;
 }
 
+// ★★★★ W4b (design §6.1 rule 1) — THE BOOT STATE CHANGED: the model boots in LIST FOCUS on Home (`Screen::status`,
+//      `ListView::interactive`, the arrow on item 1). The retired boot state — the passive STATUS screen that one
+//      `short` passed — is now MENU MODE ON THE HOME SLOT, reached exactly as the operator reaches it: walk Home's
+//      list to `MENU` by IDENTITY, then `double`. ⇒ every §UI-14..17 case that walks the rail from boot is ONE
+//      PREFIX of fixture navigation away from its subject (brief §2.9: navigation fixtures only); the new
+//      navigation itself is asserted by the `w4b-` cases. ⓘ Idempotent: already in menu mode, it presses nothing.
+static void to_menu_home(UiModel& m, const UiSnapshot& s) {
+    if (m.state().screen == Screen::status && m.state().list_view == ListView::interactive &&
+        m.state().home_view == HomeView::list) {
+        for (int i = 0; i < 8 && m.state().home.selected != HomeItem::menu; ++i) m.on_gesture(Gesture::short_press, s);
+        m.on_gesture(Gesture::double_press, s);
+    }
+}
+
 // ★★★★ §UI-17 S1 — REACH THE **INTERACTIVE** TEAM LIST AT ITS FIRST ROW: one `short` to the screen, one `double` to
 //      enter it. TEAM and INBOX now LAND PASSIVE (a preview with no marker and no recorded pick, passed by ONE
 //      `short`), so every case that walks or activates a row starts here — the [[B232]] `to_settings_menu` prefix,
@@ -67,11 +81,13 @@ static UiSnapshot snap_inbox(uint8_t n, uint32_t now_ms = 1000) {
 //      itself is asserted by the `ui17-` cases rather than here.
 // ⚠ ASSERTED by the caller afterwards, never assumed.
 static void to_team(UiModel& m, const UiSnapshot& s) {
+    to_menu_home(m, s);                       // W4b: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press,  s);   // STATUS -> TEAM, passive
     m.on_gesture(Gesture::double_press, s);   // ...and ENTER the list, cursor on row 0
 }
 // The same, one plane over: STATUS -> TEAM -> INBOX (one press each, both passive) and then the `double` that enters.
 static void to_inbox(UiModel& m, const UiSnapshot& s) {
+    to_menu_home(m, s);                       // W4b: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press,  s);
     m.on_gesture(Gesture::short_press,  s);
     m.on_gesture(Gesture::double_press, s);
@@ -87,6 +103,7 @@ static void to_inbox(UiModel& m, const UiSnapshot& s) {
 //    is where it is now measured.
 TEST_CASE("ui-model: short press is SCREEN-AWARE: one press per screen, the LIST is behind the double") {
     UiModel m; const auto s = snap();
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 0);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);
@@ -103,6 +120,7 @@ TEST_CASE("ui-model: short press is SCREEN-AWARE: one press per screen, the LIST
 
 TEST_CASE("ui-model: an empty TEAM list is passed through, not a dead end") {
     UiModel m; auto s = snap(); s.team_shown = 0; s.team_total = 0;
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
 }
@@ -180,6 +198,7 @@ TEST_CASE("ui-model: panel blanks and the waking SHORT press is consumed") {
 //   ⛔ TEAM and SEND must STILL be unreachable, which is what the loop below asserts.
 TEST_CASE("ui-model: a non-team build cycles STATUS -> INBOX -> SETTINGS and never reaches TEAM or SEND") {
     UiModel m; auto s = snap(); s.team_build = false;
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::settings);
     for (int i = 0; i < 40; ++i) {
@@ -209,6 +228,7 @@ TEST_CASE("ui-model: a non-team build cannot open a compose modal") {
 //   the original case's real invariant (no send request escapes an inbox double) is kept rather than dropped.
 TEST_CASE("ui-model: double on STATUS activates nothing; on INBOX it now OPENS THE DETAIL MODAL (§UI-7D)") {
     UiModel m; const auto s = snap_inbox(3); SendReq req{};
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().screen == Screen::status); CHECK(m.state().compose == Compose::none);
     CHECK(m.state().detail == InboxModal::closed);
@@ -262,6 +282,7 @@ TEST_CASE("ui-model: INBOX is list-aware too — the cursor walks its rows befor
 // rows are "Got your message" / "All good" / back — three, like the DM list, but a different SendKind.
 TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 sends the second canned text") {
     UiModel m; const auto s = snap(); SendReq req{};
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // STATUS -> TEAM -> INBOX -> SEND
     CHECK(m.state().screen == Screen::send);
     m.on_gesture(Gesture::double_press, s);
@@ -282,13 +303,18 @@ TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 send
     // ...and the parent underneath is unchanged, so acknowledging the result returns to SEND rather than to the
     // cycle start. Asserted through the CLOSE, because that is the moment the claim is actually about.
     m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().compose == Compose::none);
+    // ★ W4b (design §6.5): acknowledging the result returns to the SEND LIST, arrow on item 1 — the channel compose
+    //   selection phase IS the top-level Send list now. (Was `compose == none`, the passive SEND screen.)
+    CHECK(m.state().compose == Compose::channel);
     CHECK(m.state().compose_result == false);
+    CHECK(m.state().cursor == 0);
+    CHECK(m.state().list_view == ListView::interactive);
     CHECK(m.state().screen  == Screen::send);    // the modal returns to its PARENT, not to the cycle start
 }
 
-TEST_CASE("ui-model: the channel list's last row is `back` and sends nothing") {
+TEST_CASE("ui-model: the channel list's last row is `back` — MENU since W4b — and sends nothing") {
     UiModel m; const auto s = snap(); SendReq req{};
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // -> SEND, one press per screen
     m.on_gesture(Gesture::double_press, s);
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> back (index 2)
@@ -296,6 +322,10 @@ TEST_CASE("ui-model: the channel list's last row is `back` and sends nothing") {
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
     CHECK(m.take_send_request(req) == false);
+    // ★ W4b (design §6.5): the Send list's last row is `MENU` — it enters MENU MODE ON THE HOME SLOT. (Was: the
+    //   passive SEND screen.)
+    CHECK(m.state().screen == Screen::status);
+    CHECK(m.state().list_view == ListView::passive);
 }
 
 TEST_CASE("ui-model: the compose cursor wraps within the list, so `back` is always reachable") {
@@ -462,19 +492,21 @@ TEST_CASE("ui-model: B64 — the refusal is retired before TEAM can be left, and
     CHECK(m.state().screen == Screen::team);
     CHECK(m.state().cursor == 0);
     CHECK(m.state().team_pick_gone == false);                            // ★ re-picking retires it
-    // ...and leaving through BACK lands on a PASSIVE TEAM that says nothing, then passes the screen in one press
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> the BACK row (index 2)
+    // ...and leaving through the exit row (`MENU` since W4b) lands in MENU MODE on Home saying nothing, and the TEAM
+    // preview one press later says nothing either. (Was: a passive TEAM, then INBOX.)
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> the exit row (index 2)
     m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().screen == Screen::status);
     CHECK(m.state().list_view == ListView::passive);
     CHECK(m.state().team_pick_gone == false);
     m.on_gesture(Gesture::short_press, s);
-    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().screen == Screen::team);
     CHECK(m.state().team_pick_gone == false);
 }
 
 TEST_CASE("ui-model: an empty TEAM list opens no modal on double") {
     UiModel m; auto s = snap(); s.team_shown = 0; s.team_total = 0; SendReq req{};
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::double_press, s);
@@ -503,6 +535,9 @@ TEST_CASE("ui-model: Gesture::none is inert — it neither navigates nor refresh
 TEST_CASE("ui-model: dirty starts true, is cleared on demand, and an idle tick does not set it") {
     UiModel m;
     CHECK(m.state().dirty == true);               // the first frame must be drawn
+    // ★ W4b: the BOOT tick captures Home's list (the arrow lands on item 1) — a VISIBLE change, so it asks for the
+    //   frame; only after it are idle ticks inert. (Was: every tick idle from the start.)
+    m.on_tick(snap(500));   CHECK(m.state().dirty == true);
     m.clear_dirty(); CHECK(m.state().dirty == false);
     m.on_tick(snap(1000));  CHECK(m.state().dirty == false);
     m.on_tick(snap(2000));  CHECK(m.state().dirty == false);
@@ -563,6 +598,7 @@ TEST_CASE("ui-model: a gesture inside the modal refreshes the BLANK window (the 
 //    interaction, ⛔ never its parent.
 TEST_CASE("ui-model: blanking KEEPS the modal, and the consumed waking press puts it back on the panel") {
     UiModel m; SendReq req{};
+    to_menu_home(m, snap(1000));                  // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, snap(1000));
     m.on_gesture(Gesture::double_press, snap(1050));   // §UI-17 S1: enter the TEAM list
     m.on_gesture(Gesture::double_press, snap(1100));   // ...and open the DM sub-view on row 0
@@ -1393,6 +1429,7 @@ TEST_CASE("ui-model: §B115 the attempt line is DELIBERATELY not clamped to kEmg
 // the `_tries == 0` guard are both satisfied for the reply case).
 static UiModel fired_with_outcome(const SendOutcome& o, uint32_t at_ms) {
     UiModel m; SendReq req{};
+    to_menu_home(m, snap(1000));                         // W4b fixture: the alarm fires over the retired boot state
     m.on_gesture(Gesture::long_arm,  snap(1000));
     m.on_gesture(Gesture::long_fire, snap(4500));
     const bool got = m.take_send_request(req);          // ⚠ DRAINS — one call, into a local
@@ -1529,6 +1566,7 @@ TEST_CASE("ui-model: B71 — `double` gets NO emergency job, and `long` still re
 //    now closes the modal and resets the cursor, which removes the collision instead of arbitrating it.
 TEST_CASE("ui-model: B101 — committing an alarm CLOSES the compose modal and resets its cursor") {
     UiModel m; SendReq req{};
+    to_menu_home(m, snap(1000));                  // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press,  snap(1000));           // status -> team (passive)
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::double_press, snap(1050));           // §UI-17 S1: ENTER the list...
@@ -1603,6 +1641,7 @@ TEST_CASE("ui-frame: F1 — an outcome arriving MID-FRAME is still painted after
 
 TEST_CASE("ui-frame: F1 — a mid-frame GESTURE is not swallowed by the completing frame") {
     FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     CHECK(g.step(m, s, true) == FrameStep::open);     // the boot frame (the model starts dirty)
     g.on_page(true, m, c);
     m.on_gesture(Gesture::short_press, s);            // the user advances to TEAM while page 1 of 8 is going out
@@ -1702,6 +1741,7 @@ TEST_CASE("ui-frame: a frame spans exactly the pages the panel reports, and only
 // A fired alarm carried to `o`, with the screen left on TEAM — the screen where `double` really does compose.
 static UiModel on_team_with_outcome(const SendOutcome& o, uint32_t at_ms) {
     UiModel m; SendReq req{};
+    to_menu_home(m, snap(1000));                                // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, snap(1000));             // status -> team (passive)
     CHECK(m.state().screen == Screen::team);
     // ★★ §UI-17 S1: the list is ENTERED before the alarm, deliberately — `double` only composes from an entered
@@ -1718,6 +1758,7 @@ static UiModel on_team_with_outcome(const SendOutcome& o, uint32_t at_ms) {
 
 TEST_CASE("ui-model: R2 — two DOUBLES under the overlay cannot open and then SEND an invisible compose view") {
     UiModel m; SendReq req{};
+    to_menu_home(m, snap(1000));                  // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, snap(1000));             // status -> team (passive)
     m.on_gesture(Gesture::double_press, snap(1050));            // §UI-17 S1: ENTER the list — see `on_team_with_outcome`
     CHECK(m.state().screen == Screen::team);
@@ -1743,6 +1784,7 @@ TEST_CASE("ui-model: R2 — two DOUBLES under the overlay cannot open and then S
 
 TEST_CASE("ui-model: R2 — a DOUBLE cannot SEND from a compose modal left open under ARMING") {
     UiModel m;
+    to_menu_home(m, snap(1000));                  // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press,  snap(1000));            // status -> team (passive)
     m.on_gesture(Gesture::double_press, snap(1050));            // §UI-17 S1: ENTER the list...
     m.on_gesture(Gesture::double_press, snap(1100));            // ...and open the DM compose modal
@@ -1779,6 +1821,7 @@ TEST_CASE("ui-model: R2 — the overlay absorbs a DOUBLE in every non-idle emerg
 
     // CANCELLED — the brief toast is still an overlay that owns the body.
     UiModel x;
+    to_menu_home(x, snap(1000));                  // W4b fixture: menu mode on Home
     x.on_gesture(Gesture::short_press, snap(1000));
     x.on_gesture(Gesture::long_arm,    snap(1100));
     x.on_gesture(Gesture::long_cancel, snap(1200));
@@ -1920,6 +1963,7 @@ TEST_CASE("ui7-B69: three handle-less attempts end in NOT HEARD carrying `no_han
 
 TEST_CASE("ui7-chan: a refused canned post is TERMINAL, not a permanent SENDING...") {
     UiModel m; SendReq req{};
+    to_menu_home(m, snap(1000));                  // W4b fixture: menu mode on Home
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, snap(1000));   // STATUS -> TEAM -> INBOX -> SEND
     m.on_gesture(Gesture::double_press, snap(1000));
     CHECK(m.state().compose == Compose::channel);
@@ -3154,6 +3198,10 @@ static constexpr uint32_t kTickStep = 600;
 // STATUS -> TEAM -> INBOX and the `double` that ENTERS the list, one press a tick, exactly as `to_inbox` does it
 // without one (§UI-17 S1).
 static uint32_t to_inbox_ticks(InboxTick& h, uint32_t t) {
+    // W4b fixture: the retired passive-STATUS start is MENU MODE on Home — walk Home's list to `MENU` by identity and
+    // `double`, one press a tick (the first tick's own sync lands the arrow on item 1).
+    for (int i = 0; i < 10 && h.m.state().list_view == ListView::interactive; ++i)
+        h.tick(t += kTickStep, h.m.state().home.selected == HomeItem::menu ? Gesture::double_press : Gesture::short_press);
     h.tick(t += kTickStep, Gesture::short_press);
     h.tick(t += kTickStep, Gesture::short_press);
     h.tick(t += kTickStep, Gesture::double_press);
@@ -3420,6 +3468,8 @@ struct CfgFix {
 // assumed: the walk is bounded, so a cycle change that made SETTINGS unreachable fails the caller's first check
 // instead of looping.
 void to_settings(UiModel& m, const UiSnapshot& s) {
+    // W4b: a list-focus screen other than SETTINGS is left through its `MENU` first (menu mode walks the rail).
+    if (m.state().screen != Screen::settings) to_menu_home(m, s);
     for (int i = 0; i < 40 && m.state().screen != Screen::settings; ++i) m.on_gesture(Gesture::short_press, s);
     // ⚠ AND THEN A TICK, because that is the shipped order (`mr_ui_tick`: on_gesture -> on_tick -> the freeze) and it
     //   is when `sync_settings` OPENS the service. Without it the baseline would be snapshotted later — at whatever
@@ -3552,7 +3602,7 @@ TEST_CASE("ui14-rows: the row labels are the panel's, and none exceeds the 10-co
     CHECK(strcmp(settings_row_label(CfgRow::provision), "PROVISION") == 0);
     CHECK(strcmp(settings_row_label(CfgRow::save), "SAVE") == 0);
     CHECK(strcmp(settings_row_label(CfgRow::discard), "DISCARD") == 0);
-    CHECK(strcmp(settings_row_label(CfgRow::back), "BACK") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::back), "MENU") == 0);   // W4b (design §6.1): the exit row is MENU (was BACK)
     CHECK(strcmp(settings_row_label(CfgRow::reload), "RELOAD") == 0);
     for (uint8_t i = 0; i < kMaxCfgRows; ++i) CHECK(strlen(settings_row_label(CfgRow(i))) <= 10u);
 }
@@ -3595,15 +3645,18 @@ TEST_CASE("ui14-cycle: SETTINGS is the last slot, and it is LIST-AWARE like TEAM
         CHECK(f.m.state().screen == Screen::settings);
         CHECK(f.m.state().cursor == i);
     }
-    // ★★ [[B232]] CORRECTED THE LANDING IN PLACE: the walk off the last row used to leave the SCREEN, and it now
-    //    returns to the CLOSED single-entry view. The property "`short` walks the rows and leaves only at the end"
-    //    is unchanged; what the end IS has moved one step inwards, and the screen is left by the press after it.
-    f.m.on_gesture(Gesture::short_press, s);               // ...and leaves the MENU only at the end (§3.2)
+    // ★★★ W4b (design §6.1 Settings — a NAMED revision of [[B232]]/§UI-14): the menu now WRAPS like every list. The
+    //     walk off the last row (`MENU`) returns to its FIRST row, and the screen is left only by `double` on `MENU`,
+    //     into MENU MODE on the Home slot. (Was: the walk off the last row returned to the closed view, and the press
+    //     after it passed the screen.)
+    f.m.on_gesture(Gesture::short_press, s);               // the walk WRAPS...
     CHECK(f.m.state().screen == Screen::settings);
-    CHECK(f.m.state().settings == Settings::closed);
-    CHECK(f.m.state().cursor == 0);                        // the single entry row IS the selection
-    f.m.on_gesture(Gesture::short_press, s);               // ...and one more press passes the screen
-    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().cursor == 0);                        // ...onto the first row
+    CHECK(cursor_to(f.m, s, CfgRow::back));                // `MENU`, by identity
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().screen == Screen::status);           // menu mode on the Home slot
+    CHECK(f.m.state().list_view == ListView::passive);
     CHECK(f.m.state().settings == Settings::closed);       // ⛔ the editor state never survives the screen
 }
 
@@ -3716,32 +3769,36 @@ TEST_CASE("b232-remedy: the remedy WORDS stand from the CLOSED view — every ba
     CHECK(strcmp(settings_note(f.m.state()), "") == 0);
 }
 
-TEST_CASE("b232-exit: BOTH menu exits return to the CLOSED view — ⛔ never straight off the screen") {
+TEST_CASE("b232-exit: BOTH menu exits return to the CLOSED view — W4b: MENU goes Home in menu mode, the walk WRAPS") {
     CfgFix f; const auto s = cfg_snap();
-    // (a) the BACK ROW
+    // ★★★ W4b (design §6.1 Settings — a NAMED revision of this [[B232]] case, M101/M102's revised contract): the two
+    //     exits are now (a) the `MENU` row → MENU MODE ON THE HOME SLOT, and (b) the walk off the last row → the
+    //     FIRST row (the menu wraps). ⛔ Neither lands on the closed view any more, and ⛔ neither leaves by walking.
+    // (a) the MENU ROW
     to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::back));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().list_view == ListView::passive);
     CHECK(f.m.state().settings == Settings::closed);
     CHECK(f.m.state().cursor == 0);
     // (b) THE WALK OFF THE LAST ROW, reached by walking rather than by naming an index
-    f.m.on_gesture(Gesture::double_press, s);              // back into the menu
+    to_settings_menu(f.m, s);                              // back into the menu (menu mode → SETTINGS → double)
     CHECK(f.m.state().settings == Settings::browsing);
     // ★ RE-ENTRY OPENS ON THE FIRST ROW — ⛔ never on the row the operator left the menu from, which was `BACK`:
     //   the closed view is the parent here and it has ONE row, so there is no pick for a remembered row to restore.
     f.m.on_tick(s);
     CHECK(f.m.state().cursor == 0);
     { CfgRow r0{}; CHECK(row_under_cursor(f.m, s, r0)); CHECK(r0 == CfgRow::e2e_dm); }
-    for (int i = 0; i < 20 && f.m.state().settings == Settings::browsing; ++i)
-        f.m.on_gesture(Gesture::short_press, s);
+    const uint8_t n = f.m.settings_row_list(s).n;
+    for (uint8_t i = 1; i < n; ++i) f.m.on_gesture(Gesture::short_press, s);   // onto the last row, `MENU`
+    { CfgRow last{}; CHECK(row_under_cursor(f.m, s, last)); CHECK(last == CfgRow::back); }
+    f.m.on_gesture(Gesture::short_press, s);               // ...and one more WRAPS
     CHECK(f.m.state().screen == Screen::settings);
-    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().settings == Settings::browsing);
     CHECK(f.m.state().cursor == 0);
-    // ★ AND ONLY THEN DOES THE SCREEN CHANGE — the "where am I" jump the ruling exists to remove.
-    f.m.on_gesture(Gesture::short_press, s);
-    CHECK(f.m.state().screen == Screen::status);
-    CHECK(f.m.state().settings == Settings::closed);
+    // ★ the screen changes ONLY through `MENU` — the "where am I" jump the ruling removed stays removed.
+    for (int i = 0; i < 40; ++i) { f.m.on_gesture(Gesture::short_press, s); CHECK(f.m.state().screen == Screen::settings); }
 }
 
 // ---------------------------------------------------------------------------------------------- short's two modes
@@ -3955,11 +4012,12 @@ TEST_CASE("ui14-back: BACK is safe — it leaves the MENU and PRESERVES the unsa
     CHECK(f.svc.config_unsaved() == true);
     CHECK(cursor_to(f.m, s, CfgRow::back));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().screen == Screen::settings);         // ★ [[B232]]: the CLOSED view, ⛔ never straight off
+    // ★ W4b (design §6.1 Settings): `MENU` keeps BACK's draft-preserving `on_back()` and enters MENU MODE ON HOME.
+    //   (Was: [[B232]]'s closed view, and one more press passed the screen.)
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().list_view == ListView::passive);
     CHECK(f.m.state().settings == Settings::closed);
     CHECK(f.m.state().cursor == 0);
-    f.m.on_gesture(Gesture::short_press, s);               // ...and one more press passes the screen
-    CHECK(f.m.state().screen == Screen::status);
     // ★★ THE WHOLE POINT: the draft is still there, the marker is still up, and the service is still open.
     CHECK(f.svc.config_unsaved() == true);
     CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
@@ -4574,11 +4632,10 @@ TEST_CASE("ui15-close: leaving SETTINGS by its BACK row retires the sub-state, a
     CHECK(f.m.state().settings == Settings::browsing);
     CHECK(cursor_to(f.m, s, CfgRow::back));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().screen == Screen::settings);            // ★ [[B232]]: BACK leaves the MENU, not the screen
-    CHECK(f.m.state().settings == Settings::closed);
-    CHECK(f.m.state().provisioning == Provision::closed);
-    f.m.on_gesture(Gesture::short_press, s);                  // ...and the press after it leaves the screen
+    // ★ W4b (design §6.1 Settings): `MENU` (was BACK) enters MENU MODE ON HOME, and the sub-state is retired with it.
     CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().list_view == ListView::passive);
+    CHECK(f.m.state().settings == Settings::closed);
     CHECK(f.m.state().provisioning == Provision::closed);
     // ★ AND COMING BACK OPENS THE MENU at its first row — ⛔ never something the operator abandoned.
     CHECK(open_provision(f.m, s));
@@ -6143,9 +6200,14 @@ TEST_CASE("ui17-lex: the list's BACK row is the SHIPPED spelling, and there is o
     CHECK(strcmp(kListBackText, "BACK") == 0);
     // ★ THE POINT OF THE CASE: the same act is spelled the same way on every screen, so an operator reads one exit.
     //   ⛔ A second spelling is what this measures against — not the constant's own value.
-    CHECK(strcmp(kListBackText, settings_row_label(CfgRow::back)) == 0);
+    // ★ W4b (design §6.1 rule 2): the TOP-LEVEL exit is now `MENU` (`kListMenuText`) — the Settings menu's last row and
+    //   the TEAM/INBOX/Send/Home exit rows — while `BACK` stays the SUB-VIEW spelling (PROVISION). Two acts, two words.
+    //   (Was: `kListBackText == settings_row_label(CfgRow::back)`.)
+    CHECK(strcmp(kListMenuText, settings_row_label(CfgRow::back)) == 0);
+    CHECK(strcmp(kListMenuText, "MENU") == 0);
     CHECK(strcmp(kListBackText, provision_row_label(ProvRow::back)) == 0);
-    // the row renders as `<marker><label>` (`body_back_row`), so the marker's column counts too
+    // a sub-view BACK row renders as `<marker><label>` (the top-level exit, `MENU`, is `body_menu_row`'s same shape),
+    // so the marker's column counts too
     CHECK(strlen(kListBackText) + 1 <= 19u);
     CHECK(kListBackText[0] != '\0');                       // ⛔ C2: an exit nobody can read is no exit at all
 }
@@ -6162,9 +6224,12 @@ TEST_CASE("ui17-rowkind: the BACK row is resolved by IDENTITY, and it fails CLOS
 }
 
 TEST_CASE("ui17-entered: ONE predicate answers `is this screen entered`, for every screen") {
-    // STATUS and SEND have no interaction to enter, whatever the other two states say
-    CHECK(screen_is_entered(Screen::status, Settings::browsing, ListView::interactive) == false);
-    CHECK(screen_is_entered(Screen::send,   Settings::browsing, ListView::interactive) == false);
+    // ★ W4b (design §6.1): Home and the Send list have LIST FOCUS now, so STATUS and SEND read `ListView` too.
+    //   (Was: both answered false whatever the view said.)
+    CHECK(screen_is_entered(Screen::status, Settings::browsing, ListView::interactive) == true);
+    CHECK(screen_is_entered(Screen::status, Settings::browsing, ListView::passive)     == false);
+    CHECK(screen_is_entered(Screen::send,   Settings::browsing, ListView::interactive) == true);
+    CHECK(screen_is_entered(Screen::send,   Settings::browsing, ListView::passive)     == false);
     // TEAM and INBOX read `ListView`...
     CHECK(screen_is_entered(Screen::team,  Settings::closed, ListView::passive)     == false);
     CHECK(screen_is_entered(Screen::team,  Settings::closed, ListView::interactive) == true);
@@ -6193,6 +6258,7 @@ TEST_CASE("ui17-reset: the leave reset is pure, reports the change, and is idemp
 
 TEST_CASE("ui17-passive: TEAM and INBOX LAND PASSIVE, and ONE press passes each of them") {
     UiModel m; const auto s = snap_inbox(3);
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::team);
     CHECK(m.state().list_view == ListView::passive);       // ★ the landing: a preview, not a selector
@@ -6208,6 +6274,7 @@ TEST_CASE("ui17-passive: TEAM and INBOX LAND PASSIVE, and ONE press passes each 
 //     that arrives there can only ENTER — it cannot open a DM, cannot open a record and cannot queue anything.
 TEST_CASE("ui17-passive: a `double` on a passive list ENTERS it and queues NOTHING") {
     UiModel m; const auto s = snap_inbox(3); SendReq req{}; InboxReq rq{};
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s);                 // -> TEAM, passive
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().list_view == ListView::interactive);   // ...it ENTERED
@@ -6219,7 +6286,8 @@ TEST_CASE("ui17-passive: a `double` on a passive list ENTERS it and queues NOTHI
     // the same on INBOX: leave through BACK, walk on, and the entering double asks the store for nothing
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
     m.on_gesture(Gesture::short_press, s);                 // cursor 3 = the BACK row of a 3-row roster
-    m.on_gesture(Gesture::double_press, s);                // -> passive TEAM
+    m.on_gesture(Gesture::double_press, s);                // -> W4b: `MENU` = menu mode on Home (was: passive TEAM)
+    m.on_gesture(Gesture::short_press, s);                 // -> TEAM, passive
     m.on_gesture(Gesture::short_press, s);                 // -> INBOX, passive
     CHECK(m.state().screen == Screen::inbox);
     CHECK(m.state().list_view == ListView::passive);
@@ -6260,21 +6328,21 @@ TEST_CASE("ui17-walk: the interactive walk ends on BACK and comes home, on BOTH 
 // ★★★★ SPEC S1 PIN 3 — `BACK` RETURNS TO THE **PASSIVE FORM OF THE SAME SCREEN**, and the press after it passes the
 //      screen exactly as a fresh arrival would. ⛔ It is never a jump to another screen — the "where am I" move
 //      [[B232]] removed one screen over.
-TEST_CASE("ui17-back: BACK closes the list to the SAME screen, and one further press then passes it") {
+TEST_CASE("ui17-back: BACK closes the list to the SAME screen — W4b: MENU enters menu mode on the Home slot") {
     UiModel m; const auto s = snap_inbox(3); SendReq req{};
     to_team(m, s);
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);      // -> the BACK row
     m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().screen == Screen::team);               // ⛔ NOT the next screen
-    CHECK(m.state().list_view == ListView::passive);       // ★ the PASSIVE form of it
+    // ★★★ W4b (design §6.1 rule 2 — a NAMED revision of this §UI-17 case, M109's revised contract): the exit row is
+    //     `MENU`, and it enters MENU MODE ON THE HOME SLOT. (Was: the passive form of the SAME screen.)
+    CHECK(m.state().screen == Screen::status);             // ★ menu mode, on the Home slot
+    CHECK(m.state().list_view == ListView::passive);
     CHECK(m.state().cursor == 0);
     CHECK(m.state().compose == Compose::none);
     CHECK(m.take_send_request(req) == false);              // ⛔ leaving sent nothing
     m.on_gesture(Gesture::short_press, s);
-    CHECK(m.state().screen == Screen::inbox);              // ★ and one press then passes it, like a fresh arrival
-    // ...and coming back round finds TEAM passive again — the view never outlives the visit
-    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);
-    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().screen == Screen::team);               // ★ the rail walks from Home again
+    // ...and TEAM is a PREVIEW, never an entered list — the view never outlives the visit
     CHECK(m.state().list_view == ListView::passive);
 }
 
@@ -6282,6 +6350,7 @@ TEST_CASE("ui17-back: BACK closes the list to the SAME screen, and one further p
 //     the operator is inside a screen whose only gesture refuses.
 TEST_CASE("ui17-empty: an empty roster and an empty inbox still offer BACK, and still leave") {
     UiModel m; auto s = snap_inbox(0); s.team_shown = 0; s.team_total = 0; SendReq req{}; InboxReq rq{};
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::double_press, s);
@@ -6292,8 +6361,10 @@ TEST_CASE("ui17-empty: an empty roster and an empty inbox still offer BACK, and 
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().list_view == ListView::passive);       // ★ ...and it LEAVES
+    CHECK(m.state().screen == Screen::status);             // W4b: `MENU` → menu mode on Home (was: passive TEAM)
     CHECK(m.state().team_pick_gone == false);              // ⛔ ...saying nothing about a pick nobody made
     CHECK(m.take_send_request(req) == false);
+    m.on_gesture(Gesture::short_press, s);                 // W4b: the rail walks from Home — TEAM first
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::double_press, s);
@@ -6580,6 +6651,7 @@ TEST_CASE("ui17-detail: the modal's `back` returns to the INTERACTIVE list, not 
 //      never through a private flag.
 TEST_CASE("ui17-passive: a passive preview records NO pick, so a roster change raises no refusal") {
     UiModel m; auto s = snap();
+    to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     m.on_gesture(Gesture::short_press, s);                 // -> TEAM, passive, cursor 0 over a 3-row roster
     CHECK(m.state().list_view == ListView::passive);
     m.on_tick(s);
@@ -6592,6 +6664,7 @@ TEST_CASE("ui17-passive: a passive preview records NO pick, so a roster change r
     CHECK(m.state().team_pick_gone == false);
     // the INBOX side, one plane over
     UiModel n; auto si = snap_inbox(3);
+    to_menu_home(n, si);                          // W4b fixture: menu mode on Home
     n.on_gesture(Gesture::short_press, si); n.on_gesture(Gesture::short_press, si);
     CHECK(n.state().screen == Screen::inbox);
     CHECK(n.state().list_view == ListView::passive);
@@ -8212,13 +8285,13 @@ TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserve
     //   above and `InviteGrantResult`'s size are the ones those slices landed with, and `UiSnapshot` is untouched
     //   because K7's one published field lands in an existing pad (the full K7 arithmetic is in
     //   `ui16-k7-resources`).
-    CHECK(sizeof(mrui::UiState) == 504u);
+    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u
     // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
-    CHECK(sizeof(mrui::UiSnapshot) == 1336u);          // ⛔ UNCHANGED BY N6 ITSELF — see the note above
-    CHECK(sizeof(mrui::UiModel) == 928u);
+    CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u          // ⛔ UNCHANGED BY N6 ITSELF — see the note above
+    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u
 }
 
 // ================================================= §UI-16 N6 — THE GRANT ACT's MODEL HALF (the pure unit's own
@@ -8497,7 +8570,10 @@ void leave_settings_to_status(UiModel& m, const UiSnapshot& s) {
         (void)cursor_to(m, s, CfgRow::back);
         m.on_gesture(Gesture::double_press, s);
     }
-    m.on_gesture(Gesture::short_press, s);   // [[B232]]'s closed entry view passes the screen in ONE press
+    // ★ W4b: the Settings menu's last row is `MENU` now, and it lands in MENU MODE ON HOME by itself — the press that
+    //   used to pass [[B232]]'s closed entry view is only needed if something left SETTINGS on that view.
+    if (m.state().screen == Screen::settings && m.state().settings == Settings::closed)
+        m.on_gesture(Gesture::short_press, s);
 }
 }  // namespace
 
@@ -8506,6 +8582,7 @@ TEST_CASE("ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row an
     {   // ⛔ THE PASSIVE PREVIEW OFFERS NOTHING (§UI-17 S1, P-12): the roster must be ENTERED first, and the act is
         //    three deliberate presses past that — enter, open the member, walk to the row, confirm.
         CreateFix p;
+        to_menu_home(p.m, s);                     // W4b fixture: menu mode on Home
         p.m.on_gesture(Gesture::short_press, s);
         CHECK(p.m.state().screen == Screen::team);
         CHECK(p.m.state().list_view == ListView::passive);
@@ -8736,6 +8813,7 @@ TEST_CASE("ui16-k7-keyless: pin 6 — a KEYLESS node offers nothing, and neither
     }
     {   // (d) ⛔ AND THE CHANNEL COMPOSE NEVER OFFERS IT: it has no member at all (`compose_peer == 0`)
         CreateFix f; const auto s = k7_snap(1);
+        to_menu_home(f.m, s);                     // W4b fixture: menu mode on Home
         f.m.on_gesture(Gesture::short_press, s); f.m.on_gesture(Gesture::short_press, s);
         f.m.on_gesture(Gesture::short_press, s);                   // STATUS -> TEAM -> INBOX -> SEND
         CHECK(f.m.state().screen == Screen::send);
@@ -9138,7 +9216,7 @@ TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and 
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
-    CHECK(sizeof(mrui::UiSnapshot) == 1336u);                      // ⛔ UNCHANGED BY K7 ITSELF
+    CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u                      // ⛔ UNCHANGED BY K7 ITSELF
     CHECK(offsetof(mrui::UiSnapshot, my_key_hash32) == 700u);      // ★ the pad before the 8-aligned age below
     CHECK(offsetof(mrui::UiSnapshot, home_confirm_age_ms) == 704u);// ⛔ UNMOVED
     CHECK(offsetof(mrui::UiSnapshot, prov_invite) == 689u);        // ⛔ UNMOVED
@@ -9159,8 +9237,8 @@ TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and 
     CHECK(offsetof(mrui::UiState, compose_gen) == 8u);             // ★ §UI-10/11 P3 — 4-aligned, and FREE
     CHECK(offsetof(mrui::UiState, compose_grant_row) == 12u);      // ★ ...and the flag costs NOTHING on top
     CHECK(offsetof(mrui::UiState, compose_result) == 13u);         // pushed by the 4-alignment above
-    CHECK(sizeof(mrui::UiState) == 504u);                          // 496 + 8, and ⛔ UNMOVED by P3's uint32
-    CHECK(sizeof(mrui::UiModel) == 928u);                          // 920 + the same 8, likewise UNMOVED
+    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u                          // 496 + 8, and ⛔ UNMOVED by P3's uint32
+    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u                          // 920 + the same 8, likewise UNMOVED
     // ---- and K7 adds NO carrier to the chain it enters ------------------------------------------------------------
     CHECK(sizeof(mrui::InviteWindow) == 104u);                     // ⛔ UNCHANGED
     CHECK(sizeof(mrui::InviteGrantResult) == 8u);                  // ⛔ UNCHANGED
@@ -9215,7 +9293,7 @@ TEST_CASE("ui16-K4: the note occupies the panel's ONE transient team answer, and
     CHECK(f.m.state().screen == Screen::status);
     CHECK(f.m.state().settings == Settings::closed);
     CHECK(f.m.state().provisioning == Provision::closed);
-    CHECK(f.m.state().list_view == ListView::passive);
+    CHECK(f.m.state().list_view == ListView::interactive);   // W4b ruling: the landing is Home IN LIST FOCUS (was passive)
     CHECK(f.m.state().cursor == 0);
     // ★ THE RETIREMENT, RE-PROVEN THROUGH THE NEW LANDING: the next ENTRY into PROVISION zeroes the slot, so the
     //   operator can never walk back into a result screen still carrying the acknowledged note.
@@ -9252,11 +9330,14 @@ bool put_note_on_join_result(CreateFix& f, const UiSnapshot& s, bool saved) {
 }
 // The landing the ruling names, in the model's own fields. STATUS has no interactive form, so "passive" is exactly
 // this: the top-level screen, both sub-views retired, the cursor re-anchored.
+// ★ W4b (ruling): the key-received landing is HOME IN LIST FOCUS — the landing screen's ordinary state (design §6.1
+//   rule 1); the DESTINATION is unchanged, its focus is W4b's. (Was `ListView::passive`, STATUS's only form.)
 void check_passive_status(const UiModel& m) {
     CHECK(m.state().screen      == Screen::status);
     CHECK(m.state().settings    == Settings::closed);
     CHECK(m.state().provisioning == Provision::closed);
-    CHECK(m.state().list_view   == ListView::passive);
+    CHECK(m.state().list_view   == ListView::interactive);
+    CHECK(m.state().home_view   == HomeView::list);
     CHECK(m.state().cursor      == 0);
     CHECK(m.state().compose     == Compose::none);
     CHECK(m.state().detail      == InboxModal::closed);
@@ -9464,13 +9545,13 @@ TEST_CASE("ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both la
     //   `UiState` (beside `compose_peer`, where the act's target belongs) rather than appended. ⛔ K5's CLAIM is
     //   unaffected and is what this case is about: its field still sits in the 4 bytes immediately after
     //   `nearby_sel_id`, with ⛔ not one padding byte between them.
-    CHECK(sizeof(mrui::UiState) == 504u);
-    CHECK(sizeof(mrui::UiModel) == 928u);
+    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u
+    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u
     // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
-    CHECK(sizeof(mrui::UiSnapshot) == 1336u);                 // ⛔ UNCHANGED BY K5 ITSELF
+    CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u                 // ⛔ UNCHANGED BY K5 ITSELF
     CHECK(offsetof(mrui::UiState, nearby_sel_id) == 344u);    // 336 + 8 (K7's head insert)
     CHECK(offsetof(mrui::UiState, saved_key_team) == 348u);   // ★ K5's field, still in the 4 bytes after it
 }
@@ -9900,7 +9981,7 @@ TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, an
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
-    CHECK(sizeof(mrui::UiSnapshot) == 1336u);                  // ⛔ UNCHANGED BY K6 ITSELF
+    CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u                  // ⛔ UNCHANGED BY K6 ITSELF
     CHECK(offsetof(mrui::UiSnapshot, prov_invite)     == 689u);   // ⛔ UNMOVED
     CHECK(offsetof(mrui::UiSnapshot, prov_saved_keys) == 690u);   // ★ the new flag, in the pad beside it
     // ---- the ANSWER's typed flag is FREE: it lands in the hole `saved_key` already sits in ------------------------
@@ -9918,8 +9999,8 @@ TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, an
     CHECK(offsetof(mrui::UiState, forget_team)    == 352u);    // ★ 4 B, immediately after it
     CHECK(offsetof(mrui::UiState, saved_keys)     == 356u);    // ★ 36 B, immediately after THAT
     CHECK(offsetof(mrui::UiState, invite)         == 392u);    // = 356 + 36, i.e. ⛔ not one padding byte between
-    CHECK(sizeof(mrui::UiState) == 504u);                      // 456 + 4 + 36 + K7's 8 = 504 ✓
-    CHECK(sizeof(mrui::UiModel) == 928u);                      // 880 + the same 40 + K7's 8
+    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u                      // 456 + 4 + 36 + K7's 8 = 504 ✓
+    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u                      // 880 + the same 40 + K7's 8
 }
 
 // ============== §UI-16 K6 (QG blocker, 2026-08-25) — THE **RECEIVED** GRANT'S FULL-KEYRING ACKNOWLEDGEMENT
@@ -10411,7 +10492,7 @@ TEST_CASE("ui10-p3-resources: the list projection costs 328 B of UiSnapshot and 
     CHECK(offsetof(mrui::UiSnapshot, preset_generation) == 1008u);
     CHECK(offsetof(mrui::UiSnapshot, preset_dm) == 1012u);
     CHECK(offsetof(mrui::UiSnapshot, preset_ch) == 1173u);
-    CHECK(sizeof(mrui::UiSnapshot) == 1336u);
+    CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u
     // ★ AND THE STATE'S SEALED GENERATION COSTS **NOTHING ON THE HOST**: it lands in padding that already existed.
     // ⚠⚠ ⛔ NOT ON THE BOARD, and the difference is D2's warning MEASURED rather than repeated (QG, 2026-08-26,
     //    `xtensa-esp-elf` GCC 13.2 / ILP32 / the heltec_mobile flag set): `sizeof(UiState)` **496 -> 504** and
@@ -10426,9 +10507,1438 @@ TEST_CASE("ui10-p3-resources: the list projection costs 328 B of UiSnapshot and 
     // ⇒ these three lines pin the HOST shape, which is all a native case can see; the SYMBOL figures need the board
     //   ABI compiler, and the RAM figure needs a LINK — i.e. the per-board `RAM_used` diff, which is the board gate's.
     CHECK(offsetof(mrui::UiState, compose_gen) == 8u);
-    CHECK(sizeof(mrui::UiState) == 504u);
-    CHECK(sizeof(mrui::UiModel) == 928u);
+    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u
+    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u
     // ★ `SendReq` gains 4 bytes over the withdrawn `{kind, peer, text_index}` — it is a by-value request, held in
     //   ONE model member and one tick local, so this is 4 bytes of `UiModel` that measured ZERO above.
     CHECK(sizeof(mrui::SendReq) == 8u);
+}
+
+// ==================================================================================================================
+// ★★★★ W4b — HOME AND NAVIGATION: THE NATIVE MATRIX (brief §2.9, pre-check §8's list), through the REAL `on_gesture`
+//      / `on_tick`. The renderer's publication, frozen pages and press-free body refresh are the firmware-UI probe's
+//      (§2.10) — `test_build_src = no` keeps `src/firmware_ui.cpp` out of this build, so what is pinned here is the
+//      MODEL: the focus authority, Home's capture and notes, the typed setup origin and the Send list.
+// ==================================================================================================================
+namespace {
+// A snapshot in one of the five Home profiles, with every capability ON (the production OLED team build) so a case
+// about a capability switches ONE off. ⓘ `no_plane` is gateway_heltec's shape: no team plane, no setup children.
+UiSnapshot home_snap(HomeProfile p, uint32_t now_ms = 1000) {
+    UiSnapshot s = prov_snap(true, true, true, now_ms, /*invite=*/true);
+    s.my_key_hash32 = 0x12AB34CDu;
+    switch (p) {
+        case HomeProfile::no_plane:
+            s.team_build = false;
+            s.prov_create_team = s.prov_join_team = s.prov_invite = false;
+            break;
+        case HomeProfile::no_team:     s.prov_invite = false; break;
+        case HomeProfile::key_missing: s.team_id = 0x66C0FFEEu; s.my_team_id = 7; break;   // an ID too: the key outranks it
+        case HomeProfile::id_pending:  s.team_id = 0x66C0FFEEu; s.team_key_present = true; break;
+        case HomeProfile::ready:       s.team_id = 0x66C0FFEEu; s.team_key_present = true; s.my_team_id = 7; break;
+    }
+    return s;
+}
+bool items_are(const HomeCapture& c, std::initializer_list<HomeItem> want) {
+    if (c.count != want.size()) return false;
+    uint8_t i = 0;
+    for (HomeItem it : want) if (c.items[i++] != it) return false;
+    for (; i < kHomeItemsMax; ++i) if (c.items[i] != HomeItem::none) return false;
+    return true;
+}
+bool on_home_list(const UiModel& m) {
+    return m.state().screen == Screen::status && m.state().list_view == ListView::interactive &&
+           m.state().home_view == HomeView::list;
+}
+bool in_menu_mode_on_home(const UiModel& m) {
+    return m.state().screen == Screen::status && m.state().list_view == ListView::passive &&
+           m.state().home_view == HomeView::list;
+}
+// Walk Home's arrow onto an item BY IDENTITY, the way the operator does. BOUNDED: a missing item fails the caller.
+bool home_to(UiModel& m, const UiSnapshot& s, HomeItem want) {
+    for (int i = 0; i < kHomeItemsMax + 1; ++i) {
+        m.on_tick(s);
+        if (!on_home_list(m)) return false;
+        if (m.state().home.selected == want) return true;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+// The NEARBY list's cursor onto one team, then `double` — `open_nearby_confirm`'s walk from inside the list.
+bool nearby_pick(UiModel& m, const UiSnapshot& s, uint32_t want) {
+    for (uint8_t i = 0; i < kMaxNearbyRows + 1; ++i) {
+        NearbySelRow r{};
+        const NearbySelList l = nearby_sel_rows(m.state().nearby);
+        if (l.at(m.state().cursor, r) && !r.back && r.team.team_id == want) break;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    m.on_gesture(Gesture::double_press, s);
+    return m.state().provisioning == Provision::nearby_confirm;
+}
+bool nearby_to_back(UiModel& m, const UiSnapshot& s) {
+    for (uint8_t i = 0; i < kMaxNearbyRows + 1; ++i) {
+        NearbySelRow r{};
+        const NearbySelList l = nearby_sel_rows(m.state().nearby);
+        if (l.at(m.state().cursor, r) && r.back) return true;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+// From the NEARBY list: join `id` with the scripted answer and land on its result.
+bool nearby_join_to_result(CreateFix& f, const UiSnapshot& s, uint32_t id, const UiProvAnswer& a) {
+    f.prov.team_answer = a;
+    if (!nearby_pick(f.m, s, id)) return false;
+    f.m.on_gesture(Gesture::short_press, s);                   // -> JOIN
+    f.m.on_gesture(Gesture::double_press, s);                  // ...performs it
+    return f.m.state().provisioning == Provision::create_result;
+}
+// ★★★ §2.5's TRACE up to its pivot: an acknowledged join with a saved-key offer, left standing on USE SAVED KEY, then
+//     BLANK — OQ-3 closes the offer to the PROVISION menu, verbatim — then the consumed wake press. `from_home` picks
+//     the entry: Home's JOIN TEAM (origin home) or SETTINGS → PROVISION → JOIN TEAM (origin settings).
+bool saved_key_blank_to_menu(CreateFix& f, UiSnapshot& s, bool from_home) {
+    f.m.on_tick(s);
+    if (from_home) {
+        if (!home_to(f.m, s, HomeItem::join)) return false;
+        f.m.on_gesture(Gesture::double_press, s);
+        if (f.m.state().provisioning != Provision::nearby) return false;
+    } else if (!open_nearby(f, s)) {
+        return false;
+    }
+    if (!nearby_join_to_result(f, s, 0xBEEF0001u, joined_with_saved_key(0xBEEF0001u))) return false;
+    f.m.on_gesture(Gesture::double_press, s);                  // acknowledge -> the saved-key offer
+    if (f.m.state().provisioning != Provision::saved_key) return false;
+    f.m.on_gesture(Gesture::short_press, s);                   // standing on USE SAVED KEY when it goes dark
+    s.now_ms += kBlankMs + 1;
+    f.m.on_tick(s);
+    if (!f.m.state().blanked || f.m.state().provisioning != Provision::menu) return false;
+    s.now_ms += 10;
+    f.m.on_gesture(Gesture::short_press, s);                   // the wake press: CONSUMED
+    f.m.on_tick(s);
+    return !f.m.state().blanked && f.m.state().provisioning == Provision::menu;
+}
+}  // namespace
+
+// ------------------------------------------------------------------------------------------ profiles and items
+TEST_CASE("w4b-profile: the five profiles, in the design's order; a missing key OUTRANKS a pending ID") {
+    HomeCapture c{};
+    home_items_of(home_snap(HomeProfile::no_plane), c);
+    CHECK(items_are(c, { HomeItem::inbox, HomeItem::my_device, HomeItem::menu }));
+    home_items_of(home_snap(HomeProfile::no_team), c);
+    CHECK(items_are(c, { HomeItem::join, HomeItem::create, HomeItem::inbox, HomeItem::my_device, HomeItem::menu }));
+    home_items_of(home_snap(HomeProfile::key_missing), c);
+    CHECK(items_are(c, { HomeItem::key_help, HomeItem::inbox, HomeItem::team, HomeItem::my_device, HomeItem::menu }));
+    home_items_of(home_snap(HomeProfile::id_pending), c);
+    CHECK(items_are(c, { HomeItem::inbox, HomeItem::team, HomeItem::my_device, HomeItem::menu }));
+    home_items_of(home_snap(HomeProfile::ready), c);
+    CHECK(items_are(c, { HomeItem::inbox, HomeItem::send, HomeItem::team, HomeItem::invite, HomeItem::my_device,
+                         HomeItem::menu }));
+    CHECK(c.count == kHomeItemsMax);                           // ★ the ready list is the owner-ruled six
+    // ★ THE PRECEDENCE: no key AND no local ID is `key_missing`, never `id_pending` (design §6.3).
+    UiSnapshot both = home_snap(HomeProfile::key_missing); both.my_team_id = 0;
+    CHECK(home_profile(both) == HomeProfile::key_missing);
+    CHECK(home_profile(home_snap(HomeProfile::key_missing)) == HomeProfile::key_missing);
+    // ⛔ `team_build`, never `team_id`, decides "no plane": a teamless team build is `no_team`.
+    UiSnapshot gw = home_snap(HomeProfile::no_plane); gw.team_id = 0x66C0FFEEu; gw.team_key_present = true;
+    CHECK(home_profile(gw) == HomeProfile::no_plane);
+}
+
+TEST_CASE("w4b-profile: an action item needs its CAPABILITY — a build without one omits the item, never bypasses it") {
+    HomeCapture c{};
+    UiSnapshot s = home_snap(HomeProfile::no_team);
+    s.prov_join_team = false;
+    home_items_of(s, c);
+    CHECK(items_are(c, { HomeItem::create, HomeItem::inbox, HomeItem::my_device, HomeItem::menu }));
+    s = home_snap(HomeProfile::no_team); s.prov_create_team = false;
+    home_items_of(s, c);
+    CHECK(items_are(c, { HomeItem::join, HomeItem::inbox, HomeItem::my_device, HomeItem::menu }));
+    s.prov_join_team = false;
+    home_items_of(s, c);
+    CHECK(items_are(c, { HomeItem::inbox, HomeItem::my_device, HomeItem::menu }));
+    s = home_snap(HomeProfile::ready); s.prov_invite = false;
+    home_items_of(s, c);
+    CHECK(items_are(c, { HomeItem::inbox, HomeItem::send, HomeItem::team, HomeItem::my_device, HomeItem::menu }));
+    // ⓘ Counts never reorder or add items: a label's count changing is not an item change.
+    s = home_snap(HomeProfile::ready); s.unread_dm = 99; s.unread_ch = 1; s.team_total = 10;
+    HomeCapture d{}; home_items_of(s, d); home_items_of(home_snap(HomeProfile::ready), c);
+    CHECK(home_capture_equal(c, d));
+}
+
+TEST_CASE("w4b-refresh: the pure capture refresh — entry, list focus, a vanished item, the latch, and menu mode") {
+    const UiSnapshot ready = home_snap(HomeProfile::ready), pending = home_snap(HomeProfile::id_pending);
+    HomeCapture c{};
+    // ENTRY (`selected == none`): the preferred opener if it exists, else item 1 — ⛔ never a note.
+    CHECK(home_capture_refresh(c, ready, true, HomeItem::team) == true);
+    CHECK(c.selected == HomeItem::team); CHECK(c.changed == false);
+    c.selected = HomeItem::none;
+    home_capture_refresh(c, pending, true, HomeItem::send);    // SEND is gone in id_pending
+    CHECK(c.selected == HomeItem::inbox); CHECK(c.changed == false);
+    c.selected = HomeItem::none;
+    home_capture_refresh(c, ready, true, HomeItem::none);
+    CHECK(c.selected == HomeItem::inbox);
+    // An unchanged list and arrow report NOTHING (no repaint for every tick).
+    CHECK(home_capture_refresh(c, ready, true, HomeItem::none) == false);
+    // IN LIST FOCUS: the arrow's item vanishes -> item 1 of the NEW list and the note.
+    c.selected = HomeItem::send;
+    CHECK(home_capture_refresh(c, pending, true, HomeItem::none) == true);
+    CHECK(c.selected == HomeItem::inbox); CHECK(c.changed == true);
+    // ...and while the note is up a further change keeps item 1 of the NEWEST list, note up.
+    home_capture_refresh(c, home_snap(HomeProfile::key_missing), true, HomeItem::none);
+    CHECK(c.selected == HomeItem::key_help); CHECK(c.changed == true);
+    // ⛔ OUTSIDE list focus only the items move: no note, the arrow's (stale) item is kept for the next entry.
+    HomeCapture o{}; home_capture_refresh(o, ready, true, HomeItem::none);
+    o.selected = HomeItem::send;
+    home_capture_refresh(o, pending, false, HomeItem::none);
+    CHECK(o.changed == false);
+    CHECK(o.selected == HomeItem::send);
+    CHECK(items_are(o, { HomeItem::inbox, HomeItem::team, HomeItem::my_device, HomeItem::menu }));
+    CHECK(home_index_of(o, HomeItem::send) == o.count);        // ⛔ absent = one past the list, never a row
+}
+
+// ------------------------------------------------------------------------------------------ boot, list, menu
+TEST_CASE("w4b-boot: every profile boots on HOME in LIST FOCUS, the arrow on item 1, no note, no cue") {
+    for (HomeProfile p : { HomeProfile::no_plane, HomeProfile::no_team, HomeProfile::key_missing,
+                           HomeProfile::id_pending, HomeProfile::ready }) {
+        UiModel m; const UiSnapshot s = home_snap(p);
+        CHECK(m.state().screen == Screen::status);
+        CHECK(m.state().list_view == ListView::interactive);
+        m.on_tick(s);
+        CHECK(on_home_list(m));
+        HomeCapture want{}; home_items_of(s, want);
+        CHECK(m.state().home.count == want.count);
+        CHECK(m.state().home.selected == want.items[0]);
+        CHECK(m.state().home.changed == false);
+        CHECK(m.state().dirty == true);                        // the capture is a visible change: a frame is owed
+        // LIST: short walks every item BY IDENTITY and wraps to item 1; nothing is opened.
+        for (uint8_t i = 1; i <= want.count; ++i) {
+            m.on_gesture(Gesture::short_press, s);
+            CHECK(m.state().home.selected == want.items[i % want.count]);
+            CHECK(on_home_list(m));
+        }
+        // MENU: MENU then double = menu mode on the Home slot; double there = Home's list on item 1.
+        CHECK(home_to(m, s, HomeItem::menu));
+        m.on_gesture(Gesture::double_press, s);
+        CHECK(in_menu_mode_on_home(m));
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        CHECK(on_home_list(m));
+        CHECK(m.state().home.selected == want.items[0]);
+        CHECK(m.state().home.changed == false);
+    }
+}
+
+TEST_CASE("w4b-menu: menu mode walks the rail — gateway skips TEAM and SEND — and double opens each in list focus") {
+    {   // team build: STATUS -> TEAM -> INBOX -> SEND -> SETTINGS -> STATUS, the focus passive throughout
+        CfgFix f; const UiSnapshot s = snap_inbox(3);
+        f.m.on_tick(s);
+        to_menu_home(f.m, s);
+        const Screen order[] = { Screen::team, Screen::inbox, Screen::send, Screen::settings, Screen::status };
+        for (Screen want : order) {
+            f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s);
+            CHECK(f.m.state().screen == want);
+            CHECK(f.m.state().list_view == ListView::passive);
+            CHECK(f.m.state().compose == Compose::none);
+            CHECK(f.m.state().settings == Settings::closed);
+        }
+    }
+    {   // no team plane: STATUS -> INBOX -> SETTINGS -> STATUS
+        UiModel m; const UiSnapshot s = home_snap(HomeProfile::no_plane);
+        m.on_tick(s); to_menu_home(m, s);
+        CHECK(in_menu_mode_on_home(m));
+        for (Screen want : { Screen::inbox, Screen::settings, Screen::status }) {
+            m.on_gesture(Gesture::short_press, s);
+            CHECK(m.state().screen == want);
+            CHECK(m.state().list_view == ListView::passive);
+        }
+    }
+    // DOUBLE in menu mode opens the previewed screen in LIST FOCUS, arrow on its first row.
+    for (int target = 0; target < 4; ++target) {
+        CfgFix f; const UiSnapshot s = snap_inbox(3);
+        f.m.on_tick(s); to_menu_home(f.m, s);
+        for (int i = 0; i <= target; ++i) f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().cursor == 0);
+        switch (target) {
+            case 0: CHECK(f.m.state().screen == Screen::team);  break;
+            case 1: CHECK(f.m.state().screen == Screen::inbox); break;
+            case 2: CHECK(f.m.state().screen == Screen::send);
+                    CHECK(f.m.state().compose == Compose::channel); break;           // the Send LIST
+            case 3: CHECK(f.m.state().screen == Screen::settings);
+                    CHECK(f.m.state().settings == Settings::browsing); break;        // over an OPEN service
+        }
+    }
+    {   // ⛔ SETTINGS over NO usable service stays in menu mode (W3's gate, unchanged)
+        UiModel m; const UiSnapshot s = snap_inbox(3);
+        m.on_tick(s); to_menu_home(m, s);
+        for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);
+        CHECK(m.state().screen == Screen::settings);
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        CHECK(m.state().settings == Settings::closed);
+        CHECK(m.state().list_view == ListView::passive);
+    }
+}
+
+TEST_CASE("w4b-menu: the MENU row of every top-level list lands in MENU MODE on the HOME slot; double enters item 1") {
+    for (int which = 0; which < 4; ++which) {
+        CfgFix f; const UiSnapshot s = snap_inbox(3); SendReq req{}; InboxReq rq{};
+        f.m.on_tick(s);
+        switch (which) {
+            case 0: to_team(f.m, s);
+                    for (int i = 0; i < 3; ++i) f.m.on_gesture(Gesture::short_press, s);
+                    CHECK(list_row_kind(f.m.state().cursor, s.team_shown) == ListRow::back); break;
+            case 1: to_inbox(f.m, s);
+                    for (int i = 0; i < 3; ++i) f.m.on_gesture(Gesture::short_press, s);
+                    CHECK(list_row_kind(f.m.state().cursor, s.inbox_shown) == ListRow::back); break;
+            case 2: to_menu_home(f.m, s);
+                    for (int i = 0; i < 3; ++i) f.m.on_gesture(Gesture::short_press, s);
+                    f.m.on_gesture(Gesture::double_press, s);
+                    f.m.on_gesture(Gesture::short_press, s); f.m.on_gesture(Gesture::short_press, s);
+                    CHECK(f.m.state().cursor == 2); break;                          // the channel list's last row
+            case 3: to_settings_menu(f.m, s);
+                    CHECK(cursor_to(f.m, s, CfgRow::back)); break;
+        }
+        const int writes = f.store.writes;
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(in_menu_mode_on_home(f.m));
+        CHECK(f.m.state().compose == Compose::none);
+        CHECK(f.m.state().settings == Settings::closed);
+        CHECK(f.m.take_send_request(req) == false);            // ⛔ leaving sends nothing...
+        CHECK(f.m.take_inbox_request(rq) == false);            // ...and opens nothing
+        CHECK(f.store.writes == writes);                       // ...and saves nothing (Settings' MENU = on_back)
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().home.selected == f.m.state().home.items[0]);
+    }
+    {   // ★ AN EMPTY LIST IS NOT A TRAP: its one row is an operable MENU
+        UiModel m; UiSnapshot s = snap_inbox(0); s.team_shown = s.team_total = 0;
+        m.on_tick(s); to_team(m, s);
+        CHECK(list_row_kind(m.state().cursor, s.team_shown) == ListRow::back);
+        m.on_gesture(Gesture::double_press, s);
+        CHECK(in_menu_mode_on_home(m));
+    }
+}
+
+TEST_CASE("w4b-wrap: list focus WRAPS on every top-level list — Settings included — and never leaves the screen") {
+    CfgFix f; const UiSnapshot s = snap_inbox(3);
+    f.m.on_tick(s);
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    const uint8_t last = f.m.state().cursor;
+    f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().screen == Screen::settings);             // ⛔ the walk-off is withdrawn (M101's revision)
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().cursor == 0);
+    CHECK(last > 0);
+    UiModel t; t.on_tick(s); to_team(t, s);
+    for (int i = 0; i < 4; ++i) t.on_gesture(Gesture::short_press, s);
+    CHECK(t.state().screen == Screen::team); CHECK(t.state().cursor == 0);
+    UiModel n; n.on_tick(s); to_menu_home(n, s);
+    for (int i = 0; i < 3; ++i) n.on_gesture(Gesture::short_press, s);
+    n.on_gesture(Gesture::double_press, s);
+    for (int i = 0; i < 3; ++i) n.on_gesture(Gesture::short_press, s);
+    CHECK(n.state().screen == Screen::send); CHECK(n.state().cursor == 0);
+    CHECK(n.state().compose == Compose::channel);
+}
+
+// ------------------------------------------------------------------------------------------ every item and its return
+TEST_CASE("w4b-items: INBOX, TEAM and SEND open their LIST in list focus on the first row; MENU is menu mode") {
+    const UiSnapshot s = home_snap(HomeProfile::ready);
+    struct { HomeItem it; Screen sc; } k[] = { { HomeItem::inbox, Screen::inbox }, { HomeItem::team, Screen::team },
+                                               { HomeItem::send, Screen::send } };
+    for (const auto& c : k) {
+        UiModel m; SendReq req{};
+        m.on_tick(s);
+        CHECK(home_to(m, s, c.it));
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        CHECK(m.state().screen == c.sc);
+        CHECK(m.state().list_view == ListView::interactive);
+        CHECK(m.state().cursor == 0);
+        CHECK(m.state().compose == (c.it == HomeItem::send ? Compose::channel : Compose::none));
+        CHECK(m.take_send_request(req) == false);              // ⛔ opening a list sends nothing
+    }
+    UiModel m; m.on_tick(s);
+    CHECK(home_to(m, s, HomeItem::menu));
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(in_menu_mode_on_home(m));
+}
+
+TEST_CASE("w4b-items: MY DEVICE — short stays on its one BACK row, double returns Home ON MY DEVICE") {
+    UiModel m; const UiSnapshot s = home_snap(HomeProfile::ready);
+    m.on_tick(s);
+    CHECK(home_to(m, s, HomeItem::my_device));
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(m.state().screen == Screen::status);
+    CHECK(m.state().home_view == HomeView::my_device);
+    CHECK(m.home_return_item() == HomeItem::my_device);
+    for (int i = 0; i < 3; ++i) { m.on_gesture(Gesture::short_press, s); m.on_tick(s); }
+    CHECK(m.state().home_view == HomeView::my_device);        // ⛔ a short never leaves the one-row view
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(on_home_list(m));
+    CHECK(m.state().home.selected == HomeItem::my_device);    // ★ back ON ITS OPENER
+    CHECK(m.state().home.changed == false);
+    CHECK(m.home_return_item() == HomeItem::none);            // ...and the return item is CONSUMED by that landing
+}
+
+TEST_CASE("w4b-items: KEY HELP is a note — either press returns on it; a key arriving under it lands on item 1") {
+    for (Gesture g : { Gesture::short_press, Gesture::double_press }) {
+        UiModel m; const UiSnapshot s = home_snap(HomeProfile::key_missing); SendReq req{};
+        m.on_tick(s);
+        CHECK(m.state().home.selected == HomeItem::key_help);
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        CHECK(m.state().home_view == HomeView::key_help);
+        CHECK(m.state().screen == Screen::status);
+        m.on_gesture(g, s); m.on_tick(s);
+        CHECK(on_home_list(m));
+        CHECK(m.state().home.selected == HomeItem::key_help);
+        CHECK(m.take_send_request(req) == false);              // ⛔ no automatic key request, no act
+    }
+    // ★ THE VANISHED OPENER: the key arrives while the note is up — the return lands on item 1, with NO note.
+    UiModel m; const UiSnapshot s = home_snap(HomeProfile::key_missing);
+    m.on_tick(s);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(m.state().home_view == HomeView::key_help);
+    const UiSnapshot got = home_snap(HomeProfile::ready);
+    m.on_tick(got);
+    CHECK(m.state().home_view == HomeView::key_help);         // ⛔ a radio arrival never navigates
+    CHECK(m.state().home.changed == false);                   // ⛔ ...and a sub-view never raises the list's note
+    m.on_gesture(Gesture::short_press, got); m.on_tick(got);
+    CHECK(on_home_list(m));
+    CHECK(m.state().home.selected == HomeItem::inbox);        // item 1 of the ready list
+    CHECK(m.state().home.changed == false);
+}
+
+TEST_CASE("w4b-items: a Home-opened setup returns ON ITS OPENER, or on item 1 when the act removed it") {
+    {   // CREATE TEAM -> the BACK-first confirmation -> BACK: Home, on CREATE TEAM
+        CreateFix f; const UiSnapshot s = home_snap(HomeProfile::no_team);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::create));
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::create_confirm);
+        CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+        CHECK(f.m.state().screen == Screen::settings);
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().home.selected == HomeItem::create);
+        CHECK(f.prov.calls == 0);
+    }
+    {   // CREATE TEAM performed: the team exists, so CREATE TEAM is gone — item 1, and no note
+        CreateFix f; const UiSnapshot s = home_snap(HomeProfile::no_team);
+        f.prov.answer = created_answer(0x5EEDF00Du);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::create));
+        f.m.on_gesture(Gesture::double_press, s);
+        f.m.on_gesture(Gesture::short_press, s);               // BACK -> CREATE
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.prov.calls == 1);
+        CHECK(f.m.state().provisioning == Provision::create_result);
+        UiSnapshot after = home_snap(HomeProfile::id_pending); after.team_id = 0x5EEDF00Du;
+        f.m.on_gesture(Gesture::short_press, after); f.m.on_tick(after);
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().home.selected == HomeItem::inbox);
+        CHECK(f.m.state().home.changed == false);              // ⛔ a return is not a change to acknowledge
+    }
+}
+
+// ------------------------------------------------------------------------------------------ OPTIONS CHANGED (§6.4)
+namespace {
+// Ready Home with the arrow on SEND TO TEAM, then the local ID is lost: SEND vanishes under the arrow.
+void raise_options_changed(UiModel& m, UiSnapshot& s) {
+    s = home_snap(HomeProfile::ready, s.now_ms);
+    m.on_tick(s);
+    CHECK(home_to(m, s, HomeItem::send));
+    s = home_snap(HomeProfile::id_pending, s.now_ms + 100);
+    m.on_tick(s);
+}
+}  // namespace
+
+TEST_CASE("w4b-changed: a vanished item in list focus moves the arrow to item 1 and RAISES the note, lit or dark") {
+    UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+    raise_options_changed(m, s);
+    CHECK(on_home_list(m));
+    CHECK(m.state().home.selected == HomeItem::inbox);
+    CHECK(m.state().home.changed == true);
+    CHECK(m.state().dirty == true);
+    // DARK: raised by the tick while blanked, too
+    UiModel d; UiSnapshot t = home_snap(HomeProfile::ready);
+    d.on_tick(t);
+    CHECK(home_to(d, t, HomeItem::send));
+    t = home_snap(HomeProfile::ready, t.now_ms + kBlankMs + 1); d.on_tick(t);
+    CHECK(d.state().blanked == true);
+    t = home_snap(HomeProfile::id_pending, t.now_ms + 100); d.on_tick(t);
+    CHECK(d.state().home.changed == true);
+    CHECK(d.state().home.selected == HomeItem::inbox);
+    CHECK(d.state().blanked == true);                          // ⛔ the note never wakes the panel
+}
+
+TEST_CASE("w4b-changed: while the note shows, a short or a double CLEARS it and runs NOTHING") {
+    for (Gesture g : { Gesture::short_press, Gesture::double_press }) {
+        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready); SendReq req{}; InboxReq rq{};
+        raise_options_changed(m, s);
+        m.on_gesture(g, s); m.on_tick(s);
+        CHECK(m.state().home.changed == false);
+        CHECK(on_home_list(m));                                // ⛔ nothing opened (a double would open INBOX)
+        CHECK(m.state().home.selected == HomeItem::inbox);     // ⛔ the arrow did not move either
+        CHECK(m.take_send_request(req) == false);
+        CHECK(m.take_inbox_request(rq) == false);
+        // ...and the NEXT press acts normally
+        m.on_gesture(Gesture::short_press, s);
+        CHECK(m.state().home.selected == HomeItem::team);
+    }
+}
+
+TEST_CASE("w4b-changed: the WAKE press only wakes; a further change keeps item 1; an emergency leaves the note") {
+    {   // the wake press is consumed by the blanked arm, the note survives it
+        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+        raise_options_changed(m, s);
+        s.now_ms += kBlankMs + 1; m.on_tick(s);
+        CHECK(m.state().blanked == true);
+        s.now_ms += 10; m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        CHECK(m.state().blanked == false);
+        CHECK(m.state().home.changed == true);
+        CHECK(on_home_list(m));
+        m.on_gesture(Gesture::short_press, s); m.on_tick(s);
+        CHECK(m.state().home.changed == false);
+    }
+    {   // the list changes AGAIN under the note: item 1 of the newest list, the note stays up
+        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+        raise_options_changed(m, s);
+        s = home_snap(HomeProfile::key_missing, s.now_ms + 100); m.on_tick(s);
+        CHECK(m.state().home.selected == HomeItem::key_help);
+        CHECK(m.state().home.changed == true);
+    }
+    {   // an emergency arms and cancels over the note: the note and item 1 are still there afterwards
+        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+        raise_options_changed(m, s);
+        m.on_gesture(Gesture::long_arm, s);
+        s.now_ms += 500; m.on_gesture(Gesture::long_cancel, s);
+        s.now_ms += kCancelledMs + 1; m.on_tick(s);
+        CHECK(m.emergency() == Emergency::idle);
+        CHECK(m.state().home.changed == true);
+        CHECK(m.state().home.selected == HomeItem::inbox);
+        CHECK(on_home_list(m));
+    }
+    {   // ⛔ MENU MODE NEVER RAISES IT: the item vanishes while Home is a preview
+        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+        m.on_tick(s);
+        CHECK(home_to(m, s, HomeItem::menu));
+        m.on_gesture(Gesture::double_press, s);
+        CHECK(in_menu_mode_on_home(m));
+        s = home_snap(HomeProfile::id_pending, s.now_ms + 100); m.on_tick(s);
+        CHECK(m.state().home.changed == false);
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);   // ...and entering lands on item 1, no note
+        CHECK(m.state().home.selected == HomeItem::inbox);
+        CHECK(m.state().home.changed == false);
+    }
+    {   // ⛔ neither does a count changing inside a label
+        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+        m.on_tick(s);
+        CHECK(home_to(m, s, HomeItem::team));
+        for (uint16_t n : { uint16_t(9), uint16_t(10), uint16_t(99), uint16_t(100) }) {
+            s.unread_dm = n; s.team_total = uint8_t(n > 200 ? 200 : n); m.on_tick(s);
+            CHECK(m.state().home.changed == false);
+            CHECK(m.state().home.selected == HomeItem::team);
+        }
+    }
+}
+
+TEST_CASE("w4b-changed: a press in the SAME tick as the change that raises the note is consumed and the note STAYS (design r2.22 §6.4)") {
+    UiModel m; UiSnapshot s = home_snap(HomeProfile::ready); SendReq req{};
+    m.on_tick(s);
+    CHECK(home_to(m, s, HomeItem::send));
+    s = home_snap(HomeProfile::id_pending, s.now_ms + 100);
+    m.on_gesture(Gesture::double_press, s);                    // the press's OWN sync sees SEND vanish
+    CHECK(m.state().home.changed == true);                     // ★ the operator has not seen it yet: it stays
+    CHECK(on_home_list(m));
+    CHECK(m.take_send_request(req) == false);
+    m.on_tick(s);
+    m.on_gesture(Gesture::double_press, s);                    // the next press clears it — and still runs nothing
+    CHECK(m.state().home.changed == false);
+    CHECK(on_home_list(m));
+}
+
+// ------------------------------------------------------------------------------------------ blank and wake (rule 7)
+namespace {
+// Ten ordinary states: five screens x list focus / menu mode, each with the arrow OFF its first row where it has one.
+// ⓘ CfgFix so SETTINGS has an open service to browse.
+void to_state(CfgFix& f, const UiSnapshot& s, int screen, bool list) {
+    f.m.on_tick(s);
+    if (list) {
+        switch (screen) {
+            case 0: f.m.on_gesture(Gesture::short_press, s); break;                          // Home, item 2
+            case 1: to_team(f.m, s);  f.m.on_gesture(Gesture::short_press, s); break;
+            case 2: to_inbox(f.m, s); f.m.on_gesture(Gesture::short_press, s); break;
+            case 3: to_menu_home(f.m, s);
+                    for (int i = 0; i < 3; ++i) f.m.on_gesture(Gesture::short_press, s);
+                    f.m.on_gesture(Gesture::double_press, s);
+                    f.m.on_gesture(Gesture::short_press, s); break;                          // Send list, item 2
+            case 4: to_settings_menu(f.m, s); f.m.on_gesture(Gesture::short_press, s); break;
+        }
+    } else {
+        to_menu_home(f.m, s);
+        for (int i = 0; i < screen; ++i) f.m.on_gesture(Gesture::short_press, s);
+    }
+    f.m.on_tick(s);
+}
+struct Seen { Screen sc; ListView v; uint8_t cursor; HomeItem sel; HomeView hv; Compose cp; Settings st; };
+Seen seen(const UiModel& m) {
+    const UiState& x = m.state();
+    return Seen{ x.screen, x.list_view, x.cursor, x.home.selected, x.home_view, x.compose, x.settings };
+}
+bool same(const Seen& a, const Seen& b) {
+    return a.sc == b.sc && a.v == b.v && a.cursor == b.cursor && a.sel == b.sel && a.hv == b.hv && a.cp == b.cp &&
+           a.st == b.st;
+}
+}  // namespace
+
+TEST_CASE("w4b-blank: five screens x list/menu focus — the blank keeps screen, focus and arrow; the wake only wakes") {
+    for (int screen = 0; screen < 5; ++screen)
+        for (bool list : { true, false })
+            for (int wake = 0; wake < 3; ++wake) {               // short, double, the R-7 message wake
+                CAPTURE(screen); CAPTURE(list); CAPTURE(wake);
+                CfgFix f; UiSnapshot s = snap_inbox(3, 1000); SendReq req{}; InboxReq rq{};
+                to_state(f, s, screen, list);
+                const Seen before = seen(f.m);
+                CHECK(before.v == (list ? ListView::interactive : ListView::passive));
+                s = snap_inbox(3, 1000 + kBlankMs + 1); f.m.on_tick(s);
+                CHECK(f.m.state().blanked == true);
+                CHECK(same(seen(f.m), before));                   // ★ the blank discards nothing
+                s = snap_inbox(3, 1000 + kBlankMs + 50);
+                if (wake == 2) f.m.on_msg_wake(s.now_ms);
+                else f.m.on_gesture(wake == 0 ? Gesture::short_press : Gesture::double_press, s);
+                f.m.on_tick(s);
+                CHECK(f.m.state().blanked == false);
+                CHECK(same(seen(f.m), before));                   // ★ exactly what was there
+                CHECK(f.m.take_send_request(req) == false);
+                CHECK(f.m.take_inbox_request(rq) == false);
+            }
+}
+
+TEST_CASE("w4b-blank: Home's sub-views and the setup-block note survive the blank and the wake, and wrap-safe") {
+    for (int view = 0; view < 3; ++view) {
+        CAPTURE(view);
+        UiModel m; UiSnapshot s = view == 1 ? home_snap(HomeProfile::key_missing) : home_snap(HomeProfile::no_team);
+        s.now_ms = 0xFFFFFF00u;                                   // ★ across the millis() rollover
+        m.on_tick(s);
+        const HomeItem it = view == 0 ? HomeItem::my_device : view == 1 ? HomeItem::key_help : HomeItem::join;
+        CHECK(home_to(m, s, it));
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);     // JOIN with NO service -> the setup-block note
+        const HomeView want = view == 0 ? HomeView::my_device : view == 1 ? HomeView::key_help : HomeView::setup_block;
+        CHECK(m.state().home_view == want);
+        const ProvBlock pb = m.state().prov_block;
+        s.now_ms += kBlankMs - 1; m.on_tick(s);
+        CHECK(m.state().blanked == false);                        // ⛔ not a millisecond early, across the wrap
+        s.now_ms += 2; m.on_tick(s);
+        CHECK(m.state().blanked == true);
+        CHECK(m.state().home_view == want);
+        s.now_ms += 10; m.on_gesture(Gesture::short_press, s); m.on_tick(s);
+        CHECK(m.state().blanked == false);
+        CHECK(m.state().home_view == want);                       // ★ the wake press was consumed
+        CHECK(m.state().prov_block == pb);
+    }
+}
+
+// ------------------------------------------------------------------------------------------ emergency (every state)
+TEST_CASE("w4b-emergency: arm + cancel from every ordinary state leaves the focus, the arrow and Home's item") {
+    for (int screen = 0; screen < 5; ++screen)
+        for (bool list : { true, false }) {
+            CAPTURE(screen); CAPTURE(list);
+            CfgFix f; UiSnapshot s = snap_inbox(3, 1000);
+            to_state(f, s, screen, list);
+            const Seen before = seen(f.m);
+            f.m.on_gesture(Gesture::long_arm, snap_inbox(3, 1100));
+            CHECK(f.m.emergency() == Emergency::arming);
+            f.m.on_gesture(Gesture::double_press, snap_inbox(3, 1200));   // ⛔ absorbed by the overlay (R2)
+            f.m.on_gesture(Gesture::long_cancel, snap_inbox(3, 1300));
+            f.m.on_tick(snap_inbox(3, 1300 + kCancelledMs + 1));
+            CHECK(f.m.emergency() == Emergency::idle);
+            CHECK(same(seen(f.m), before));
+        }
+    for (int view = 0; view < 3; ++view) {                      // Home's three sub-views, too
+        CAPTURE(view);
+        UiModel m; UiSnapshot s = view == 1 ? home_snap(HomeProfile::key_missing) : home_snap(HomeProfile::no_team);
+        m.on_tick(s);
+        CHECK(home_to(m, s, view == 0 ? HomeItem::my_device : view == 1 ? HomeItem::key_help : HomeItem::join));
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        const Seen before = seen(m);
+        m.on_gesture(Gesture::long_arm, s);
+        s.now_ms += 100; m.on_gesture(Gesture::long_cancel, s);
+        s.now_ms += kCancelledMs + 1; m.on_tick(s);
+        CHECK(same(seen(m), before));
+    }
+}
+
+TEST_CASE("w4b-emergency: a FIRED alarm from Home and from the Send list — afterwards the ordinary focus returns") {
+    {   // Home list, arrow on TEAM: fire, the outcome is presented and acknowledged — Home, still on TEAM
+        UiModel m; const UiSnapshot s = home_snap(HomeProfile::ready); SendReq req{};
+        m.on_tick(s);
+        CHECK(home_to(m, s, HomeItem::team));
+        m.on_gesture(Gesture::long_arm,  home_snap(HomeProfile::ready, 1100));
+        m.on_gesture(Gesture::long_fire, home_snap(HomeProfile::ready, 4700));
+        const bool got = m.take_send_request(req);
+        CHECK(got == true);
+        CHECK(req.kind == SendKind::emergency);
+        m.on_send_accepted(SendKind::emergency, 5000);
+        m.on_outcome(SendOutcome::channel_relayed(), 5100);
+        present(m);
+        m.on_gesture(Gesture::short_press, home_snap(HomeProfile::ready, 6000));   // acknowledges the ALARM only
+        m.on_tick(home_snap(HomeProfile::ready, 6000));
+        CHECK(m.emergency() == Emergency::idle);
+        CHECK(on_home_list(m));
+        CHECK(m.state().home.selected == HomeItem::team);
+        CHECK(m.take_send_request(req) == false);              // ⛔ no queued resend
+    }
+    {   // the Send list: the COMMITTED alarm closes compose (S03's pre-emption, unchanged), and once the overlay
+        //   is acknowledged the Send list is back in list focus — item 1, a fresh selection, nothing selected hidden
+        UiModel m; const UiSnapshot s = snap(1000); SendReq req{};
+        m.on_tick(s); to_menu_home(m, s);
+        for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);
+        m.on_gesture(Gesture::double_press, s);
+        m.on_gesture(Gesture::short_press, s);                 // on the SECOND phrase
+        CHECK(m.state().cursor == 1);
+        m.on_gesture(Gesture::long_arm,  snap(1100));
+        CHECK(m.state().compose == Compose::channel);          // arming is cancellable: the list stays
+        m.on_gesture(Gesture::long_fire, snap(4700));
+        CHECK(m.state().compose == Compose::none);             // ★ committing closes it (§B101)
+        CHECK(m.state().list_view == ListView::interactive);   // ...the ordinary focus is untouched
+        m.on_tick(snap(4700));
+        CHECK(m.state().compose == Compose::none);             // ⛔ not reopened under a live overlay
+        const bool got = m.take_send_request(req);
+        CHECK(got == true);
+        m.on_send_accepted(SendKind::emergency, 5000);
+        m.on_outcome(SendOutcome::channel_relayed(), 5100);
+        present(m);
+        m.on_gesture(Gesture::short_press, snap(6000));
+        m.on_tick(snap(6000));
+        CHECK(m.emergency() == Emergency::idle);
+        CHECK(m.state().screen == Screen::send);
+        CHECK(m.state().list_view == ListView::interactive);
+        CHECK(m.state().compose == Compose::channel);          // ★ the Send list is back...
+        CHECK(m.state().cursor == 0);                          // ...on item 1
+        CHECK(m.take_send_request(req) == false);              // ⛔ and nothing was re-sent
+    }
+}
+
+// ------------------------------------------------------------------------------------------ Home admission (§6.6)
+namespace {
+// Make the draft UNSAVED through the Settings editor, then leave through `MENU` (on_back keeps the draft) and enter
+// Home's list: exactly the operator's way back to Home with an unsaved change.
+void dirty_then_home(CfgFix& f, const UiSnapshot& s) {
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    f.m.on_gesture(Gesture::double_press, s);                  // MENU: menu mode on Home
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);  // ...and Home's list
+    CHECK(on_home_list(f.m));
+}
+void visit_settings_then_home(CfgFix& f, const UiSnapshot& s) {
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(on_home_list(f.m));
+}
+}  // namespace
+
+TEST_CASE("w4b-admit: a CLEAN Home JOIN/CREATE is admitted AT ACTIVATION — one open, no save, no apply, origin home") {
+    for (HomeItem it : { HomeItem::join, HomeItem::create }) {
+        CreateFix f; const UiSnapshot s = nearby_snap(3);
+        f.m.on_tick(s);
+        CHECK(f.store.loads == 0);                             // Home opens nothing by itself
+        CHECK(home_to(f.m, s, it));
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(f.store.loads == 1);                             // ★ the admission's ONE open
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().settings == Settings::provisioning);
+        CHECK(f.m.state().provisioning == (it == HomeItem::join ? Provision::nearby : Provision::create_confirm));
+        CHECK(f.m.state().prov_confirm == ProvConfirm::back);  // ★ BACK first
+        CHECK(f.m.setup_origin() == SetupOrigin::home);
+        CHECK(f.m.home_return_item() == it);
+        CHECK(f.m.state().prov_block == ProvBlock::none);
+        for (int i = 0; i < 5; ++i) f.m.on_tick(s);
+        CHECK(f.store.loads == 1);                             // ⛔ the SETTINGS arrival adds no second open
+        CHECK(f.store.writes == 0);
+        CHECK(f.live.applies == 0);
+        CHECK(f.prov.calls == 0);                              // ⛔ no act runs on the way in
+    }
+}
+
+TEST_CASE("w4b-admit: UNSAVED, CONFLICT and BOTH refuse with a FROZEN reason — no load, save or apply; press returns") {
+    for (int arm = 0; arm < 3; ++arm) {
+        CAPTURE(arm);
+        CreateFix f; const UiSnapshot s = nearby_snap(3);
+        f.m.on_tick(s);
+        if (arm == 1) visit_settings_then_home(f, s); else dirty_then_home(f, s);
+        if (arm >= 1) { f.store.rec.intro_attach = 0; f.svc.note_external_write(f.store.rec); }
+        CHECK(home_to(f.m, s, HomeItem::join));
+        const int l0 = f.store.loads; const mrfw::CfgValues d0 = f.svc.draft();
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        const ProvBlock want = arm == 0 ? ProvBlock::unsaved : ProvBlock::conflict;   // conflict before unsaved
+        CHECK(f.m.state().prov_block == want);
+        CHECK(std::strcmp(prov_block_note(want), arm == 0 ? "SAVE OR DISCARD" : "RELOAD OR DISCARD") == 0);
+        CHECK(f.m.state().screen == Screen::status);
+        CHECK(f.m.state().home_view == HomeView::setup_block);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.setup_origin() == SetupOrigin::none);        // ⛔ refused: no setup session exists
+        CHECK(f.store.loads == l0);
+        CHECK(f.store.writes == 0);
+        CHECK(f.live.applies == 0);
+        CHECK(f.svc.draft() == d0);
+        // ★ FROZEN: the service recovering under the note changes nothing, and never resumes setup
+        if (arm >= 1) CHECK(f.svc.reload() == mrfw::CfgRefresh::ok);
+        if (arm == 0) CHECK(f.svc.discard() == mrfw::CfgRefresh::ok);
+        for (int i = 0; i < 3; ++i) f.m.on_tick(s);
+        CHECK(f.m.state().prov_block == want);
+        CHECK(f.m.state().home_view == HomeView::setup_block);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);   // either press dismisses it
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().home.selected == HomeItem::join);    // ★ on its opener
+        CHECK(f.m.state().prov_block == ProvBlock::none);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.prov.calls == 0);
+        CHECK(f.store.writes == 0);
+    }
+}
+
+TEST_CASE("w4b-admit: UNAVAILABLE (a failed open) and NO ADAPTER say CFG UNAVAILABLE; a recovery never resumes setup") {
+    {   // a failed open: the admission TRIED (one load), the note is `unavailable`
+        CreateFix f; const UiSnapshot s = nearby_snap(3);
+        f.store.can_load = false;
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::create));
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(f.store.loads == 1);
+        CHECK(f.m.state().prov_block == ProvBlock::unavailable);
+        CHECK(std::strcmp(prov_block_note(ProvBlock::unavailable), "CFG UNAVAILABLE") == 0);
+        CHECK(f.m.state().home_view == HomeView::setup_block);
+        // ★ RECOVERED: the store comes back — the note is frozen, no open is attempted from Home, no setup resumes
+        f.store.can_load = true;
+        for (int i = 0; i < 5; ++i) f.m.on_tick(s);
+        CHECK(f.store.loads == 1);
+        CHECK(f.m.state().prov_block == ProvBlock::unavailable);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s);
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().home.selected == HomeItem::create);
+        // ...and a FRESH activation is admitted now, through the same one open (no attempted-once latch)
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(f.store.loads == 2);
+        CHECK(f.m.state().provisioning == Provision::create_confirm);
+        CHECK(f.m.setup_origin() == SetupOrigin::home);
+        CHECK(f.store.writes == 0);
+        CHECK(f.live.applies == 0);
+    }
+    {   // no configuration adapter at all
+        UiModel m; UiFakeProvision prov; prov.m = &m; m.attach_provision(prov);
+        const UiSnapshot s = nearby_snap(3);
+        m.on_tick(s);
+        CHECK(home_to(m, s, HomeItem::join));
+        m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+        CHECK(m.state().prov_block == ProvBlock::unavailable);
+        CHECK(m.state().home_view == HomeView::setup_block);
+        CHECK(m.state().provisioning == Provision::closed);
+        CHECK(prov.calls == 0);
+    }
+}
+
+TEST_CASE("w4b-admit: Home INVITE takes NO gate — a dirty or conflicted draft still opens the window ONCE, announced ONCE") {
+    for (int arm = 0; arm < 3; ++arm) {
+        CAPTURE(arm);
+        CreateFix f; UiSnapshot s = invite_snap(1);
+        s.team_key_present = true; s.my_team_id = 7;           // ready: INVITE MEMBER is on Home
+        f.m.on_tick(s);
+        if (arm == 1) dirty_then_home(f, s);
+        if (arm == 2) { visit_settings_then_home(f, s); f.store.rec.intro_attach = 0;
+                        f.svc.note_external_write(f.store.rec); }
+        const int l0 = f.store.loads;
+        CHECK(home_to(f.m, s, HomeItem::invite));
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(f.m.state().provisioning == Provision::invite);
+        CHECK(f.m.state().prov_block == ProvBlock::none);
+        CHECK(f.invite_dev.announcement_requests == 1);
+        CHECK(f.invite_dev.provisioning_at_announcement == Provision::invite);   // load -> enter -> announce
+        CHECK(f.invite_dev.snapshot_taken_at_announcement == true);
+        CHECK(f.m.setup_origin() == SetupOrigin::home);
+        for (int i = 0; i < 5; ++i) f.m.on_tick(s);
+        CHECK(f.invite_dev.announcement_requests == 1);        // ⛔ once per FRESH window
+        CHECK(f.store.loads <= l0 + 1);                        // the SETTINGS arrival's open at most, never a re-read
+        CHECK(f.store.writes == 0);
+        CHECK(f.live.applies == 0);
+    }
+}
+
+// ------------------------------------------------------------------------------------------ the typed setup origin
+TEST_CASE("w4b-origin: §2.5's TRACE — Home JOIN, saved-key offer, BLANK, wake, BACK -> HOME on item 1 (JOIN left)") {
+    CreateFix f; UiSnapshot s = nearby_snap(3);
+    CHECK(saved_key_blank_to_menu(f, s, /*from_home=*/true));
+    CHECK(f.m.setup_origin() == SetupOrigin::home);            // ★ survived the OQ-3 cancellation
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.prov.calls == 1);                                  // only the join ran
+    // the join happened: the team exists without its key -> JOIN TEAM is gone from Home
+    UiSnapshot after = s; after.team_id = 0xBEEF0001u;
+    f.m.on_tick(after);
+    CHECK(prov_cursor_to(f.m, after, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, after); f.m.on_tick(after);
+    CHECK(on_home_list(f.m));
+    CHECK(f.m.state().home.selected == f.m.state().home.items[0]);
+    CHECK(f.m.state().home.selected == HomeItem::key_help);    // item 1 of the key-missing list
+    CHECK(f.m.state().home.changed == false);
+    CHECK(f.m.setup_origin() == SetupOrigin::none);            // the session ended with the flow
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);
+}
+
+TEST_CASE("w4b-origin: the SETTINGS counterpart of the trace ends on the SETTINGS MENU, as today") {
+    CreateFix f; UiSnapshot s = nearby_snap(3);
+    CHECK(saved_key_blank_to_menu(f, s, /*from_home=*/false));
+    CHECK(f.m.setup_origin() == SetupOrigin::settings);
+    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().list_view == ListView::interactive);
+    CHECK(f.m.setup_origin() == SetupOrigin::none);
+}
+
+namespace {
+// The PROVISION menu with a TYPED origin: `home` through the blank trace (the only way Home reaches that menu),
+// `settings` through SETTINGS -> PROVISION. The snapshot keeps team_id 0, so Home's opener (JOIN TEAM) survives.
+bool menu_with_origin(CreateFix& f, UiSnapshot& s, bool home) {
+    if (home) return saved_key_blank_to_menu(f, s, true) && f.m.setup_origin() == SetupOrigin::home;
+    f.m.on_tick(s);
+    return open_provision(f.m, s) && f.m.state().provisioning == Provision::menu &&
+           f.m.setup_origin() == SetupOrigin::settings;
+}
+// Where the exit landed: 0 = Home (list focus, on its opener), 1 = the PROVISION menu, 2 = the Settings menu.
+int landing(CreateFix& f, const UiSnapshot& s) {
+    f.m.on_tick(s);
+    if (on_home_list(f.m)) return f.m.state().home.selected == HomeItem::join ? 0 : 9;
+    if (f.m.state().screen == Screen::settings && f.m.state().provisioning == Provision::menu) return 1;
+    if (f.m.state().screen == Screen::settings && f.m.state().settings == Settings::browsing) return 2;
+    return 9;
+}
+}  // namespace
+
+TEST_CASE("w4b-origin: every return site that lands on the PROVISION menu today goes HOME for origin home, only") {
+    // Each site starts at the PROVISION menu with the typed origin, drives one flow to its exit, and reports where
+    // it landed. ⛔ The settings column is TODAY's destination, unchanged.
+    for (int site = 0; site < 7; ++site)
+        for (bool home : { true, false }) {
+            CAPTURE(site); CAPTURE(home);
+            CreateFix f; UiSnapshot s = nearby_snap(3);
+            s.prov_saved_keys = true;
+            f.prov.list = ok_join_list(0b0001);
+            f.prov.keys = keys_list(2);
+            CHECK(menu_with_origin(f, s, home));
+            int want = home ? 0 : 1;
+            switch (site) {
+                case 0:   // the PROVISION menu's own BACK
+                    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+                    f.m.on_gesture(Gesture::double_press, s);
+                    want = home ? 0 : 2; break;
+                case 1:   // create confirmation BACK
+                    CHECK(prov_cursor_to(f.m, s, ProvRow::create_team));
+                    f.m.on_gesture(Gesture::double_press, s);
+                    CHECK(f.m.state().provisioning == Provision::create_confirm);
+                    f.m.on_gesture(Gesture::double_press, s); break;
+                case 2:   // static profile list BACK
+                    CHECK(open_join_select(f, s));
+                    CHECK(join_cursor_to(f.m, JoinSelRow{0, true}));
+                    f.m.on_gesture(Gesture::double_press, s); break;
+                case 3:   // JOINING left without cancelling the persisted join
+                    CHECK(start_join(f, s));
+                    f.m.on_gesture(Gesture::short_press, s);
+                    CHECK(f.m.join_session_active() == true);  // ⛔ leaving is not a cancel
+                    break;
+                case 4: { // an ordinary join RESULT acknowledged
+                    f.prov.join_answer = UiProvAnswer{};
+                    f.prov.join_answer.outcome = UiProvOutcome::join_refused;
+                    f.prov.join_answer.reason  = "invalid_bw";
+                    CHECK(open_join_confirm(f, s, 1));
+                    f.m.on_gesture(Gesture::short_press, s);
+                    f.m.on_gesture(Gesture::double_press, s);
+                    CHECK(f.m.state().provisioning == Provision::join_result);
+                    f.m.on_gesture(Gesture::double_press, s); break;
+                }
+                case 5:   // a CREATE result acknowledged (terminal)
+                    f.prov.answer = created_answer(0x5EEDF00Du);
+                    CHECK(prov_cursor_to(f.m, s, ProvRow::create_team));
+                    f.m.on_gesture(Gesture::double_press, s);
+                    f.m.on_gesture(Gesture::short_press, s);
+                    f.m.on_gesture(Gesture::double_press, s);
+                    CHECK(f.m.state().provisioning == Provision::create_result);
+                    f.m.on_gesture(Gesture::short_press, s); break;
+                case 6:   // the saved-keys list BACK
+                    CHECK(prov_cursor_to(f.m, s, ProvRow::saved_keys));
+                    f.m.on_gesture(Gesture::double_press, s);
+                    CHECK(f.m.state().provisioning == Provision::saved_keys);
+                    for (int i = 0; i < 4; ++i) {
+                        SavedKeySelRow r{};
+                        if (saved_keys_sel_rows(f.m.state().saved_keys).at(f.m.state().cursor, r) && r.back) break;
+                        f.m.on_gesture(Gesture::short_press, s);
+                    }
+                    f.m.on_gesture(Gesture::double_press, s); break;
+            }
+            CHECK(landing(f, s) == want);
+            if (want == 0) CHECK(f.m.setup_origin() == SetupOrigin::none);
+            else if (want == 1) CHECK(f.m.setup_origin() == SetupOrigin::settings);   // ★ the session continues
+        }
+}
+
+TEST_CASE("w4b-origin: the Home-opened flows' own exits — NEARBY BACK, the saved-key DECLINE — and their SETTINGS twins") {
+    for (int site = 0; site < 2; ++site)
+        for (bool home : { true, false }) {
+            CAPTURE(site); CAPTURE(home);
+            CreateFix f; const UiSnapshot s = nearby_snap(3);
+            f.m.on_tick(s);
+            if (home) { CHECK(home_to(f.m, s, HomeItem::join)); f.m.on_gesture(Gesture::double_press, s); }
+            else      CHECK(open_nearby(f, s));
+            CHECK(f.m.state().provisioning == Provision::nearby);
+            if (site == 0) {
+                CHECK(nearby_to_back(f.m, s));
+                f.m.on_gesture(Gesture::double_press, s);
+            } else {
+                CHECK(nearby_join_to_result(f, s, 0xBEEF0001u, joined_with_saved_key(0xBEEF0001u)));
+                f.m.on_gesture(Gesture::double_press, s);      // -> the offer, on BACK
+                CHECK(f.m.state().provisioning == Provision::saved_key);
+                f.m.on_gesture(Gesture::double_press, s);      // DECLINE
+                CHECK(f.prov.last_saved_key_id == 0u);         // ⛔ nothing installed
+            }
+            CHECK(landing(f, s) == (home ? 0 : 1));
+        }
+}
+
+TEST_CASE("w4b-origin: Home INVITE — the list's BACK, a grant's verdict and the closed window go HOME; SETTINGS keeps the menu") {
+    for (int site = 0; site < 3; ++site)
+        for (bool home : { true, false }) {
+            CAPTURE(site); CAPTURE(home);
+            CreateFix f; UiSnapshot s = invite_snap(1);
+            s.team_key_present = true; s.my_team_id = 7;
+            f.m.on_tick(s);
+            if (home) { CHECK(home_to(f.m, s, HomeItem::invite)); f.m.on_gesture(Gesture::double_press, s); }
+            else      CHECK(open_invite(f, s));
+            CHECK(f.m.state().provisioning == Provision::invite);
+            const HomeItem opener = HomeItem::invite;
+            if (site == 0) {
+                leave_invite(f.m, s);
+            } else if (site == 1) {
+                add_member(s, 200, 0xAABBCCDDu, "Ann");
+                CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+                f.m.on_gesture(Gesture::double_press, s);
+                CHECK(f.m.state().provisioning == Provision::invite_confirm);
+                f.m.on_gesture(Gesture::short_press, s);       // REJECT -> GRANT
+                f.m.on_gesture(Gesture::double_press, s);
+                CHECK(f.invite_dev.grants == 1);
+                CHECK(f.m.state().provisioning == Provision::invite_result);
+                f.m.on_gesture(Gesture::short_press, s);       // the verdict acknowledged: TERMINAL
+            } else {
+                UiSnapshot t = s; t.now_ms = s.now_ms + kInviteWindowMs + 1;
+                f.m.on_tick(t);
+                CHECK(f.m.state().provisioning == Provision::invite_closed);
+                s = t; s.now_ms += 10;
+                f.m.on_gesture(Gesture::short_press, s);       // five minutes is past kBlankMs: the WAKE press
+                CHECK(f.m.state().provisioning == Provision::invite_closed);
+                f.m.on_gesture(Gesture::double_press, s);      // ...then the acknowledgement: TERMINAL
+            }
+            f.m.on_tick(s);
+            if (home) {
+                CHECK(on_home_list(f.m));
+                CHECK(f.m.state().home.selected == opener);
+                CHECK(f.m.setup_origin() == SetupOrigin::none);
+            } else {
+                CHECK(f.m.state().screen == Screen::settings);
+                CHECK(f.m.state().provisioning == Provision::menu);
+            }
+        }
+}
+
+TEST_CASE("w4b-origin: a FRESH action from the Home-origin PROVISION menu keeps origin home; a new entry re-types it") {
+    CreateFix f; UiSnapshot s = nearby_snap(3);
+    CHECK(saved_key_blank_to_menu(f, s, true));
+    // CREATE TEAM from that menu: the same setup session — its BACK goes Home
+    CHECK(prov_cursor_to(f.m, s, ProvRow::create_team));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.setup_origin() == SetupOrigin::home);
+    f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(on_home_list(f.m));
+    CHECK(f.m.state().home.selected == HomeItem::join);        // ★ the ORIGINAL opener
+    // ...and a new SETTINGS -> PROVISION entry types `settings`, whatever came before
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.setup_origin() == SetupOrigin::settings);
+    CHECK(f.m.home_return_item() == HomeItem::none);
+}
+
+TEST_CASE("w4b-origin: the origin RETIRES on pre-emption and on leaving SETTINGS; ⛔ GrantOrigin stays separate") {
+    {   // the alarm pre-empts a Home-opened confirmation: the existing landing (the Settings menu), origin gone
+        CreateFix f; const UiSnapshot s = nearby_snap(3);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::create));
+        f.m.on_gesture(Gesture::double_press, s);
+        f.m.on_gesture(Gesture::short_press, s);               // on CREATE
+        f.m.on_gesture(Gesture::long_arm, s);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.setup_origin() == SetupOrigin::none);
+        CHECK(f.prov.calls == 0);
+    }
+    {   // the roster grant runs with NO setup origin and returns to the TEAM roster exactly as before
+        CreateFix f; const UiSnapshot s = k7_snap(3);
+        f.m.on_tick(s);
+        CHECK(open_roster_grant(f.m, s, 0));
+        CHECK(f.m.setup_origin() == SetupOrigin::none);
+        CHECK(f.m.state().provisioning == Provision::invite_confirm);
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);   // REJECT is selected: leave the grant
+        CHECK(f.m.state().screen == Screen::team);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.setup_origin() == SetupOrigin::none);
+    }
+}
+
+// ------------------------------------------------------------------------------------------ the Send list (§6.5)
+namespace {
+void to_send_list(UiModel& m, const UiSnapshot& s) {
+    m.on_tick(s);
+    to_menu_home(m, s);
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+}
+mrnv::UiPresetBlob moved_catalog(const mrnv::UiPresetBlob& from) {
+    mrnv::UiPresetBlob c = from;
+    mrfw::preset_slot_put(c.slot[mrfw::kPresetChannelFirst + 0], true, false, "MOVED", 5);
+    c.generation = mrfw::preset_generation_next(c.generation);
+    return c;
+}
+}  // namespace
+
+TEST_CASE("w4b-send: acknowledging a result — either press — returns to the Send LIST on item 1, sending nothing more") {
+    for (Gesture ack : { Gesture::short_press, Gesture::double_press }) {
+        UiModel m; const UiSnapshot s = snap(); SendReq req{};
+        to_send_list(m, s);
+        CHECK(m.state().compose == Compose::channel);
+        m.on_gesture(Gesture::short_press, s);                  // the SECOND phrase
+        m.on_gesture(Gesture::double_press, s);
+        const bool got = m.take_send_request(req);
+        CHECK(got == true);
+        CHECK(m.state().compose_result == true);
+        m.on_gesture(ack, s); m.on_tick(s);
+        CHECK(m.state().screen == Screen::send);
+        CHECK(m.state().list_view == ListView::interactive);
+        CHECK(m.state().compose == Compose::channel);
+        CHECK(m.state().compose_result == false);
+        CHECK(m.state().cursor == 0);                           // ★ item 1
+        CHECK(m.state().compose_gen == s.preset_generation);    // a fresh seal, the live catalog's
+        CHECK(m.take_send_request(req) == false);
+    }
+}
+
+TEST_CASE("w4b-send: a catalog change under the open list RE-READS it, arrow to item 1, PRESET CHANGED until a press") {
+    const mrnv::UiPresetBlob cat = preset_defaults_blob();
+    UiModel m; UiSnapshot s = snap_with(cat); SendReq req{};
+    to_send_list(m, s);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 1);
+    const mrnv::UiPresetBlob moved = moved_catalog(cat);
+    s = snap_with(moved, 1100);
+    m.on_tick(s);                                               // a `ui preset set` over BLE — no press at all
+    CHECK(m.state().compose == Compose::channel);               // ★ NOT closed (was: the DM rule)
+    CHECK(m.state().cursor == 0);
+    CHECK(m.state().compose_gen == moved.generation);           // the NEW list is sealed
+    CHECK(m.state().home.changed == true);                      // PRESET CHANGED
+    char l[24];
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, m.state().home.changed));
+    CHECK(std::strcmp(l, ">PRESET CHANGED") == 0);
+    // the next press — a DOUBLE on item 1 — clears it and ⛔ SENDS NOTHING
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_send_request(req) == false);
+    CHECK(m.state().home.changed == false);
+    CHECK(m.state().compose == Compose::channel);
+    CHECK(m.state().cursor == 0);
+    // ...and the press after that sends item 1 of the NEW list, sealed with its generation
+    m.on_gesture(Gesture::double_press, s);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (got) { CHECK(req.slot == uint8_t(mrfw::kPresetChannelFirst + 0)); CHECK(req.generation == moved.generation); }
+}
+
+TEST_CASE("w4b-send: the note's press table — short clears without moving, the wake only wakes, a same-tick press is consumed") {
+    const mrnv::UiPresetBlob cat = preset_defaults_blob();
+    {   // SHORT: clears, the arrow stays on item 1
+        UiModel m; UiSnapshot s = snap_with(cat);
+        to_send_list(m, s);
+        s = snap_with(moved_catalog(cat), 1100); m.on_tick(s);
+        m.on_gesture(Gesture::short_press, s);
+        CHECK(m.state().home.changed == false);
+        CHECK(m.state().cursor == 0);
+    }
+    {   // the WAKE press only wakes: the note is still up afterwards
+        UiModel m; UiSnapshot s = snap_with(cat); SendReq req{};
+        to_send_list(m, s);
+        s = snap_with(moved_catalog(cat), 1000 + kBlankMs + 1); m.on_tick(s);
+        CHECK(m.state().blanked == true);
+        CHECK(m.state().home.changed == true);
+        m.on_gesture(Gesture::double_press, s);
+        CHECK(m.state().blanked == false);
+        CHECK(m.state().home.changed == true);
+        CHECK(m.take_send_request(req) == false);
+    }
+    {   // a press in the SAME tick as the change: consumed, the list re-read, the note stays for the operator to see
+        UiModel m; UiSnapshot s = snap_with(cat); SendReq req{};
+        to_send_list(m, s);
+        m.on_gesture(Gesture::short_press, s);
+        m.on_gesture(Gesture::double_press, snap_with(moved_catalog(cat), 1100));
+        CHECK(m.take_send_request(req) == false);
+        CHECK(m.state().compose == Compose::channel);
+        CHECK(m.state().cursor == 0);
+        CHECK(m.state().home.changed == true);
+    }
+    {   // ⛔ the DM compose keeps today's rule: a change CLOSES it (unchanged)
+        UiModel m; UiSnapshot s = snap_with(cat);
+        m.on_tick(s); to_team(m, s);
+        m.on_gesture(Gesture::double_press, s);
+        CHECK(m.state().compose == Compose::dm);
+        m.on_tick(snap_with(moved_catalog(cat), 1100));
+        CHECK(m.state().compose == Compose::none);
+        CHECK(m.state().home.changed == false);
+    }
+}
+
+TEST_CASE("w4b-send: the Send list's labels — PRESET CHANGED on item 1 while noted, MENU for the exit row, else compose's") {
+    const UiSnapshot s = snap();
+    char l[24];
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, false, true));
+    CHECK(std::strcmp(l, " PRESET CHANGED") == 0);
+    CHECK(std::strlen(l) <= kDetailCols);
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, false) == false);   // an ordinary phrase row
+    CHECK(send_list_row_override(l, sizeof l, 1, s.preset_ch, true, true) == false);    // ⛔ item 1 only
+    CHECK(send_list_row_override(l, sizeof l, 2, s.preset_ch, true, false));
+    CHECK(std::strcmp(l, ">MENU") == 0);                        // ⛔ never `back, don't send` at the top level
+    CHECK(send_list_row_override(l, sizeof l, 2, s.preset_ch, false, true));
+    CHECK(std::strcmp(l, " MENU") == 0);
+    CHECK(send_list_row_override(nullptr, 0, 2, s.preset_ch, true, false) == false);    // fails closed
+}
+
+// ------------------------------------------------------------------------------------------ Inbox watermarks
+namespace {
+// One complete eight-page frame through the real gate.
+void paint(FrameGate& g, UiModel& m, UiInboxCounters& c, const UiSnapshot& s) {
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    for (int p = 0; p < 7; ++p) g.on_page(true, m, c);
+    g.on_page(false, m, c);
+}
+}  // namespace
+
+TEST_CASE("w4b-inbox: the INBOX list AND its menu preview commit the frozen arrivals; Home and an aborted frame do not") {
+    for (int where = 0; where < 4; ++where) {                   // Home list, Home menu, INBOX list, INBOX preview
+        CAPTURE(where);
+        UiModel m; FrameGate g; UiInboxCounters c;
+        c.arr_dm = 4; c.arr_ch = 2;
+        UiSnapshot s = snap_inbox(2); c.publish(s);
+        m.on_tick(s);
+        if (where == 1) to_menu_home(m, s);
+        if (where == 2) to_inbox(m, s);
+        if (where == 3) { to_menu_home(m, s); m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
+                         CHECK(m.state().list_view == ListView::passive); }
+        m.on_tick(s);
+        CHECK(m.state().screen == (where >= 2 ? Screen::inbox : Screen::status));
+        m.mark_dirty();
+        s = snap_inbox(2, 9000); c.publish(s);
+        paint(g, m, c, s);
+        const bool inbox = where >= 2;
+        CHECK(c.read_dm == (inbox ? 4u : 0u));
+        CHECK(c.read_ch == (inbox ? 2u : 0u));
+    }
+    {   // ⛔ an ABORTED frame — the panel blanks mid-frame — commits nothing, even on the INBOX list
+        UiModel m; FrameGate g; UiInboxCounters c;
+        c.arr_dm = 4; UiSnapshot s = snap_inbox(2); c.publish(s);
+        m.on_tick(s); to_inbox(m, s); m.on_tick(s);
+        m.mark_dirty();
+        CHECK(g.step(m, s, true) == FrameStep::open);
+        g.on_page(true, m, c);
+        s = snap_inbox(2, 1000 + kBlankMs + 1); m.on_tick(s);
+        CHECK(g.step(m, s, true) == FrameStep::blank);
+        CHECK(c.read_dm == 0u);
+    }
+}
+
+// ------------------------------------------------------------------------------------------ the frozen projection
+TEST_CASE("w4b-freeze: the frame's COPY of the state carries focus, capture and view; the live model moves on alone") {
+    UiModel m; UiSnapshot s = home_snap(HomeProfile::ready);
+    m.on_tick(s);
+    CHECK(home_to(m, s, HomeItem::send));
+    const UiState frozen = m.state();                           // what `s_frame_state` holds for the frame's pages
+    UiSnapshot fs = s;                                          // ...and `s_frame_snap`, the own name included
+    const char nm[] = "STAN";
+    std::memcpy(fs.own_name, nm, 4); fs.own_name_len = 4;
+    const UiSnapshot frozen_snap = fs;
+    s = home_snap(HomeProfile::id_pending, 1100);
+    std::memcpy(fs.own_name, "ANNA", 4);
+    m.on_tick(s);                                               // the live list changes under the frame
+    CHECK(frozen.home.selected == HomeItem::send);
+    CHECK(frozen.home.changed == false);
+    CHECK(frozen.list_view == ListView::interactive);
+    CHECK(frozen.home_view == HomeView::list);
+    CHECK(m.state().home.selected == HomeItem::inbox);          // ...the live one moved
+    CHECK(m.state().home.changed == true);
+    CHECK(std::memcmp(frozen_snap.own_name, "STAN", 4) == 0);   // ⛔ the frozen copy is a value, not a view
+    CHECK(frozen_snap.own_name_len == 4);
+}
+
+// ------------------------------------------------------------------------------------------ resources (§2.2)
+TEST_CASE("w4b-resources: the owner-ruled shape — HomeCapture 9, UiState 520, UiSnapshot 1368, UiModel 944") {
+    CHECK(sizeof(HomeCapture) == 9u);
+    CHECK(alignof(HomeCapture) == 1u);
+    CHECK(sizeof(HomeView) == 1u);
+    CHECK(sizeof(HomeItem) == 1u);
+    CHECK(sizeof(SetupOrigin) == 1u);
+    CHECK(sizeof(mrui::UiState) == 520u);
+    CHECK(offsetof(mrui::UiState, home_view) == offsetof(mrui::UiState, home) + sizeof(HomeCapture));
+    CHECK(offsetof(mrui::UiState, home) > offsetof(mrui::UiState, grant));   // appended after the grant verdict
+    CHECK(sizeof(mrui::UiSnapshot) == 1368u);
+    CHECK(sizeof(mrui::UiSnapshot::own_name) == 32u);
+    CHECK(offsetof(mrui::UiSnapshot, own_name_len) == offsetof(mrui::UiSnapshot, own_name) + 32u);
+    CHECK(offsetof(mrui::UiSnapshot, own_name) > offsetof(mrui::UiSnapshot, preset_ch));   // appended
+    CHECK(sizeof(mrui::UiModel) == 944u);
+    // ⓘ UiChrome's 20 / align 2 (the cue in existing padding) is pinned beside its projection: test_firmware_ui_chrome.cpp.
+    // ProvBlock gained `unavailable` with no byte growth
+    CHECK(sizeof(ProvBlock) == 1u);
+    CHECK(uint8_t(ProvBlock::unavailable) == 3u);
+}
+
+// ------------------------------------------------------------------------------------------ B457 (design r2.22 §6.1)
+// ★★★★ THE SETTINGS MENU IS SHOWN ONLY OVER AN OPEN SERVICE. A flow entered WITHOUT the menu — Home's ungated
+//      `INVITE MEMBER`, a TEAM-roster grant — may run while the store refuses to load; an emergency hold pre-empts it
+//      through `close_provisioning`, which lands in `browsing`. Over a closed service that must become the closed
+//      `CFG UNAVAILABLE` view in MENU MODE: no arrow, `short` walks the rail, `double` refused until the service opens.
+//      ⛔ The flow itself is NOT gated while it runs. The open-service counterpart still lands in the Settings menu.
+namespace {
+// An emergency hold that ARMS (pre-empting provisioning), then a cancel that runs out: the ordinary panel is back.
+void preempt_by_hold(UiModel& m, UiSnapshot& s) {
+    s.now_ms += 100; m.on_gesture(Gesture::long_arm, s); m.on_tick(s);
+    s.now_ms += 100; m.on_gesture(Gesture::long_cancel, s); m.on_tick(s);
+    s.now_ms += kCancelledMs + 1; m.on_tick(s);
+}
+// The B457 landing: SETTINGS, the closed view, MENU MODE, nothing of the pre-empted flow left.
+bool closed_view_in_menu_mode(const UiModel& m) {
+    return m.state().screen == Screen::settings && m.state().settings == Settings::closed &&
+           m.state().list_view == ListView::passive && m.state().provisioning == Provision::closed;
+}
+// Walk the rail in menu mode back to SETTINGS (bounded), the way the operator does.
+bool rail_to_settings(UiModel& m, UiSnapshot& s) {
+    for (int i = 0; i < 6 && m.state().screen != Screen::settings; ++i) { m.on_gesture(Gesture::short_press, s); m.on_tick(s); }
+    return m.state().screen == Screen::settings && m.state().list_view == ListView::passive;
+}
+// The shared tail: pre-empted over a closed service → the closed view in menu mode; double refused; short walks the
+// rail; the store recovers → double opens the menu in list focus.
+void check_b457_tail(CreateFix& f, UiSnapshot& s) {
+    const int writes = f.store.writes, applies = f.live.applies;
+    preempt_by_hold(f.m, s);
+    CHECK(f.m.emergency() == Emergency::idle);
+    CHECK(closed_view_in_menu_mode(f.m));                     // ★ ⛔ never a menu nobody can see
+    CHECK(f.svc.is_open() == false);
+    CHECK(f.m.setup_origin() == SetupOrigin::none);           // the pre-emption retired the setup session (unchanged)
+    s.now_ms += 100; f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(closed_view_in_menu_mode(f.m));                     // ⛔ double refused while the service is closed
+    s.now_ms += 100; f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().screen == Screen::status);              // ★ short walks the rail: SETTINGS -> STATUS (Home)
+    CHECK(f.m.state().list_view == ListView::passive);
+    // RECOVERY: the store answers; the next sync opens the service; the preview reads ENTER SETTINGS; double opens
+    // the menu in list focus.
+    CHECK(rail_to_settings(f.m, s));
+    f.store.can_load = true;
+    s.now_ms += 100; f.m.on_tick(s);
+    CHECK(f.svc.is_open() == true);
+    CHECK(closed_view_in_menu_mode(f.m));                     // opening alone opens no menu
+    s.now_ms += 100; f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().list_view == ListView::interactive);
+    CHECK(f.store.writes == writes);                          // ⛔ nothing saved or applied on the way
+    CHECK(f.live.applies == applies);
+}
+}  // namespace
+
+TEST_CASE("b457: Home INVITE over a CLOSED service runs ungated; pre-empted, it lands on CFG UNAVAILABLE in menu mode") {
+    CreateFix f; UiSnapshot s = invite_snap(1);
+    s.team_key_present = true; s.my_team_id = 7;              // ready: INVITE MEMBER is on Home
+    f.store.can_load = false;                                 // the store refuses every load
+    f.m.on_tick(s);
+    CHECK(home_to(f.m, s, HomeItem::invite));
+    f.m.on_gesture(Gesture::double_press, s);
+    for (int i = 0; i < 3; ++i) { s.now_ms += 100; f.m.on_tick(s); }
+    CHECK(f.svc.is_open() == false);
+    CHECK(f.m.state().provisioning == Provision::invite);     // ★ the ungated flow is NOT gated by the rule
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.invite_dev.announcement_requests == 1);
+    check_b457_tail(f, s);
+}
+
+TEST_CASE("b457: a TEAM-roster grant over a CLOSED service runs ungated; pre-empted, it lands on CFG UNAVAILABLE in menu mode") {
+    CreateFix f; UiSnapshot s = k7_snap(3);
+    f.store.can_load = false;
+    f.m.on_tick(s);
+    CHECK(open_roster_grant(f.m, s, 0));
+    for (int i = 0; i < 3; ++i) { s.now_ms += 100; f.m.on_tick(s); }
+    CHECK(f.svc.is_open() == false);
+    CHECK((f.m.state().provisioning == Provision::invite_confirm ||
+           f.m.state().provisioning == Provision::invite_need_pubkey));   // ★ the grant keeps running
+    check_b457_tail(f, s);
+}
+
+TEST_CASE("b457: the OPEN-service counterparts still land in the Settings menu, in list focus (pre-emption unchanged)") {
+    {   // Home INVITE over an open service
+        CreateFix f; UiSnapshot s = invite_snap(1);
+        s.team_key_present = true; s.my_team_id = 7;
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::invite));
+        f.m.on_gesture(Gesture::double_press, s); f.m.on_tick(s);
+        CHECK(f.svc.is_open() == true);
+        CHECK(f.m.state().provisioning == Provision::invite);
+        preempt_by_hold(f.m, s);
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.state().list_view == ListView::interactive);
+        CHECK(f.m.state().provisioning == Provision::closed);
+    }
+    {   // the TEAM-roster grant over an open service
+        CreateFix f; UiSnapshot s = k7_snap(3);
+        f.m.on_tick(s);
+        to_settings(f.m, s);                                  // the SETTINGS arrival opens the service
+        CHECK(f.svc.is_open() == true);
+        f.m.on_gesture(Gesture::short_press, s);              // menu mode: SETTINGS -> STATUS, the rail's start
+        CHECK(f.m.state().screen == Screen::status);
+        CHECK(open_roster_grant(f.m, s, 0));
+        preempt_by_hold(f.m, s);
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.state().list_view == ListView::interactive);
+    }
+}
+
+// ------------------------------------------------------------------------------------------ design r2.22 §6.5
+TEST_CASE("w4b-send: with NO phrases, PRESET CHANGED covers the Send list's MENU row for ONE press (design r2.22 §6.5)") {
+    const mrnv::UiPresetBlob empty = gapped_cat({});          // every channel slot disabled: item 1 IS the exit row
+    UiModel m; UiSnapshot s = snap_with(empty); SendReq req{};
+    to_send_list(m, s);
+    CHECK(m.state().compose == Compose::channel);
+    CHECK(compose_row_count(s.preset_ch, false) == 1);
+    char l[24];
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, false));
+    CHECK(std::strcmp(l, ">MENU") == 0);
+    mrnv::UiPresetBlob moved = empty;
+    moved.generation = mrfw::preset_generation_next(moved.generation);
+    s = snap_with(moved, 1100); m.on_tick(s);                 // the catalog moves; the list is still empty
+    CHECK(m.state().home.changed == true);
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, m.state().home.changed));
+    CHECK(std::strcmp(l, ">PRESET CHANGED") == 0);            // ★ the note covers the only row, MENU
+    m.on_gesture(Gesture::double_press, s);                   // ONE press: clears the note, acts on nothing
+    CHECK(m.state().home.changed == false);
+    CHECK(m.state().screen == Screen::send);                  // ⛔ not the MENU action
+    CHECK(m.state().compose == Compose::channel);
+    CHECK(m.take_send_request(req) == false);
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, m.state().home.changed));
+    CHECK(std::strcmp(l, ">MENU") == 0);                      // ...and the row is MENU again
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().screen == Screen::status);                // the NEXT press is the exit
+    CHECK(m.state().list_view == ListView::passive);
 }

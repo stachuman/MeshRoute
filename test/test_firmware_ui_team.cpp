@@ -98,12 +98,26 @@ UiSnapshot team_snap(uint8_t n, uint32_t age_s) {
     return s;
 }
 
+// ★★★ W4b (design §6.1 rule 1) — THE BOOT STATE CHANGED: the model boots in LIST FOCUS on Home. The retired boot
+//     state (the passive STATUS screen one `short` passed) is MENU MODE ON THE HOME SLOT, reached exactly as the
+//     operator reaches it: walk Home's list to `MENU` by identity, then `double`. A navigation FIXTURE only (brief
+//     §2.9) — idempotent, and it asserts nothing of its own.
+static void to_menu_home(mrui::UiModel& m, const mrui::UiSnapshot& s) {
+    if (m.state().screen == mrui::Screen::status && m.state().list_view == mrui::ListView::interactive &&
+        m.state().home_view == mrui::HomeView::list) {
+        for (int i = 0; i < 8 && m.state().home.selected != mrui::HomeItem::menu; ++i)
+            m.on_gesture(mrui::Gesture::short_press, s);
+        m.on_gesture(mrui::Gesture::double_press, s);
+    }
+}
+
 // Bring a fresh model to LIT + CLEAN **on the TEAM screen**, the way the device does: one real gesture walks
 // STATUS -> TEAM (the model's own cycle), then one complete frame consumes every invalidation raised so far.
 // ⛔ The screen is reached by a GESTURE, never by poking `UiState`: the invalidation is gated on the current screen,
 //    and a poked screen would prove the gate against a state the model cannot actually be in.
 void team_settle(UiModel& m, FrameGate& g, UiInboxCounters& c, const UiSnapshot& s) {
     m.on_tick(s);                                                // §B65: the first tick seeds the blank timer
+    to_menu_home(m, s);                                          // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);                       // STATUS -> TEAM
     CHECK(m.state().screen == Screen::team);
     while (g.step(m, s, /*mac_idle=*/true) == FrameStep::open || g.frame_open()) g.on_page(false, m, c);

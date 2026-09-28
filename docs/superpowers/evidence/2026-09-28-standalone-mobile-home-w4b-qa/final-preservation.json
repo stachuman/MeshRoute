@@ -1,0 +1,75 @@
+[
+  {
+    "repository": "/home/staszek/MeshRoute",
+    "head": "c8e36d8d5d32f29edf408b36b60d8977993f5ad4",
+    "checked_original_paths": 1674,
+    "changed_only_authorized_docs": [
+      {
+        "path": "MEMORY.md",
+        "before_sha256": "fb3826dc9254190fe66f15fa9edae81f646595601a8ac90c14bdf82d464d1092",
+        "after_sha256": "364e331f6bf9c6f0e3e51bf55ee1c2f95cc7de37dbfcd7d390a49c74e38aa182"
+      },
+      {
+        "path": "docs/2026-07-30-open-bug-register.md",
+        "before_sha256": "1f54f9c3cc3bb9fc83b882bb77e2beb423a3e999b61fb16d82dfd452afdbbc0f",
+        "after_sha256": "3dd8e2b325eea20e8451a2f06b4c2f3226bda7d7b4172b7e8779df4adb7492d4"
+      },
+      {
+        "path": "docs/2026-09-20-metal-test-plan.md",
+        "before_sha256": "8bcff449e7c94b88243a07a1b589afe6bb0fb8a4eb8f3430852b871a9e3e451d",
+        "after_sha256": "b5fe604e0d1a657d03bd5becf182042af1b9756d88f82619fc352c7b971d41e7"
+      },
+      {
+        "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "before_sha256": "80f7078419c9d70a2f3f03b52375f355c10e285fa397530a0c98210cba3ccae9",
+        "after_sha256": "cd21925421b6c175859ab3e8890bafc792e6e7624040286be432ae8cb12c8528"
+      },
+      {
+        "path": "tracker.md",
+        "before_sha256": "bd1566b362047afe58be0668f74c1a2a0fedb1adf2a4b96aeb486e0ff3d399f2",
+        "after_sha256": "f3c233e98b9add79899fd52fa4f4685ddad43cbd589ef00cef9b391caa18a97e"
+      }
+    ],
+    "missing": [],
+    "new_paths_before_this_record_and_checksum": [
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/b456-regressions.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/boards-compare.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/boards/gateway-manifest.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/boards/heltec_mobile-manifest.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/chk_recon.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/controls-independent.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/corpus-compare.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/corpus-manifest.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/ctl_recon.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/focused-controls.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/focused_controls.py",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/gate-runs.jsonl",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/inputs.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/layout-query.cpp",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/layout.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/mut_recon.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/mutation-results.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/mutation-summary.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/native.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/preflight.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/preservation-before-landing.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/probe-summary.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/raw-artifacts.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/source-review.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa/stage-a-audit.json"
+    ],
+    "staged": [],
+    "whitespace_clean": true
+  },
+  {
+    "repository": "/home/staszek/lora-universal-simulator",
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "checked_original_paths": 285,
+    "changed_only_authorized_docs": [],
+    "missing": [],
+    "new_paths_before_this_record_and_checksum": [],
+    "staged": [],
+    "whitespace_clean": true
+  }
+]

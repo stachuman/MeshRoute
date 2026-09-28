@@ -1,0 +1,209 @@
+{
+  "changed_since_repin": [
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/disposition-ledger.md",
+    "src/firmware_ui_model.h",
+    "test/test_firmware_ui_model.cpp",
+    "tools/probe_firmware_ui/probe_main.cpp",
+    "tools/probe_ui_model_mutations.py"
+  ],
+  "coder_report_sha256": "7ed0bb9a876a50eccae71d21da6fb9c710d70cb9a705f0cb869b9874a4f8ffd9",
+  "evidence_files_verified": [
+    "boards/attribution-base1-vs-final1.txt",
+    "boards/base-1-gateway-manifest.json",
+    "boards/base-1-heltec_mobile-manifest.json",
+    "boards/base-2-gateway-manifest.json",
+    "boards/base-2-heltec_mobile-manifest.json",
+    "boards/compare-base-gateway.txt",
+    "boards/compare-base-heltec_mobile.txt",
+    "boards/compare-final-gateway.txt",
+    "boards/compare-final-heltec_mobile.txt",
+    "boards/final-1-gateway-manifest.json",
+    "boards/final-1-heltec_mobile-manifest.json",
+    "boards/final-2-gateway-manifest.json",
+    "boards/final-2-heltec_mobile-manifest.json",
+    "boards/flash-symbols-heltec_mobile.txt",
+    "coder-design-notes.md",
+    "coder-ledger.md",
+    "disposition-ledger.md",
+    "layout/generated-query.cpp",
+    "layout/layout-baseline.json",
+    "layout/layout-baseline.txt",
+    "layout/layout-final.json",
+    "layout/layout-final.txt",
+    "layout/w4b_layout.py",
+    "reader-audit.txt",
+    "receipts/abi.txt",
+    "receipts/census.txt",
+    "receipts/chain-steps.tsv",
+    "receipts/corpus-compare.txt",
+    "receipts/corpus-manifest-final.json",
+    "receipts/discovery.txt",
+    "receipts/native.txt",
+    "receipts/probe-board-ui.txt",
+    "receipts/probe-fwui.txt",
+    "receipts/raw-logs.sha256",
+    "receipts/union.txt",
+    "recon/attribute.py",
+    "recon/case_recon.py",
+    "recon/case_recon.txt",
+    "recon/chain.sh",
+    "recon/chk_recon.py",
+    "recon/chk_recon.txt",
+    "recon/completeness.py",
+    "recon/corpus_compare.py",
+    "recon/ctl_recon.py",
+    "recon/ctl_recon.txt",
+    "recon/inventory_check2.py",
+    "recon/mut_census.py",
+    "recon/mut_recon.py",
+    "recon/mut_recon.txt",
+    "recon/run_union.sh",
+    "stage-a/receipt.txt",
+    "stage-a/run.sh.stageA"
+  ],
+  "evidence_index_sha256": "cafcb5d2a03253e0538438aca640861644f0fd6d9463965bd3c441ab4ce82ad2",
+  "freeze_pins": [
+    {
+      "path": "src/firmware_ui_model.h",
+      "sha256": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286"
+    },
+    {
+      "path": "src/firmware_ui.cpp",
+      "sha256": "3d32d7cb9c81f39b7188861c973b8213261783810dc6ca8428c0fe305b9e9fe9"
+    },
+    {
+      "path": "src/firmware_ui_chrome.h",
+      "sha256": "b4c1ff24451725a03d2e966fd1da3a8102c61815b74cc995f1fd8f2c0ee6a181"
+    },
+    {
+      "path": "src/firmware_ui_status.h",
+      "sha256": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd"
+    },
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "sha256": "3ac8c6f2457c4d784a0661a531ef467ace82ba55f675c156abf4180a130ff6c7"
+    },
+    {
+      "path": "test/test_firmware_ui_chrome.cpp",
+      "sha256": "544875a89e6683d2cb50c33591f828d189925376369e60acc9d31f06b098641f"
+    },
+    {
+      "path": "test/test_firmware_ui_status.cpp",
+      "sha256": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8"
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "sha256": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8"
+    },
+    {
+      "path": "test/test_firmware_ui_send.cpp",
+      "sha256": "66527ed7c3d858fb8767e522a3fb19da86f225ce81e5c59ce2368ba68adba0dd"
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "sha256": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "sha256": "fb45d28e69b0e7ae280c77d91840df659ade5d9f4784837f6317d84793aff9d3"
+    },
+    {
+      "path": "tools/test_probe_firmware_ui.py",
+      "sha256": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16"
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "sha256": "71c860f9a1fd9a4807fa4789da58545f9fbd4c1d90befee5545ece418d15687e"
+    },
+    {
+      "path": "tools/probe_board_abi.py",
+      "sha256": "4a5c0997fff20fb3c04cfd75c2527fd09f0b55edfb9b3f273c3afc99f0b2a579"
+    },
+    {
+      "path": "tools/test_probe_board_abi.py",
+      "sha256": "c6630098421aed5fc2ad54ea29f512e624ed6ba1f9d19b188a0b1632707951c3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md",
+      "sha256": "a89c075e6dab5184d68c06a31b9fd262c3bab5656bc140146a879e2608d8ca5a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "sha256": "80f7078419c9d70a2f3f03b52375f355c10e285fa397530a0c98210cba3ccae9"
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "sha256": "1f54f9c3cc3bb9fc83b882bb77e2beb423a3e999b61fb16d82dfd452afdbbc0f"
+    },
+    {
+      "path": "tracker.md",
+      "sha256": "bd1566b362047afe58be0668f74c1a2a0fedb1adf2a4b96aeb486e0ff3d399f2"
+    },
+    {
+      "path": "MEMORY.md",
+      "sha256": "fb3826dc9254190fe66f15fa9edae81f646595601a8ac90c14bdf82d464d1092"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md",
+      "sha256": "38b699335991cf04ffc21c7eb9702f36f3f8a3ba640ad5ff0d9b5a51047294aa"
+    }
+  ],
+  "hygiene_exit": 0,
+  "hygiene_output": "",
+  "implementation_inputs_stable": true,
+  "new_since_repin": [
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin.md",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/authorization.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/brief-delta.patch",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/inputs.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/preflight.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/preservation.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/source-checks.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b.md",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/attribution-base1-vs-final1.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/base-1-gateway-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/base-1-heltec_mobile-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/base-2-gateway-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/base-2-heltec_mobile-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/compare-base-gateway.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/compare-base-heltec_mobile.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/compare-final-gateway.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/compare-final-heltec_mobile.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/final-1-gateway-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/final-1-heltec_mobile-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/final-2-gateway-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/final-2-heltec_mobile-manifest.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/boards/flash-symbols-heltec_mobile.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/coder-design-notes.md",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/coder-ledger.md",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/layout/generated-query.cpp",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/layout/layout-baseline.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/layout/layout-baseline.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/layout/layout-final.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/layout/layout-final.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/layout/w4b_layout.py",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/reader-audit.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/abi.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/census.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/chain-steps.tsv",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/corpus-compare.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/corpus-manifest-final.json",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/discovery.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/native.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/probe-board-ui.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/probe-fwui.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/raw-logs.sha256",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/receipts/union.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/attribute.py",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/case_recon.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/chain.sh",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/chk_recon.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/corpus_compare.py",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/ctl_recon.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/inventory_check2.py",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/mut_recon.txt",
+    "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b/recon/run_union.sh"
+  ]
+}

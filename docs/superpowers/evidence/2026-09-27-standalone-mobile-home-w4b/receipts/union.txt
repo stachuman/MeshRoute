@@ -1,0 +1,25 @@
+# mutation union (brief §4.1 step 9), fresh, after the board pair — every worker's clean baseline = 3031 / 198613 / 0, every battery 'real tree untouched'
+## (a)
+model         mutations: 238 RED / 1 unusable
+sliceCbudget  mutations: 1 RED / 0 unusable
+w4aident      mutations: 9 RED / 0 unusable
+chrome        mutations: 48 RED / 0 unusable
+uistatus      mutations: 19 RED / 0 unusable
+w4bhome       mutations: 26 RED / 0 unusable
+## (b)
+config        mutations: 32 RED / 0 unusable
+uiprov        mutations: 45 RED / 0 unusable
+uijoin        mutations: 26 RED / 0 unusable
+uiinvite      mutations: 32 RED / 0 unusable
+uiteam        mutations: 20 RED / 0 unusable
+uisend        mutations: 15 RED / 0 unusable
+sliceCsend    mutations: 1 RED / 0 unusable
+uipresets     mutations: 32 RED / 0 unusable
+uinearby      mutations: 11 RED / 0 unusable
+uinearbyrow   mutations: 9 RED / 0 unusable
+joinprofiles  mutations: 21 RED / 0 unusable
+provservice   mutations: 10 RED / 0 unusable
+uigeo         mutations: 18 RED / 0 unusable
+icons         mutations: 11 RED / 0 unusable
+## totals: 625 entries — 624 RED, 0 vacuous, 1 NOT RED: model M103 (kept visible; QA disposes at the freeze)
+  FAIL M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index — the suite still PASSES; nothing measures this

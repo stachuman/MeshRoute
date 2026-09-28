@@ -834,6 +834,19 @@ TEST_CASE("chrome-nav: PRECEDENCE — compose OUTRANKS the inbox detail, because
     CHECK(ui_nav_slot(off, Emergency::idle) == NavSlot::inbox);
 }
 
+// ★★★ W4b (design §6.1 rule 1) — THE BOOT STATE CHANGED: the model boots in LIST FOCUS on Home. The retired boot
+//     state (the passive STATUS screen one `short` passed) is MENU MODE ON THE HOME SLOT, reached exactly as the
+//     operator reaches it: walk Home's list to `MENU` by identity, then `double`. A navigation FIXTURE only (brief
+//     §2.9) — idempotent, and it asserts nothing of its own.
+static void to_menu_home(mrui::UiModel& m, const mrui::UiSnapshot& s) {
+    if (m.state().screen == mrui::Screen::status && m.state().list_view == mrui::ListView::interactive &&
+        m.state().home_view == mrui::HomeView::list) {
+        for (int i = 0; i < 8 && m.state().home.selected != mrui::HomeItem::menu; ++i)
+            m.on_gesture(mrui::Gesture::short_press, s);
+        m.on_gesture(mrui::Gesture::double_press, s);
+    }
+}
+
 TEST_CASE("chrome-nav: a REAL outcome landing on a live compose modal leaves the rail on SEND") {
     // ⚠ THIS IS A REACHABILITY CONTROL, NOT A COVERAGE CLAIM (see the note above): ONE genuine transition driven
     //   through `UiModel` — gesture -> compose modal -> drained send request -> a real correlated outcome — so the
@@ -845,6 +858,7 @@ TEST_CASE("chrome-nav: a REAL outcome landing on a live compose modal leaves the
     //   — so this case opts IN to the compiled catalog, which is the sendable list it was always driving. Without it
     //   the sub-view would land on §3.2.1's empty state and the `double` below would be `back`, not a send.
     {   mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat); ui_snapshot_publish_presets(s, cat); }
+    to_menu_home(m, s);                                          // W4b fixture: menu mode on Home
     m.on_gesture(Gesture::short_press, s);                       // STATUS -> TEAM
     if (m.state().screen != Screen::team) { CHECK(false); return; }
     m.on_gesture(Gesture::double_press, s);                      // §UI-17 S1: ENTER the interactive TEAM list...
@@ -947,6 +961,8 @@ TEST_CASE("chrome-nav: the mapping tracks the LIVE model, not a renderer-local c
     // A reachability control for the table-driven cases above: the same mapping, driven through real gestures.
     UiModel m; UiSnapshot s = chrome_snap(); s.team_id = 7; s.team_total = 3; s.team_shown = 3;
     for (uint8_t i = 0; i < 3; ++i) { s.team[i].id = uint8_t(10 + i); s.team[i].last_heard_s = 60; }
+    CHECK(ui_nav_slot(m.state(), m.emergency()) == NavSlot::status);
+    to_menu_home(m, s);                               // W4b fixture: menu mode on Home
     CHECK(ui_nav_slot(m.state(), m.emergency()) == NavSlot::status);
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::team);
@@ -1307,4 +1323,56 @@ TEST_CASE("chrome-projection: an untouched snapshot reports NOTHING ESTABLISHED,
     CHECK(c.rail_visible == true);
     CHECK(c.nav == NavSlot::status);
     CHECK(c.slots == 0x1F);
+}
+
+// ============================================================== W4b — THE MENU CUE AND HOME's SUB-VIEWS ON THE RAIL
+// ★★★ Design §6.1 rule 4 / brief §2.7: menu mode draws a 2-px bar beside the boxed slot, list focus draws none. The cue
+//     is a field of the FROZEN chrome and of `ui_chrome_equal`, read from the one focus authority (`list_view`).
+TEST_CASE("w4b-chrome: the cue is MENU MODE on every screen, the box still names the screen, and emergency drops both") {
+    for (Screen sc : { Screen::status, Screen::team, Screen::inbox, Screen::send, Screen::settings })
+        for (ListView v : { ListView::interactive, ListView::passive }) {
+            UiState st{}; st.screen = sc; st.list_view = v;
+            const UiChrome c = chrome_of(chrome_snap(), st);
+            CHECK(c.menu_cue == (v == ListView::passive));
+            CHECK(ui_menu_cue(st) == (v == ListView::passive));
+            CHECK(c.nav == ui_nav_slot(st, Emergency::idle));      // ★ the box follows the screen in BOTH states
+            CHECK(c.nav != NavSlot::none);
+        }
+    CHECK(sizeof(UiChrome) == 20u);                            // ★ owner-ruled (§11.1): the cue rides existing padding
+    CHECK(alignof(UiChrome) == 2u);
+    // ⛔ The emergency normalises the rail to nothing — the cue with it (it is not on the panel either).
+    for (Emergency e : { Emergency::arming, Emergency::firing, Emergency::cancelled }) {
+        UiState st{}; st.list_view = ListView::passive;
+        const UiChrome c = chrome_of(chrome_snap(), st, e);
+        CHECK(c.rail_visible == false);
+        CHECK(c.menu_cue == false);
+        UiState lf{}; lf.list_view = ListView::interactive;
+        CHECK(ui_chrome_equal(c, chrome_of(chrome_snap(), lf, e)) == true);
+    }
+}
+
+TEST_CASE("w4b-chrome: entering or leaving menu mode is a VISIBLE chrome change with no strip token moving") {
+    UiState lf{}; lf.list_view = ListView::interactive;
+    UiState mm{}; mm.list_view = ListView::passive;
+    const UiSnapshot s = chrome_snap();
+    CHECK(ui_chrome_equal(chrome_of(s, lf), chrome_of(s, lf)) == true);
+    CHECK(ui_chrome_equal(chrome_of(s, lf), chrome_of(s, mm)) == false);   // ★ the cue alone differs
+    CHECK(ui_chrome_equal(chrome_of(s, mm), chrome_of(s, lf)) == false);
+    // ...and it DIRTIES a lit, clean model through the ordinary chrome invalidation.
+    UiModel m; m.on_tick(s); m.clear_dirty();
+    CHECK(ui_chrome_invalidate(m, chrome_of(s, mm), chrome_of(s, lf)) == true);
+    CHECK(m.state().dirty == true);
+}
+
+TEST_CASE("w4b-chrome: Home's sub-views keep the rail on STATUS; the blocked-setup note boxes SETTINGS") {
+    for (HomeView v : { HomeView::list, HomeView::my_device, HomeView::key_help }) {
+        UiState st{}; st.screen = Screen::status; st.home_view = v;
+        CHECK(ui_nav_slot(st, Emergency::idle) == NavSlot::status);
+    }
+    UiState st{}; st.screen = Screen::status; st.home_view = HomeView::setup_block;
+    CHECK(ui_nav_slot(st, Emergency::idle) == NavSlot::settings);
+    CHECK(ui_nav_slot(st, Emergency::arming) == NavSlot::none);   // ⛔ the emergency still outranks it
+    // ⓘ `home_view` is only meaningful on STATUS: a stale value under another screen names that screen.
+    UiState other{}; other.screen = Screen::inbox; other.home_view = HomeView::setup_block;
+    CHECK(ui_nav_slot(other, Emergency::idle) == NavSlot::inbox);
 }

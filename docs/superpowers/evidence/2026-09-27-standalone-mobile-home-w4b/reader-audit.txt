@@ -1,0 +1,78 @@
+# W4b reader audit (brief §4.1 / D6 / P7) — frozen tree, 2026-09-27T21:30:48Z
+
+## 1. Removed or renamed symbols: every remaining reference in lib/ src/ test/ tools/ (all are comments: retirement notes or history)
+### ui_status_team
+    src/firmware_ui_status.h:7://      The §UI-17 STATUS body's four row helpers (`ui_status_team` / `_me` / `_known` / `_unread_home`) and its two
+    src/firmware_ui_status.h:98://   ⛔ Not the retired `ui_status_team`'s declared third spelling (`TEAM %08lX`), which this row replaces.
+    tools/probe_ui_model_mutations.py:6481: # ⛔ S05 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 0 (`ui_status_team`) is gone — replaced by S14 on Home's team line (NO T
+### ui_status_me
+    tools/probe_ui_model_mutations.py:6482: # ⛔ S06 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 1 (`ui_status_me`) is gone — replaced by S16 (no team plane draws a blan
+### ui_status_known
+    tools/probe_firmware_ui/run.sh:1145:  # ⛔ C100/C101 RETIRED BY W4b, KEPT VISIBLE: STATUS row 2 (`ui_status_known`) is gone. The HANDOFF property they
+    tools/probe_ui_model_mutations.py:6485: # ⛔ S08 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 2 (`ui_status_known`) is gone — replaced by S18 on Home's TEAM item (`KN
+### ui_status_unread_home
+    tools/probe_ui_model_mutations.py:6489: # ⛔ S11 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: the old row 3 (`ui_status_unread_home`) is gone — replaced by S20 on Home's INBOX it
+    tools/probe_firmware_ui/run.sh:1128:  # ⛔ C98 RETIRED BY W4b, KEPT VISIBLE: its row (`ui_status_unread_home`) and the narrowed origin are both gone. The
+### kStatusWideCols
+    src/firmware_ui_status.h:68:// ⓘ RETIRED WITH THE MARK (brief §2.9): `kStatusNarrowCols` (14, rows 0-2 at x = 40) and `kStatusWideCols` (19).
+### kStatusNarrowCols
+    src/firmware_ui_status.h:68:// ⓘ RETIRED WITH THE MARK (brief §2.9): `kStatusNarrowCols` (14, rows 0-2 at x = 40) and `kStatusWideCols` (19).
+### kStatusCountCap
+### close_list_view
+    src/firmware_ui_model.h:83:// in ONE press — and are ENTERED by a `double` (`ListView`, `open_list_view` / `close_list_view`). The interactive
+    src/firmware_ui_model.h:101:// `go_menu_home`; ⛔ `close_list_view` / `list_follow_screen` are RETIRED), the Settings menu WRAPS, SEND is the
+    src/firmware_ui_model.h:4448:    // ⓘ W4b — RETIRED WITH THE PER-SCREEN "ENTERED" STATE: `close_list_view` (the list's exit now goes to MENU MODE on
+### list_follow_screen
+    src/firmware_ui_model.h:101:// `go_menu_home`; ⛔ `close_list_view` / `list_follow_screen` are RETIRED), the Settings menu WRAPS, SEND is the
+    src/firmware_ui_model.h:3012:        // ⓘ W4b: §UI-17 S1's `list_follow_screen` forward is RETIRED — a `short` in MENU MODE moves the rail with the
+    src/firmware_ui_model.h:3145:        // ⓘ W4b: §UI-17 S1's second leave-reset forward (`list_follow_screen`) is RETIRED with the function — no
+    src/firmware_ui_model.h:4449:    //   Home through `go_menu_home`) and `list_follow_screen` (the implicit leave-reset: every screen change now
+    src/firmware_ui_model.h:5112:    //   `settings_follow_screen()` closes SETTINGS *and* forwards to `provision_reset_on_leave`, `list_follow_screen()`
+    src/firmware_ui_model.h:5118:    // ⓘ `list_follow_screen()` cannot change anything TODAY and is called anyway, marked rather than left to look like
+    src/firmware_ui_model.h:5132:    //      `list_follow_screen` forward; the destination (the landing screen) is unchanged, its focus is W4b's.
+    src/firmware_ui_model.h:5536:        //   sub-view, i.e. Settings' list focus; the retired `list_follow_screen` forward is no longer spelled here.
+    tools/probe_ui_model_mutations.py:3529: # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: `list_follow_screen` is retired, so the auto-enter is written on the menu-mode advance
+    tools/probe_ui_model_mutations.py:3785: #   rewritten (M69/M72's idiom): the bare `        list_follow_screen();` is no longer unique — the new
+    tools/probe_ui_model_mutations.py:3790: # ⓘ RE-ANCHORED BY W4b (brief §2.9), MEANING KEPT: `list_follow_screen` left `on_tick`; the re-read rides the line before the cursor sync
+### body_back_row
+    test/test_firmware_ui_team.cpp:304:    // The `BACK` row is drawn by `draw_team_screen`'s shared `body_back_row` (`%c%s`, spec §3.2's action-row idiom),
+    tools/probe_firmware_ui/run.sh:1094:  # ⓘ RE-ANCHORED BY W4b (brief §2.9): the exit row is `MENU` (`body_menu_row`, was `body_back_row`) — the property
+### status_text
+    tools/probe_firmware_ui/run.sh:1016:  #   row it mutated is `status_text(1, …)` now, so the control follows it there. ⛔ The direction is §6.1 rule 4's
+    tools/probe_firmware_ui/run.sh:1190:  # ⓘ RE-ANCHORED BY W4b (brief §2.9): `status_text` went with the STATUS body, so the injected draw is the literal
+    src/firmware_ui.cpp:1078://     §2.9): `kStatusMarkX/Y/W/H`, `kStatusTextX`, `kStatusNarrowPx`, their five static_asserts and `status_text` —
+### kStatusMarkX
+    src/firmware_ui.cpp:1078://     §2.9): `kStatusMarkX/Y/W/H`, `kStatusTextX`, `kStatusNarrowPx`, their five static_asserts and `status_text` —
+### kStatusMarkY
+### kStatusMarkW
+### kStatusMarkH
+### kStatusTextX
+    src/firmware_ui.cpp:1078://     §2.9): `kStatusMarkX/Y/W/H`, `kStatusTextX`, `kStatusNarrowPx`, their five static_asserts and `status_text` —
+### kStatusNarrowPx
+    src/firmware_ui.cpp:1078://     §2.9): `kStatusMarkX/Y/W/H`, `kStatusTextX`, `kStatusNarrowPx`, their five static_asserts and `status_text` —
+### status_row
+    tools/probe_firmware_ui/probe_main.cpp:1307:// ⓘ W4b: §UI-17 S3's sibling row reader at `x = 40` (`status_row`) is RETIRED with the STATUS rows it read — Home
+### status_row_is
+### kStatusNarrowColsExp
+
+## 2. Tools that read the edited files, and their disposition
+### firmware_ui_model.h: tools/probe_board_abi.py tools/probe_ui_model_mutations.py tools/probe_firmware_ui/run.sh tools/probe_board_ui/run.sh tools/probe_firmware_ui/probe_main.cpp 
+### firmware_ui.cpp: tools/probe_board_abi.py tools/probe_board_ui/negctl.py tools/probe_ui_model_mutations.py tools/probe_board_ui/run.sh tools/probe_inbox_verbs/probe_main.cpp tools/probe_inbox_verbs/run.sh tools/warning_census.sh tools/probe_firmware_ui/probe_main.cpp tools/probe_board_ui/probe_main.cpp tools/probe_firmware_ui/run.sh 
+### firmware_ui_chrome.h: tools/probe_board_abi.py tools/probe_ui_model_mutations.py tools/probe_firmware_ui/probe_main.cpp tools/probe_board_ui/run.sh 
+### firmware_ui_status.h: tools/probe_firmware_ui/run.sh tools/probe_ui_model_mutations.py tools/probe_board_ui/run.sh 
+- tools/probe_firmware_ui/* — fenced; final run PASS (receipts/probe-fwui.txt).
+- tools/probe_board_ui/run.sh (+ negctl.py, probe_main.cpp) — the board-UI structural/wiring readers (W1–W59): final `--no-neg` failure set IDENTICAL to the baseline (W49/W51/W54 = B418, outside this fence); W41's bare box statement untouched and green.
+- tools/probe_board_abi.py — fenced (PIN_TABLE re-pin); final PASS, 290 checks, 9/9 controls RED.
+- tools/probe_ui_model_mutations.py — fenced; the final union (receipts/union.txt).
+- tools/warning_census.sh — compiles the six OLED TUs; final PASS (receipts/census.txt).
+- tools/probe_inbox_verbs/{run.sh,probe_main.cpp} — name firmware_ui.cpp in COMMENTS only (its ui_emergency_active seam note); no read of W4b content.
+
+## 3. Directory scanners (rerun on the frozen tree)
+### tools/check_data_type_literals.py
+    PASS — 218 active source file(s) scanned; no numeric DataType comparison, argument literal or switch-case label survives.
+           (roots: lib, src, test · comments and strings stripped, so historical notes are allowed)
+           semantic set = 21 current allocated value(s) | the 19 pre-transition ordinals
+### tools/probe_features/ownership.py (and --controls)
+      ok   O13 source integrity: 218 scanned files, sha256(tree) 7623d420f6245c59… before and after
+    ownership controls: 43 verified / 0 unusable
+    ⓘ probe_features/run.sh's other predicate is the MR_FEAT_* capability matrix; the W4b diff adds or edits 0 capability-macro or preprocessor lines — the matrix predicate is unaffected, so its 9-cell build was not rerun (ownership.py, the part that scans these files, was).

@@ -25,7 +25,10 @@
 #    incident, arriving from the other direction: a document asserting a state that has since changed.)
 #
 # USAGE:  tools/probe_firmware_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
-#         tools/probe_firmware_ui/run.sh --no-neg   # probe only — NOT a gate, use only while iterating
+#         tools/probe_firmware_ui/run.sh --no-neg   # probe only — NOT a gate, use only while iterating; it SAYS so
+#         tools/probe_firmware_ui/run.sh --selftest-accounting <dir> [--no-neg]
+#                                                   # [[B456]] the control ACCOUNTING alone, on synthetic streams —
+#                                                   #   no build, no mutant; `tools/test_probe_firmware_ui.py` drives it
 # ⚠ The controls run by default DELIBERATELY. The sibling probe documented its controls as "not optional" while the
 #   standard command skipped them, so the reported gate never included them (QA, 2026-08-04). Same trap, same answer.
 #
@@ -54,6 +57,100 @@ FW_UI="$ROOT/src/firmware_ui.cpp"
 CXX=${CXX:-g++}
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
+
+# ---------------------------------------------------------------------------------------------------------------
+# ★★★★ [[B456]] — EVERY DECLARED CONTROL GETS EXACTLY ONE TERMINAL VERDICT, AND THE RUN PROVES IT
+# ---------------------------------------------------------------------------------------------------------------
+# ⛔ THE DEFECT THIS CLOSES, MEASURED (W4a's first chain, 2026-09-26): the counters below were incremented only by a
+#   `ctl` that RAN, and the tail compared nothing — so a guard that failed as a COMMAND (`once: command not found`,
+#   exit 127) skipped its `&& ctl` with no FAIL line, 229 of 236 controls ran, and the gate printed PASS. Moving
+#   `once` fixed that one incident, not the class.
+# ★ THE CONTRACT (pre-check §9, brief §2.8), all four halves enforced by `account_controls`:
+#   1. the EXPECTED set is every control DECLARED in this file's source — B227's own fail-closed extractor, with its
+#      call-count agreement — ⛔ never the calls that happened to run, ⛔ never a count literal;
+#   2. every label gets exactly ONE terminal verdict through ONE path (`record_verdict`), C0's required build failure
+#      included; a MISSING, DUPLICATE or UNKNOWN label fails the run, and a declared label passes ONLY with its
+#      accepted outcome (`red` for must_build=yes, `build_fail_ok` for must_build=no) — so ONE missing label plus ONE
+#      duplicate at an unchanged total is still caught, which a count comparison cannot do;
+#   3. ANY guard failure fails the run: a zero/multiple match or a failed sed (`once` → `record_guard_failure`), and an
+#      undefined helper (exit 127) — which records nothing at all and therefore surfaces as a MISSING label;
+#   4. `--no-neg` SAYS that the controls were not run and that it is not a gate, and never prints PASS.
+# ★ `--selftest-accounting <dir>` replays a synthetic label/verdict stream through THESE functions and THE SAME final
+#   accounting call the real run makes (`controls_final`), without compiling anything; the discoverable
+#   `tools/test_probe_firmware_ui.py` asserts its exit status per case, including that removing that ONE call lets a
+#   missing control through (the guard is load-bearing, not decoration).
+CTL_VERDICTS="$OUT/ctl_verdicts.tsv"; CTL_GUARDS="$OUT/ctl_guards.txt"
+: > "$CTL_VERDICTS"; : > "$CTL_GUARDS"
+record_verdict() {   # record_verdict <label> <outcome>  — THE one terminal-verdict path; ⓘ counters are derived here
+  printf '%s\t%s\n' "$1" "$2" >> "$CTL_VERDICTS"
+  case "$2" in red|build_fail_ok) n_ctl=$((n_ctl+1)) ;; *) n_bad=$((n_bad+1)) ;; esac
+}
+record_guard_failure() {   # record_guard_failure <what failed> — a guard is not a label, so it has its own ledger
+  printf '%s\n' "$1" >> "$CTL_GUARDS"
+  n_bad=$((n_bad+1))
+}
+expected_controls() {   # expected_controls <runner source> -> "label<TAB>yes|no", the label as the SHELL delivers it
+  sed -n 's/^[[:space:]]*ctl "\(.*\)" \(yes\|no\) \\$/\1\t\2/p' "$1" | sed 's/\\\([\\"$`]\)/\1/g'
+}
+account_controls() {   # account_controls <expected.tsv> <declared-call-count> <verdicts.tsv> <guards> <gate|no-neg>
+  local expected=$1 calls=$2 verdicts=$3 guards=$4 mode=$5 n_exp
+  n_exp=$(grep -c '' "$expected")
+  if [ "$n_exp" -eq 0 ]; then
+    echo "  FAIL [[B456]] no control is declared — the extractor read nothing, so completeness proves nothing"; return 1
+  fi
+  if [ "$n_exp" != "$calls" ]; then
+    echo "  FAIL [[B456]] the extractor read $n_exp of $calls declared ctl calls — the expected set is incomplete"
+    return 1
+  fi
+  if [ "$mode" = no-neg ]; then
+    if [ -s "$verdicts" ] || [ -s "$guards" ]; then
+      echo "  FAIL [[B456]] --no-neg recorded control verdicts — a diagnostic run must not run controls"; return 1
+    fi
+    echo "controls: NOT RUN (--no-neg) — $n_exp declared control(s) were deliberately skipped; this is NOT a gate"
+    return 0
+  fi
+  awk -F'\t' -v guards="$guards" '
+    FILENAME == ARGV[1] { if ($1 in want) dupdecl[$1] = 1; want[$1] = ($2 == "no") ? "build_fail_ok" : "red"
+                          order[++n] = $1; next }
+    { seen[$1]++; got[$1] = $2; if (!($1 in want)) unknown[$1] = 1 }
+    END {
+      bad = 0
+      for (l in dupdecl) { printf "  FAIL [[B456]] label DECLARED twice — its verdicts cannot be told apart: %s\n", l; bad++ }
+      for (i = 1; i <= n; i++) { l = order[i]
+        if (!(l in seen))      { printf "  FAIL [[B456]] MISSING verdict — the control never reached ctl: %s\n", l; bad++ }
+        else if (seen[l] > 1)  { printf "  FAIL [[B456]] DUPLICATE verdict (%d) for: %s\n", seen[l], l; bad++ }
+        else if (got[l] != want[l]) { printf "  FAIL [[B456]] outcome %s is not the accepted %s for: %s\n", got[l], want[l], l; bad++ }
+        else okn++ }
+      for (l in unknown)     { printf "  FAIL [[B456]] UNKNOWN label — no such control is declared: %s\n", l; bad++ }
+      g = 0; while ((getline line < guards) > 0) { printf "  FAIL [[B456]] a control guard failed: %s\n", line; g++ }
+      printf "controls accounted: %d declared, %d exactly once with the accepted outcome, %d guard failure(s)\n", n, okn, g
+      exit (bad + g) ? 1 : 0
+    }' "$expected" "$verdicts"
+}
+controls_final() {   # controls_final <expected.tsv> <declared-call-count> <gate|no-neg> — ONE call site for both modes
+  account_controls "$1" "$2" "$CTL_VERDICTS" "$CTL_GUARDS" "$3" || rc=1
+}
+if [ "${1:-}" = "--selftest-accounting" ]; then
+  # ⓘ THE SYNTHETIC STREAM: <dir>/expected.tsv (the extractor's output), <dir>/calls (its declared-call count) and
+  #   <dir>/events, one `kind<TAB>label[<TAB>outcome]` per line, replayed through the runner's own call-site shapes.
+  st_dir=${2:?--selftest-accounting needs a directory}; st_mode=gate; [ "${3:-}" = "--no-neg" ] && st_mode=no-neg
+  n_ctl=0; n_bad=0; rc=0
+  while IFS=$'\t' read -r st_kind st_label st_outcome; do
+    case "$st_kind" in
+      verdict)       record_verdict "$st_label" "$st_outcome" ;;
+      guard_record)  record_guard_failure "$st_label" ;;                              # `once`'s failure arm
+      guard_nonzero) false && record_verdict "$st_label" red ;;                       # `<guard> && ctl …`, guard said no
+      guard_127)     __b456_selftest_undefined_helper__ 2>/dev/null && record_verdict "$st_label" red ;;   # exit 127
+      '')            ;;
+      *)             echo "  FAIL [[B456]] selftest: unknown event kind [$st_kind]"; rc=1 ;;
+    esac
+  done < "$st_dir/events"
+  controls_final "$st_dir/expected.tsv" "$(cat "$st_dir/calls")" "$st_mode"
+  if [ "$st_mode" = no-neg ]; then
+    if [ "$rc" -eq 0 ]; then echo "NOT A GATE — accounting selftest (--no-neg)"; else echo "FAIL"; fi
+  elif [ "$rc" -eq 0 ]; then echo "PASS"; else echo "FAIL"; fi
+  exit $rc
+fi
 
 # ⚠⚠ THERE ARE **TWO** ARMS, AND EACH MIRRORS A REAL ENV. If either set drifts from `platformio.ini`, the probe
 #    measures a configuration the board never builds — the same vacuous-instrument failure the controls exist to catch.
@@ -298,6 +395,7 @@ b227_labels=$(sed -n 's/^[[:space:]]*ctl "\(.*\)" \(yes\|no\) \\$/\1/p' "$B227_S
 b227_hits=$(printf '%s\n' "$b227_labels" | grep -nE '`|\$' || true)
 b227_n=$(printf '%s' "$b227_labels" | grep -c '')
 b227_calls=$(grep -c '^[[:space:]]*ctl "' "$B227_SELF")
+expected_controls "$B227_SELF" > "$OUT/ctl_expected.tsv"   # [[B456]] the EXPECTED set: declared, never observed
 # ⛔ THE EXTRACTOR MUST HAVE SEEN **EVERY** CALL. A `ctl` line written in some other shape would be silently skipped,
 #   and an audit that read NONE of the labels would still report "ok" — the instrument-that-cannot-fail shape this
 #   whole file is built against. ⇒ the two counts are compared, so a new call shape fails the gate rather than
@@ -402,22 +500,26 @@ fi
 # ⛔ THE LABEL IS PRINTED WITH `printf '%s'` AND NEVER INTERPOLATED INTO A COMMAND — see the [[B227]] block above.
 ctl() {
   local label=$1 must_build=$2 script=$3
-  sed "$script" "$FW_UI" > "$OUT/mutant.cpp"
+  # ⛔ [[B456]] A FAILED sed IS A FAILED CONTROL, never a mutant built from a truncated copy.
+  if ! sed "$script" "$FW_UI" > "$OUT/mutant.cpp"; then
+    record_verdict "$label" sed_failed
+    printf '  FAIL %s — the sed script itself FAILED, so no mutant exists\n' "$label"; return
+  fi
   if cmp -s "$FW_UI" "$OUT/mutant.cpp"; then
-    n_bad=$((n_bad+1))
+    record_verdict "$label" vacuous
     printf '  FAIL %s — the mutation changed NOTHING, so the control is VACUOUS\n' "$label"; return
   fi
   if [ "$must_build" = no ]; then
     if build_variant "$OUT/mutant.cpp" "$OUT/mutant.bin"; then
-      n_bad=$((n_bad+1))
+      record_verdict "$label" still_builds
       printf '  FAIL %s — it still BUILDS, so the property is not what this control claims\n' "$label"
     else
-      n_ctl=$((n_ctl+1)); printf '  ok   %s (build fails, as required)\n' "$label"
+      record_verdict "$label" build_fail_ok; printf '  ok   %s (build fails, as required)\n' "$label"
     fi
     return
   fi
   if ! build_variant "$OUT/mutant.cpp" "$OUT/mutant.bin"; then
-    n_bad=$((n_bad+1))
+    record_verdict "$label" no_compile
     printf '  FAIL %s — the mutant does not COMPILE, so the probe never ran against it:\n' "$label"
     sed 's/^/        /' "$OUT/build.log" | head -6; return
   fi
@@ -433,18 +535,18 @@ ctl() {
   local fails; fails=$(grep -c '^  FAIL ' "$OUT/mutant.out")
   local verdict; verdict=$(classify_control "$rc_m" "$fails")
   if [ "$verdict" = passes ]; then
-    n_bad=$((n_bad+1))
+    record_verdict "$label" passes
     printf '  FAIL %s — the probe still PASSES against the mutant (the check measures nothing)\n' "$label"
   elif [ "$verdict" = abnormal ]; then
-    n_bad=$((n_bad+1))
+    record_verdict "$label" died
     printf '  FAIL %s — the mutant DIED (exit %s, %s reported failure(s)); a crash measures nothing\n' \
            "$label" "$rc_m" "$fails"
     sed 's/^/        /' "$OUT/mutant.out" | tail -4
   elif [ "$verdict" = silent ]; then
-    n_bad=$((n_bad+1))
+    record_verdict "$label" silent
     printf '  FAIL %s — exit %s with ZERO reported failures; nothing names what it reddened\n' "$label" "$rc_m"
   else
-    n_ctl=$((n_ctl+1))
+    record_verdict "$label" red
     printf '  ok   %s -> RED (%s check(s) failed)\n' "$label" "$fails"
     # record WHICH checks this control reddened, for the roll-up. ⛔ NOT by re-parsing the `%-64s` field ([[B229]]):
     # `attribute` matches the FAIL line against the arm's KNOWN label list, so a label of ANY length is attributed.
@@ -466,7 +568,7 @@ once() {   # once <literal anchor> <sed script>
   hits=$(grep -o -F -- "$1" "$FW_UI" | wc -l)
   changed=$(sed "$2" "$FW_UI" | diff - "$FW_UI" | grep -c '^>')
   [ "$hits" -eq 1 ] && [ "$changed" -eq 1 ] && return 0
-  n_bad=$((n_bad+1))
+  record_guard_failure "once: $1"                    # [[B456]] counted AND listed — a failed guard fails the run
   printf '  FAIL a control guard: the anchor occurs %s time(s) and the script changes %s line(s), both must be 1: %s\n' \
          "$hits" "$changed" "$1"
   return 1
@@ -645,8 +747,13 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   control now attacks: pass `false` and the panel never says `RESTART NEEDED` again, which is exactly what the
   #   old control described one presentation earlier. ⓘ The PRIORITY itself (restart over coordinates) is covered by
   #   `--target=uistatus`, which is the split S3 exists to create.
-  ctl "C35 RESTART NEEDED never reaches STATUS (the reboot fact is dropped)" yes \
-      's|    mrui::ui_status_location(l, sizeof l, c.reboot, s);|    mrui::ui_status_location(l, sizeof l, false, s);|'
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9), PROPERTY KEPT — the restart fact still has to reach the LANDING screen, which
+  #   is Home now: its row 2 (`RESTART NEEDED`, not selectable, the list window moved to rows 3-4). The fact is dropped
+  #   at the one line that hands it to that body, and P7e's exact-row check is the witness.
+  c35s='s|    if (c.reboot) { body_text(2, mrui::kCfgRestartText); top = 3; }|    if (false) { body_text(2, mrui::kCfgRestartText); top = 3; }|'
+  once '    if (c.reboot) { body_text(2, mrui::kCfgRestartText); top = 3; }' "$c35s" &&
+  ctl "C35 RESTART NEEDED never reaches the landing screen (the reboot fact is dropped)" yes \
+      "$c35s"
   # ⛔ C36 is the CONDITIONAL ROW's own control: rendering it unconditionally offers a setting this build cannot act on.
   ctl "C36 the BLE row is rendered unconditionally (the transport condition ignored)" yes \
       's|    s.ble_row    = (MR_UI_BLE_ROW != 0);|    s.ble_row    = true;|'
@@ -898,8 +1005,9 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   ★ THE FACT IT GUARDED IS UNCHANGED and got HARDER: the identity rows are now at `x = 40` with **14** columns,
   #   so folding them back onto one line is 21 columns in a 14-column slot. Same edit, same "it used to fit"
   #   temptation, measured by P14f's narrowed budget as well as its 19-column one.
-  ctl "C83 the STATUS identity goes back onto one 21-column row" yes \
-      's|    mrui::ui_status_team(l, sizeof l, s);         status_text(0, l);|    { char t\[kLineCap\], m\[kLineCap\]; mrui::ui_status_team(t, sizeof t, s); mrui::ui_status_me(m, sizeof m, s); snprintf(l, sizeof l, "%s %s", t, m); } status_text(0, l);|'
+  # ⛔ C83 RETIRED BY W4b (brief §2.9's ledger), KEPT VISIBLE: it pinned the two-row STATUS identity at x = 40, and
+  #   that body is GONE — Home's row 0 (`ME …`, 16 cells) and row 1 (the team line) replace it. Its witnesses are
+  #   P17a's Home rows at x = 12 and P14f's 19-column bound, reddened by W4b-N2b / W4b-N7 below.
   # ⛔ C84 THE WITHDRAWN STATUS PRESENTATION, RESTORED — and this is §6.1 rule 4's OTHER DIRECTION: *"the badge's
   #   tests must fail against the old STATUS presentation and vice versa, so the two cannot both pass"*. Without it,
   #   a renderer that drew BOTH the badge and the old title marker would satisfy every badge check.
@@ -908,8 +1016,12 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   row it mutated is `status_text(1, …)` now, so the control follows it there. ⛔ The direction is §6.1 rule 4's
   #   OTHER one — without it, a renderer that drew BOTH the badge and the withdrawn body text satisfies every badge
   #   check — and P7b's *"the STATUS body no longer carries the withdrawn marker TEXT"* is what it reddens.
-  ctl "C84 the withdrawn CFG marker is put back on the STATUS body (§6.1's other direction)" yes \
-      's|    mrui::ui_status_me(l, sizeof l, s);           status_text(1, l);|    snprintf(l, sizeof l, "%s", mrui::cfg_marker_text(c.unsaved, c.conflict));           status_text(1, l);|'
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9), PROPERTY KEPT (R-3): no configuration marker on the LANDING body — Home's
+  #   team line becomes the withdrawn marker text, and P7b's Home-body check is what reddens.
+  c84s='s|    mrui::ui_home_team_line(l, sizeof l, s);|    snprintf(l, sizeof l, "%s", mrui::cfg_marker_text(c.unsaved, c.conflict));|'
+  once '    mrui::ui_home_team_line(l, sizeof l, s);' "$c84s" &&
+  ctl "C84 the withdrawn CFG marker is put back on the landing body (§6.1's other direction)" yes \
+      "$c84s"
   # ⛔ C85 THE SETTINGS INSTRUCTION IS REPLACED BY THE ICON — §6's explicit prohibition ("the icon may replace the
   #   STATUS decoration; it may NEVER replace the instruction"). The badge would still be right and the operator
   #   would have no remedy to read.
@@ -956,8 +1068,12 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|^        draw_settings_tail(st, c);$|        ;|'
   # ⓘ C92 the entry label RE-SPELLED at the draw site instead of called (U1) — the panel then says something the
   #   native suite's label case cannot see, which is §B115's whole reason for keeping the string in the pure header.
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9): the preview row is drawn WITHOUT its `>` now (design §6.5 — menu mode has no
+  #   arrow), so the label is handed straight to `body_text`; the control still re-spells it at the draw site.
+  c92s='s|        body_text(top, mrui::kSettingsEnterText);|        body_text(top, "SETTINGS");|'
+  once '        body_text(top, mrui::kSettingsEnterText);' "$c92s" &&
   ctl "C92 the entry row's label is re-spelled at the draw site" yes \
-      's|        snprintf(l, sizeof l, ">%s", mrui::kSettingsEnterText);|        snprintf(l, sizeof l, ">SETTINGS");|'
+      "$c92s"
 
   # ============================================================================== §UI-17 S1: C93-C95, THE TWO LISTS
   # ★★★★ TEAM/INBOX PASSIVE ↔ INTERACTIVE, AT THE RENDERER. The model's half is under the native gate (`ui17-` cases
@@ -975,9 +1091,15 @@ if [ "${1:-}" != "--no-neg" ]; then
   #    operator is inside a list whose only exit is invisible — and `short` cannot leave it either (that is the whole
   #    point of the contained walk). Two seds, because the two screens draw it on different rows (the INBOX list is
   #    offset by its header).
-  ctl "C95 the interactive list's BACK row is never drawn" yes \
-      's|== mrui::ListRow::back) { body_back_row(row, here); continue; }|== mrui::ListRow::back) { continue; }|
-       s|== mrui::ListRow::back) { body_back_row(row + 1, here); continue; }|== mrui::ListRow::back) { continue; }|'
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9): the exit row is `MENU` (`body_menu_row`, was `body_back_row`) — the property
+  #   is unchanged: the row the model offers must be drawn, or the operator is inside a list with an invisible exit.
+  c95a='s|== mrui::ListRow::back) { body_menu_row(row, here); continue; }|== mrui::ListRow::back) { continue; }|'
+  c95b='s|== mrui::ListRow::back) { body_menu_row(row + 1, here); continue; }|== mrui::ListRow::back) { continue; }|'
+  once '== mrui::ListRow::back) { body_menu_row(row, here); continue; }' "$c95a" &&
+  once '== mrui::ListRow::back) { body_menu_row(row + 1, here); continue; }' "$c95b" &&
+  ctl "C95 the interactive list's exit row (MENU) is never drawn" yes \
+      "$c95a
+       $c95b"
 
   # ================================================================ §UI-17 S3: C96-C104, THE STATUS BODY AT THE SEAM
   # ★★★★ THE GEOMETRY **AND THE HANDOFF**, AT THE RENDERER. Every STRING and every substitution is pure and is
@@ -990,40 +1112,49 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⛔ C96 THE MARK NEVER DRAWN. ⓘ RE-POINTED BY §UI-17 S6 at the `draw_bitmap` that replaced S3's placeholder rect
   #    — the control is the SAME question (does the reserved slot get drawn at all?) asked of the line that now
   #    answers it. P14a's screen-dependent census is what sees it, through the asset's pointer identity.
-  ctl "C96 the reserved 24x24 mark is never drawn (the slot vanishes)" yes \
-      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    ;|'
+  # ⛔ C96 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: it removed the STATUS mark's `draw_bitmap`, which W4b deletes —
+  #   Home draws NO mark (design §6.2; the asset is kept for W5). Replaced by P14a's NEGATIVE witness (no mark bitmap,
+  #   nothing in the old 12,12,24,24 slot) and its control W4b-N2a below.
   # ⛔⛔ C97 IS THE ONE SPEC §2.1 NAMES: rows 0-2 drawn at the BODY origin, i.e. straight through the reserved slot.
   #     It is the tempting edit ("one body_text for all five rows, the way every other screen does it"), it leaves
   #     every native case and every uistatus mutation green, and on glass it puts three lines of text ON TOP of the
   #     mark. P14f's per-screen origin SET plus its row-level split is what reddens it.
-  ctl "C97 rows 0-2 are drawn at the body origin, through the reserved mark" yes \
-      's|void status_text(int row, const char\* s) { if (s\[0\]) mrui::draw_text(kStatusTextX, body_y(row), s); }|void status_text(int row, const char* s) { if (s[0]) mrui::draw_text(kBodyX, body_y(row), s); }|'
+  # ⛔ C97 RETIRED BY W4b, KEPT VISIBLE: it moved STATUS rows 0-2 from x = 40 to the body origin — Home draws EVERY
+  #   row at the body origin by design, so the edit it made is now the correct renderer. The x = 40 origin is a
+  #   FORBIDDEN one instead (P14a/P14f/P17a), reddened by W4b-N2b.
   # ⓘ C98 IS C97's INVERSION and it is what makes the 14-column budget mean something: move rows 3-4 up to the
   #   NARROWED origin and the two widest lines in this body (18 and 16 columns) are drawn in a 14-column slot, off
   #   the right edge. Without it, "no x=40 row exceeds 14 columns" is negative space no mutation could move.
-  ctl "C98 row 3 is drawn at the NARROWED origin (18 columns in 14)" yes \
-      's|    mrui::ui_status_unread_home(l, sizeof l, s);  body_text(3, l);|    mrui::ui_status_unread_home(l, sizeof l, s);  status_text(3, l);|'
+  # ⛔ C98 RETIRED BY W4b, KEPT VISIBLE: its row (`ui_status_unread_home`) and the narrowed origin are both gone. The
+  #   one-origin rule it defended is W4b-N2b's (a Home row drawn at x = 40).
   # ⓘ C99 IS C96's INVERSION and it is what makes *"an ordinary screen's body draws no rect of its own"* mean
   #   something: without it that check is negative space no mutation could move. The edit is the tempting one —
   #   "the mark is branding, put it in the chrome beside the strip" — and it draws the 24x24 mark straight through the
   #   TEAM roster and the INBOX list on every screen but the one it belongs to.
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9), PROPERTY KEPT — no mark in the chrome on any screen. The `kStatusMark*`
+  #   constants went with the STATUS body, so the injected draw uses the literal 12/12/24/24 geometry, on the SAME line.
+  c99s='s|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128); mrui::draw_bitmap(12, 12, 24, 24, mrui::icons::kMarkMeshRoute);|'
+  once '    mrui::draw_hline(0, kBarRuleY, 128);' "$c99s" &&
   ctl "C99 the mark is drawn in the chrome, so EVERY screen shows it" yes \
-      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|'
+      "$c99s"
   # ⛔⛔ C100/C101 ARE THE HANDOFF ITSELF, and they are the controls this slice SHIPPED WITHOUT until QG found the
   #   hole. The five rows are pure, natively pinned and mutation-covered — but every one of those instruments calls
   #   `mrui::ui_status_*` DIRECTLY. Drop the call from this file, or point it at the wrong baseline, and the whole
   #   pure gate stays green while the panel loses (or duplicates) a row. P17a's exact-bytes-at-exact-coordinate
   #   checks are the only thing in the tree that can see it — [[B226]]'s discipline at the production seam.
-  ctl "C100 STATUS row 2 is never placed (the pure row is composed and dropped)" yes \
-      's|    mrui::ui_status_known(l, sizeof l, s);        status_text(2, l);|    mrui::ui_status_known(l, sizeof l, s);|'
-  ctl "C101 STATUS row 2 is placed on row 1's baseline (a misroute)" yes \
-      's|    mrui::ui_status_known(l, sizeof l, s);        status_text(2, l);|    mrui::ui_status_known(l, sizeof l, s);        status_text(1, l);|'
+  # ⛔ C100/C101 RETIRED BY W4b, KEPT VISIBLE: STATUS row 2 (`ui_status_known`) is gone. The HANDOFF property they
+  #   carried — a pure row composed and dropped, or placed on the wrong baseline — is Home's now: W4b-N7 (a list row
+  #   on the wrong body row) and W4b-W1 (the own name never published), both red on P17a's exact rows.
   # ⛔⛔⛔ C102 IS THE DEFECT S3's FIRST CUT ACTUALLY SHIPPED, re-added deliberately so it can never come back
   #     quietly: read `g_node.config()` LIVE in the renderer. `draw_frame` runs ONCE PER OLED PAGE, so a `cfg set
   #     lat` between two of the eight replays draws HALF THE COORDINATE ROW from each fix. ⛔ Every native case,
   #     every uistatus mutation and every geometry check stays GREEN against it — P17b is the only witness.
-  ctl "C102 row 4 reads the LIVE config again (the row can TEAR mid-frame)" yes \
-      's|    mrui::ui_status_location(l, sizeof l, c.reboot, s);|    mrui::UiSnapshot live = s; const MESHROUTE_NS::NodeConfig\& lc = g_node.config(); live.own_lat_e7 = lc.lat_e7; live.own_lon_e7 = lc.lon_e7; live.own_fix = mrui::ui_status_have_fix(lc.lat_e7, lc.lon_e7); mrui::ui_status_location(l, sizeof l, c.reboot, live);|'
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9), KEPT: the position row lives on MY DEVICE now (row 3); P17b's frozen-page proof
+  #   moved with it.
+  c102s='s|            mrui::ui_status_location(l, sizeof l, /\*reboot_required=\*/false, s);|            mrui::UiSnapshot live = s; const MESHROUTE_NS::NodeConfig\& lc = g_node.config(); live.own_lat_e7 = lc.lat_e7; live.own_lon_e7 = lc.lon_e7; live.own_fix = mrui::ui_status_have_fix(lc.lat_e7, lc.lon_e7); mrui::ui_status_location(l, sizeof l, false, live);|'
+  once '            mrui::ui_status_location(l, sizeof l, /*reboot_required=*/false, s);' "$c102s" &&
+  ctl "C102 My device's position row reads the LIVE config again (the row can TEAR mid-frame)" yes \
+      "$c102s"
   # ⛔ C103/C104 THE PUBLISH SITE's OWN TWO WRONG ANSWERS. `own_fix` is the ONE predicate's answer written at the one
   #   place that sees `NodeConfig`; hardcode it and a node with no position claims `0.000,0.000` (the plausible
   #   substitution this screen exists to refuse), narrow it to one coordinate and a node on the equator loses its.
@@ -1056,8 +1187,12 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, false, s.team[idx], own);|'
   # ⛔ C108 THE ROW DRAWN AT **STATUS's** NARROWED ORIGIN — under S3's reserved 24x24 mark. 19 columns at x = 40 also
   #    runs off the right edge, so this is the §7.1 clip the whole width discipline exists to forbid.
-  ctl "C108 the team rows are ALSO drawn at the STATUS x=40 origin" yes \
-      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own); status_text(row, l);|'
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9): `status_text` went with the STATUS body, so the injected draw is the literal
+  #   x = 40 origin — the property (no TEAM row at that origin) and its witness (P18a) are unchanged.
+  c108s='s|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own); mrui::draw_text(40, body_y(row), l);|'
+  once '        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own);' "$c108s" &&
+  ctl "C108 the team rows are ALSO drawn at the old STATUS x=40 origin" yes \
+      "$c108s"
   # ⛔⛔ C109 THE §1.9 F-8 FIX REMOVED — the PRE-EXISTING defect, restored. Nothing else in the tree invalidates on a
   #     body row, so a lit TEAM screen goes back to sitting on a stale age until an unrelated event repaints it.
   ctl "C109 the S4 repaint invalidation is never called (F-8 re-opened)" yes \
@@ -1147,26 +1282,28 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⛔ C121 IS THE SLOT ABANDONED: the artwork lands at the TEXT origin, straight through rows 0-2. It is the exact
   #    edit redesign-note §4.1 reserved a permanent slot to forbid, it leaves every native case and every `icons`
   #    mutation green, and on glass it prints `TEAM ……` over the mark. P14a's exact-rect term is the witness.
-  ctl "C121 the mark is drawn at the STATUS text origin (through rows 0-2)" yes \
-      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    mrui::draw_bitmap(kStatusTextX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|'
+  # ⛔ C121 RETIRED BY W4b (brief §2.9), KEPT VISIBLE: it edited the STATUS mark's `draw_bitmap`, which W4b deletes.
   # ⛔ C122 IS THE WRONG ASSET AT THE RIGHT PLACE — a copy-paste from the strip's draw calls two screens up. Every
   #    coordinate is correct, a 24x24 record appears in the census, and the panel shows a 24x24 field of garbage
   #    (a 7-px glyph's 14 bytes read as 72). ⇒ this is what makes P14a's POINTER-IDENTITY term load-bearing rather
   #    than decoration; without it "a 24x24 bitmap at 12,12" is satisfied by any pointer at all.
-  ctl "C122 the mark slot is drawn with a STRIP glyph (right place, wrong bytes)" yes \
-      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kIconBattery);|'
+  # ⛔ C122 RETIRED BY W4b, KEPT VISIBLE: the same deleted call. Replaced by the negative witness that Home draws NO
+  #   mark and nothing in the old slot (P14a), and by W4b-N2a.
   # ⛔⛔ C123/C124 ARE THE **INCOMPLETE SWAP**, and they exist because S6 REMOVED a draw: `body_rects_on_page` used to
   #     be reddened on both arms of its split by S3's placeholder (C96 took it away, C99 spread it everywhere), and a
   #     check whose only control disappeared with the code it watched is negative space. ⇒ the placeholder comes back
   #     as a MUTATION, in the two places a half-done swap leaves it. ⓘ It is the likeliest S6 defect of all: adding
   #     the bitmap is the visible half of the job, deleting the rect is the half nobody looks at.
-  ctl "C123 S6's swap is HALF DONE: the placeholder rect is still drawn behind the artwork" yes \
-      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);\n    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|'
+  # ⛔ C123 RETIRED BY W4b, KEPT VISIBLE: the same deleted call (the half-done swap has no artwork to hide behind).
   # ⛔ C124 IS THE SAME LEFTOVER ONE LAYER OUT — "show the reservation on every screen while the art is interim" —
   #    and it is the ONLY control that can redden *an ordinary screen's body draws no rect of its own*, which is the
   #    other arm of the census split. Without it that term measures nothing at all.
+  # ⓘ RE-ANCHORED BY W4b (brief §2.9), PROPERTY KEPT — no empty reserved rectangle in the chrome on any screen,
+  #   injected with the literal 12/12/24/24 geometry on the SAME line (the constants went with the STATUS body).
+  c124s='s|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128); mrui::draw_rect(12, 12, 24, 24);|'
+  once '    mrui::draw_hline(0, kBarRuleY, 128);' "$c124s" &&
   ctl "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)" yes \
-      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|'
+      "$c124s"
 
   # C125-C132 ★★★★ §CHROME-5 — THE STRIP'S SIXTH SLOT, THE DUTY GAUGE. Each is a plausible edit that leaves the WHOLE
   #   native suite green (the projection is pure and correct in every one of them), every `--target=chrome` and
@@ -1341,6 +1478,60 @@ if [ "${1:-}" != "--no-neg" ]; then
   once 'if (!c.open) { body_text(2, "CFG UNAVAILABLE"); return; }' "$w3s" &&
   ctl "W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2" yes \
       "$w3s"
+
+  # ★★★★ W4b (standalone Home, brief §2.9/§2.10): W4b-N1..N7 and W4b-W1..W3. Each is a WRONG RENDERING of a W4b seam
+  #   that leaves the whole native suite green — `test_build_src = no` keeps this file out of it — and each must go RED
+  #   on the checks named beside it. ⛔ EVERY substitution has its own exactly-one guard ([[B449]] / [[B456]]).
+  # W4b-N1 THE CUE INVERTED: drawn in list focus, missing in menu mode (P6j/P6k/P14a's cue checks).
+  w4bs='s|        if (c.nav == s && c.menu_cue) mrui::draw_rect(kCueX, y, kCueW, kRailH);|        if (c.nav == s \&\& !c.menu_cue) mrui::draw_rect(kCueX, y, kCueW, kRailH);|'
+  once '        if (c.nav == s && c.menu_cue) mrui::draw_rect(kCueX, y, kCueW, kRailH);' "$w4bs" &&
+  ctl "W4b-N1 the menu cue is drawn in list focus and missing in menu mode" yes \
+      "$w4bs"
+  # W4b-N2a THE MARK REINJECTED ON HOME (P14a's negative witness and its exact census).
+  w4bs='s|    mrui::ui_home_me_line(l, sizeof l, s);|    mrui::draw_bitmap(12, 12, 24, 24, mrui::icons::kMarkMeshRoute); mrui::ui_home_me_line(l, sizeof l, s);|'
+  once '    mrui::ui_home_me_line(l, sizeof l, s);' "$w4bs" &&
+  ctl "W4b-N2a the 24x24 mark is drawn on Home again" yes \
+      "$w4bs"
+  # W4b-N2b A HOME LIST ROW DRAWN AT THE OLD x = 40 ORIGIN (P14f/P17a).
+  w4bs='s|        body_text(uint8_t(top + row), l);|        mrui::draw_text(40, body_y(top + row), l);|'
+  once '        body_text(uint8_t(top + row), l);' "$w4bs" &&
+  ctl "W4b-N2b Home's list rows are drawn at the old STATUS x=40 origin" yes \
+      "$w4bs"
+  # W4b-N3 A TOP-LEVEL EXIT ROW READING `BACK` (P6j/P18b — design §6.1 rule 2 says MENU).
+  w4bs='s|, mrui::kListMenuText);|, mrui::kListBackText);|'
+  once ', mrui::kListMenuText);' "$w4bs" &&
+  ctl "W4b-N3 the TEAM/INBOX exit row reads BACK instead of MENU" yes \
+      "$w4bs"
+  # W4b-N4 THE SETTINGS PREVIEW KEEPS ITS `>` (P3u/P29c — design §6.5: a preview has no arrow).
+  w4bs='s|        body_text(top, mrui::kSettingsEnterText);|        { char e_[24]; snprintf(e_, sizeof e_, ">%s", mrui::kSettingsEnterText); body_text(top, e_); }|'
+  once '        body_text(top, mrui::kSettingsEnterText);' "$w4bs" &&
+  ctl "W4b-N4 the Settings preview keeps its body arrow" yes \
+      "$w4bs"
+  # W4b-N5 MY DEVICE's NAME ABBREVIATED instead of split over two rows (P17n — design §6.7).
+  w4bs='s|            mrui::ui_my_device_name_rows(l, sizeof l, r1, sizeof r1, s);|            (void)mrui::ui_fmt_identity(l, sizeof l, s.own_name, s.own_name_len, s.my_key_hash32, 19); r1[0] = 0;|'
+  once '            mrui::ui_my_device_name_rows(l, sizeof l, r1, sizeof r1, s);' "$w4bs" &&
+  ctl "W4b-N5 My device abbreviates the name instead of splitting it over two rows" yes \
+      "$w4bs"
+  # W4b-N7 A HOME LIST ROW ON THE WRONG BODY ROW: the window starts one row low (P17a's exact rows).
+  w4bs='s|    uint8_t top = 2;|    uint8_t top = 3;|'
+  once '    uint8_t top = 2;' "$w4bs" &&
+  ctl "W4b-N7 Home's list window starts on the wrong body row" yes \
+      "$w4bs"
+  # W4b-W1 THE PUBLISHER OMITS THE OWN NAME (P17a/P17n — §2.10 publication).
+  w4bs='s|    s.own_name_len         = g_node.effective_name(s.own_name, uint8_t(sizeof s.own_name));|    s.own_name_len         = 0;|'
+  once '    s.own_name_len         = g_node.effective_name(s.own_name, uint8_t(sizeof s.own_name));' "$w4bs" &&
+  ctl "W4b-W1 build_snapshot never publishes the own name" yes \
+      "$w4bs"
+  # W4b-W2 THE RENDERER READS THE LIVE NAME instead of the frozen snapshot (P17g — §2.10 frozen pages).
+  w4bs='s|    mrui::ui_home_me_line(l, sizeof l, s);|    { mrui::UiSnapshot live_ = s; live_.own_name_len = g_node.effective_name(live_.own_name, uint8_t(sizeof live_.own_name)); mrui::ui_home_me_line(l, sizeof l, live_); }|'
+  once '    mrui::ui_home_me_line(l, sizeof l, s);' "$w4bs" &&
+  ctl "W4b-W2 Home row 0 reads the LIVE own name, so a frame can tear between pages" yes \
+      "$w4bs"
+  # W4b-W3 THE BODY INVALIDATION LEFT OUT OF THE TICK (P17r — §2.10 press-free refresh).
+  w4bs='s|    (void)mrui::ui_home_invalidate(s_model, s, s_frame_snap);|    ;|'
+  once '    (void)mrui::ui_home_invalidate(s_model, s, s_frame_snap);' "$w4bs" &&
+  ctl "W4b-W3 the Home body invalidation is never called from the tick" yes \
+      "$w4bs"
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
@@ -1772,6 +1963,12 @@ $n4b"
   once 'if (note[0])   body_text(kBodyRows - 1, note);' "$w3s" &&
   ctl "W3-N1 the settings note is drawn on body row 3 instead of row 4" yes \
       "$w3s"
+  # ★★★★ W4b-N6, on the ONLY arm whose Home offers JOIN TEAM: the blocked-setup note's reason drawn on the wrong row.
+  #   P29d's exact rows must go RED. (W3-U1/W3-N1 keep the Settings-path meaning; this is the Home origin's own.)
+  w4bs='s|            body_text(1, mrui::prov_block_note(st.prov_block));|            body_text(2, mrui::prov_block_note(st.prov_block));|'
+  once '            body_text(1, mrui::prov_block_note(st.prov_block));' "$w4bs" &&
+  ctl "W4b-N6 the blocked-setup note's reason is drawn on body row 2 instead of row 1" yes \
+      "$w4bs"
 
   ARM=l2; ARM_DEFS=DEFS
 fi
@@ -1830,7 +2027,14 @@ elif [ "${1:-}" != "--no-neg" ]; then
   echo "  FAIL the check roll-up produced 0 labels — PROBE_LIST is not wired, so the ratio would be vacuous"; rc=1
 fi
 
+# ★★★★ [[B456]] THE FINAL ACCOUNTING — the SAME call the selftest mode makes (`controls_final`). `n_ctl`/`n_bad` are
+#      printed for continuity and are DERIVED from the recorded verdicts; the verdict of the run is the accounting's.
+if [ "${1:-}" = "--no-neg" ]; then
+  controls_final "$OUT/ctl_expected.tsv" "$b227_calls" no-neg
+  if [ "$rc" -eq 0 ]; then echo "NOT A GATE — probe checks passed; negative controls NOT RUN (--no-neg)"; else echo "FAIL"; fi
+  exit $rc
+fi
 echo "controls: $n_ctl verified / $n_bad unusable"
-[ "$n_bad" -eq 0 ] || rc=1
+controls_final "$OUT/ctl_expected.tsv" "$b227_calls" gate
 if [ "$rc" -eq 0 ]; then echo "PASS"; else echo "FAIL"; fi
 exit $rc

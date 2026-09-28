@@ -1,0 +1,3 @@
+native UiState=504/8 UiSnapshot=1336/8 UiModel=928/8 UiChrome=20/2 FrameGate=28/4 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4 SettingsView=8/1
+heltec_mobile UiState=504/8 UiSnapshot=1336/8 UiModel=912/8 UiChrome=20/2 FrameGate=28/4 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4 SettingsView=8/1
+gateway UiState=504/8 UiSnapshot=1336/8 UiModel=912/8 UiChrome=20/2 FrameGate=28/4 TeamRow=40/4 InviteMember=20/4 InviteIdRows=26/1 OutcomeView=52/4 SettingsView=8/1

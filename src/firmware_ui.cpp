@@ -905,6 +905,11 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     //     unconditional `const` accessor on every build — no team plane, no crypto identity and no cached peer key
     //     is required to READ it, and 0 is the honest "this node has no stable identity yet".
     s.my_key_hash32        = g_node.key_hash32();
+    // ★★★★ W4b (design §4.2) — OUR OWN NAME, PUBLISHED ONCE PER TICK HERE AND NOWHERE ELSE: the stored counted bytes
+    //      (`effective_name` — W1c D10, possibly empty, ⛔ never terminated) and their count. ⛔ No NV read: `cfg set
+    //      name` already published the saved name into the core. Frozen with the frame, so a console rename between
+    //      OLED pages changes the NEXT frame only; the renderer never reads the live node for it.
+    s.own_name_len         = g_node.effective_name(s.own_name, uint8_t(sizeof s.own_name));
     // ★★★★ §CHROME-5 — THE DUTY GAUGE'S ONE SEMANTIC AUTHORITY, READ **ONCE PER TICK** AND PUBLISHED VERBATIM.
     //      `Node::duty_status()` (`lib/core/node_mac.cpp:1716`) is an existing `const` accessor over the same budget
     //      `duty_over_budget` enforces, so this slice changes no wire, no NV, no routing and nothing in `Node`.
@@ -1067,42 +1072,14 @@ static_assert(kComposeToCols >= kLabelMinCols && kDeliveredCols >= kLabelMinCols
 //   format (the §7.3 audit written beside each screen) and MEASURED end to end by P14f, which can therefore fail.
 void body_text(int row, const char* s) { mrui::draw_text(kBodyX, body_y(row), s); }
 
-// ======================================================== §UI-17 S3 / spec §2.1 — THE STATUS BODY'S RESERVED MARK
-// ★★★ THE SLOT WAS RESERVED SO THE ARTWORK COULD LAND WITHOUT MOVING A PIXEL OF TEXT, AND IT HAS (S6, 2026-08-22).
-//     S3 drew a `draw_rect` placeholder; S6 replaced it with the native 24x24 monochrome XBM `icons::kMarkMeshRoute`
-//     (72 B of `.rodata`, RAM 0) at THESE FOUR NUMBERS, unchanged — no geometry and no text moved. ⛔ NO RUNTIME
-//     SCALING, ever. ★ The final owner-supplied mark landed 2026-08-29 as the promised pure byte swap inside
-//     `firmware_ui_icons.h`; nothing in this file moved.
-// ★★ AND THE TEXT ORIGIN IS THE SLOT's CONSEQUENCE, not an independent number: rows 0-2 clear the mark at `x = 40`
-//    and therefore have 88 px = **14** columns, while rows 3-4 sit below it and keep the body's own 19 at `kBodyX`.
-//    ⛔ The two column budgets are `mrui::kStatusNarrowCols` / `kStatusWideCols` — declared beside the strings they
-//       bound — and the pixel arithmetic that justifies them is asserted here, where the pixels are.
-constexpr int kStatusMarkX = kBodyX;   // §2.1: x = 12..35 — the mark shares the body's left margin
-constexpr int kStatusMarkY = 12;       // §2.1: y = 12..35 — clear of the y = 9 rule
-constexpr int kStatusMarkW = 24;
-constexpr int kStatusMarkH = 24;
-constexpr int kStatusTextX = 40;       // §2.1: rows 0-2 start here, i.e. past the slot plus a 4-px gutter
-constexpr int kStatusNarrowPx = 128 - kStatusTextX;   // 88
-static_assert(kStatusTextX >= kStatusMarkX + kStatusMarkW,
-              "spec §2.1: rows 0-2 must clear the reserved 24x24 mark, never overdraw it");
-static_assert(int(mrui::kStatusNarrowCols) * 6 <= kStatusNarrowPx,
-              "spec §2.1: the narrowed STATUS rows' column count does not fit their 88-px width");
-static_assert(int(mrui::kStatusWideCols) == kBodyCols,
-              "spec §2.1: rows 3-4 are ordinary body rows — one width, not a second literal");
-static_assert(kStatusMarkY + kStatusMarkH - 1 <= 59,
-              "design §3.2: the body ends at y = 59; the mark may not reach past it");
-// ★ ONE AUTHORITY FOR THE MARK'S SIZE (U1). The slot's numbers and the asset's own declared dimensions must agree
-//   or the draw is a lie in one direction or the other — a wider asset spills into the text, a narrower one leaves
-//   the reservation over-sized. ⛔ This is what makes "the final artwork is a pure byte swap" enforceable rather
-//   than merely asserted: a replacement of a different SIZE stops the build here instead of shipping.
-static_assert(kStatusMarkW == int(mrui::icons::kMarkW) && kStatusMarkH == int(mrui::icons::kMarkH),
-              "§UI-17 S6: the reserved slot and the mark asset must state the SAME dimensions");
+// ================================================================= W4b (design §6.2) — HOME DRAWS AT THE ORDINARY BODY
+// ★★★ HOME IS x = 12, 19 COLUMNS, LIKE EVERY OTHER BODY — ⛔ no 24x24 mark and ⛔ no x = 40 rows (design §6.2: the
+//     mark leaves Home; the splash, W5, keeps the asset `icons::kMarkMeshRoute` untouched). ⓘ RETIRED WITH IT (brief
+//     §2.9): `kStatusMarkX/Y/W/H`, `kStatusTextX`, `kStatusNarrowPx`, their five static_asserts and `status_text` —
+//     ⛔ not kept as dead helpers for a mutant to compile against.
+static_assert(int(mrui::kHomeCols) == kBodyCols, "design §6.2: Home is ordinary body rows — one width, not a second literal");
 static_assert(int(mrui::kStatusLineCap) <= kLineCap,
-              "the STATUS formatters are handed a kLineCap buffer — it must be at least their own bound");
-// The narrowed rows' draw. ⛔ A row whose string is EMPTY draws NOTHING rather than an empty text record: `NO TEAM`
-// on row 0 with a blank row 1 beneath it is the ruled shape (spec §2.2 note a), and a zero-length draw would put a
-// record on the panel's audit trail that the panel itself does not show.
-void status_text(int row, const char* s) { if (s[0]) mrui::draw_text(kStatusTextX, body_y(row), s); }
+              "the Home formatters are handed a kLineCap buffer — it must be at least their own bound");
 
 // ★★ THE FAILURE DETAIL, in the two alphabets that exist (spec §2.1 rule 6). A refusal the user cannot act on is the
 //    thing C2 and §err-reason exist to prevent — but the honest limit is real: five different walls all come back as
@@ -1130,10 +1107,11 @@ uint8_t list_first(uint8_t cursor, uint8_t n, uint8_t rows) {
 // ★★★ §UI-17 S1 — THE INTERACTIVE LIST'S LAST ROW, drawn by ONE function for BOTH screens (U1). It renders as
 //     `<marker><label>`, which is the shipped ACTION-row shape (`draw_settings_screen`'s `%c%s` arm), and the label is
 //     CALLED rather than re-spelled here — §B115: a string built in this TU is a string no automated gate can read.
+//     ★ W4b (design §6.1 rule 2): the row is `MENU` now (`kListMenuText`) — it enters menu mode on the Home slot.
 //     ⓘ 1 + 4 = 5 of the rail's 19 columns.
-void body_back_row(int row, bool here) {
+void body_menu_row(int row, bool here) {
     char l[kLineCap];
-    snprintf(l, sizeof l, "%c%s", here ? '>' : ' ', mrui::kListBackText);
+    snprintf(l, sizeof l, "%c%s", here ? '>' : ' ', mrui::kListMenuText);
     body_text(row, l);
 }
 
@@ -1311,6 +1289,11 @@ constexpr int kRailIconDy = 1;     //   ...and its 7 rows sit inside the slot's 
 static_assert(kRailY0 + (kRailSlots - 1) * kRailDy + kRailH - 1 == 59,
               "design §3.2: the rail's five slots must span y = 10..59, aligned to the five body baselines");
 static_assert(kRailX + kRailW <= kBodyX, "design §3.2: the rail must not reach into the 116-px body");
+// ★★★ W4b (design §6.1 rule 4) — THE MENU-MODE CUE: a 2-px bar in the GUTTER between the rail and the body, one rail
+//     slot high, beside the boxed slot. ⛔ Never inside the selection box and ⛔ never in the body.
+constexpr int kCueX = kRailX + kRailW;   // x = 10..11
+constexpr int kCueW = 2;
+static_assert(kCueX + kCueW <= kBodyX, "design §6.1 rule 4: the menu cue lives in the 2-px gutter, never in the body");
 // The slot index of a `NavSlot`. ⛔ `none` never reaches here — the loop iterates the five real slots.
 constexpr int rail_slot_y(int index) { return kRailY0 + index * kRailDy; }
 
@@ -1361,6 +1344,9 @@ void draw_rail(const mrui::UiChrome& c) {
                           mrui::icons::kIconW, mrui::icons::kIconH, rail_glyph(s, c.badge));
         // §3.2: "the active icon has a one-pixel rectangular frame around its slot" — an OUTLINE, never a filled box.
         if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);
+        // ★ W4b: the cue is its OWN statement, ⛔ never folded into the box's (tools/probe_board_ui's W41 reads that
+        //   statement verbatim), and it follows the SAME slot: exactly one x0/w10 box stays, menu mode adds the bar.
+        if (c.nav == s && c.menu_cue) mrui::draw_rect(kCueX, y, kCueW, kRailH);
     }
 }
 
@@ -1406,38 +1392,79 @@ void draw_rail(const mrui::UiChrome& c) {
 //    SETTINGS rail BADGE carries that state from every screen and SETTINGS says the words. `RESTART NEEDED` is the
 //    only configuration text this body may draw.
 //
-// §7.3 AUDIT (widest reachable expansion), and it is now TWO budgets — see the mark block beside `body_text`:
-//   row 0  x=40, <=14  `TEAM FFFFFFFF`                                 13
-//   row 1  x=40, <=14  `ME NO ID`                                       8
-//   row 2  x=40, <=14  `NO TEAM KEY`                                   11
-//   row 3  x=12, <=19  `99+ NEW / HOME 59m`                            18
-//   row 4  x=12, <=19  `-89.123,-179.123`                              16   (`RESTART NEEDED` is 14)
-void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
-    // §2.1's reserved slot, now carrying the ARTWORK (§UI-17 S6). ⛔ The four numbers are unchanged from S3's
-    // placeholder — that is the whole point of having reserved the slot. The final 2026-08-29 mark replaced only
-    // `kMarkMeshRoute`'s 72 bytes; nothing here moved.
-    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);
+// ★★★★ W4b — HOME (design §6.2–§6.7): every byte is composed by the pure formatters in `firmware_ui_status.h`
+//      (§B115); this function only PLACES them, from the FROZEN copies (`draw_frame` runs once per OLED page).
+//      ⓘ CORRECTED 2026-09-27 (V1): the §CHROME-4 and §UI-17 S3 paragraphs above describe the STATUS body Home
+//      REPLACED and are kept as its history. Still true on Home: no title and no `CFG*` decoration (R-3 — the probe's
+//      C84), and `RESTART NEEDED` stays (Home's row 2 now, not "the last body row" — C35). No longer true: the two
+//      identity rows at x = 40, row 4's position/restart priority (the position moved to My device) and the
+//      `uistatus` S-rows those paragraphs cite (W4b retired S01/S05–S12 for S14–S28).
+// §7.3 AUDIT (widest reachable expansion), ONE budget — x = 12, 19 columns:
+//   row 0  `ME ABCDEFGHIJKLMNO»`                                        19
+//   row 1  `TEAM 12A1B2C3 NO ID`                                        19
+//   rows 2-4 (3-4 under `RESTART NEEDED`)  `>NO TEAM KEY - HELP`       19   (`OPTIONS CHANGED` 1 + 15)
+//   My device  `ABCDEFGHIJKLMNOPQRS` / `ID 0x12AB34CD` / `-89.123,-179.123` / `>BACK`     19 / 13 / 16 / 5
+//   key help   `A MEMBER WHO HAS IT`                                    19
+//   setup note `RELOAD OR DISCARD` / `IN SETTINGS`                      17 / 11
+void draw_home_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const SettingsView& c) {
     char l[kLineCap];
-    mrui::ui_status_team(l, sizeof l, s);         status_text(0, l);
-    mrui::ui_status_me(l, sizeof l, s);           status_text(1, l);
-    mrui::ui_status_known(l, sizeof l, s);        status_text(2, l);
-    mrui::ui_status_unread_home(l, sizeof l, s);  body_text(3, l);
-    // ⛔ `c.reboot` is handed to the PURE priority, never tested here: spec §2.2 note g's `RESTART NEEDED` >
-    //    coordinates > `NO LOCATION` order is the decision, and a decision made at this call site is one no
-    //    mutation battery can attack.
-    // ⛔⛔ AND THE POSITION COMES FROM THE **FROZEN SNAPSHOT** `s`, ⛔ NEVER FROM `g_node.config()` HERE. This
-    //    function runs ONCE PER OLED PAGE (see `draw_frame`'s own rule), so a live read would let a `cfg set lat`
-    //    landing between two page replays draw HALF A COORDINATE ROW from each fix — a torn position. The three
-    //    fields are published once per tick by `build_snapshot`. ⓘ CORRECTED HERE 2026-08-21 (QG): S3's first cut
-    //    read `g_node.config()` on this line, and that is the defect this comment now guards.
-    mrui::ui_status_location(l, sizeof l, c.reboot, s);
-    body_text(4, l);
+    switch (st.home_view) {
+        case mrui::HomeView::my_device: {
+            // The full name over two rows (counted, sanitized, ⛔ never an abbreviation split), the stable identity,
+            // the position (UI-17 S-9/S-10's row without its restart arm — restart is Home's row 2) and `>BACK`.
+            char r1[kLineCap];
+            mrui::ui_my_device_name_rows(l, sizeof l, r1, sizeof r1, s);
+            body_text(0, l);
+            if (r1[0]) body_text(1, r1);
+            mrui::ui_my_device_id(l, sizeof l, s);
+            body_text(2, l);
+            mrui::ui_status_location(l, sizeof l, /*reboot_required=*/false, s);   // ⛔ the FROZEN snapshot, never live
+            body_text(3, l);
+            snprintf(l, sizeof l, ">%s", mrui::kListBackText);                    // the only row: BACK (design §6.7)
+            body_text(4, l);
+            return;
+        }
+        case mrui::HomeView::key_help:
+            for (int row = 0; row < kBodyRows; ++row) body_text(row, mrui::kKeyHelpRows[row]);
+            return;
+        case mrui::HomeView::setup_block: {
+            // The FROZEN reason on row 1, `IN SETTINGS` on row 2 when Settings can resolve it — no arrow (§6.6 rule 4).
+            body_text(1, mrui::prov_block_note(st.prov_block));
+            const char* r2 = mrui::ui_setup_block_row2(st.prov_block);
+            if (r2[0]) body_text(2, r2);
+            return;
+        }
+        case mrui::HomeView::list: break;
+    }
+    mrui::ui_home_me_line(l, sizeof l, s);
+    body_text(0, l);
+    mrui::ui_home_team_line(l, sizeof l, s);
+    if (l[0]) body_text(1, l);   // ⛔ a blank row (no team plane) draws NOTHING, never an empty text record
+    // ★ `RESTART NEEDED` owns row 2 while set — not selectable, no new NV read (the frozen `SettingsView`) — and the
+    //   list window shrinks to rows 3-4 (design §6.2). ⓘ The W9 card's rows are a FUTURE seam: nothing is reserved.
+    uint8_t top = 2;
+    if (c.reboot) { body_text(2, mrui::kCfgRestartText); top = 3; }
+    const uint8_t rows = uint8_t(kBodyRows - top);
+    const mrui::HomeCapture& h = st.home;
+    const uint8_t sel = mrui::home_index_of(h, h.selected);   // the arrow follows the ITEM; its row is derived
+    const bool focus = (st.list_view == mrui::ListView::interactive);   // ⛔ a menu-mode PREVIEW draws no arrow
+    const uint8_t first = list_first(uint8_t(sel < h.count ? sel : 0), h.count, rows);
+    for (uint8_t row = 0; row < rows && first + row < h.count; ++row) {
+        const uint8_t idx = uint8_t(first + row);
+        char label[kLineCap];
+        if (idx == 0 && focus && h.changed) snprintf(label, sizeof label, "%s", mrui::kHomeOptionsChangedText);
+        else                                 mrui::ui_home_item_label(label, sizeof label, h.items[idx], s);
+        mrui::ui_home_row(l, sizeof l, focus && idx == sel, label);
+        body_text(uint8_t(top + row), l);
+    }
 }
 
 // ★★★★ §UI-17 S1 — THE SCREEN IS EITHER A PASSIVE PREVIEW OR AN ENTERED LIST, and this one predicate is what says
 //      which (the model's `screen_is_entered`, ⛔ never re-derived here). PASSIVE: the rows are listed with NO marker
 //      anywhere and NO `BACK` row, because nothing has been picked and `short` passes the screen in one press.
 //      ENTERED: the marker is back, and the list carries one more row than the snapshot published — `BACK`.
+//      ⓘ W4b (V1): that exit row reads `MENU` now (`body_menu_row` — menu mode on the Home slot, design §6.1); the
+//        `BACK` in this and INBOX's §UI-17 notes names the same row. PASSIVE is the menu-mode preview.
 void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     const bool entered = mrui::screen_is_entered(st.screen, st.settings, st.list_view);
     if (s.team_shown == 0) {
@@ -1446,7 +1473,7 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         // ⓘ AN EMPTY ROSTER STILL OFFERS THE WAY OUT (spec S1 pin 5), on the row below its two lines: entering a list
         //   that could only be left by walking rows it does not have would be a dead end. There is exactly one row and
         //   it IS the selection, so the marker is unconditional — the same statement the SETTINGS entry row makes.
-        if (entered) body_back_row(2, true);
+        if (entered) body_menu_row(2, true);
         return;
     }
     // ★★★ §B64 (owner-ruled 2026-08-05) — THE LOUD HALF OF THE REFUSAL, AND THE SUPPRESSED HIGHLIGHT IS THE OTHER HALF.
@@ -1473,7 +1500,7 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         // ⛔ THE LAST ROW IS RESOLVED BY `list_row_kind`, ⛔ never by a bare `idx == s.team_shown` here (§B66:
         //    position is not an identity) — the model's own resolver, so the row the panel draws and the row
         //    `activate` acts on cannot disagree.
-        if (mrui::list_row_kind(idx, s.team_shown) == mrui::ListRow::back) { body_back_row(row, here); continue; }
+        if (mrui::list_row_kind(idx, s.team_shown) == mrui::ListRow::back) { body_menu_row(row, here); continue; }
         // ★★★★ §UI-17 S4 — EVERY BYTE OF THE ROW COMES FROM `firmware_ui_team.h`, and this line places it.
         //      §B115: a string built in THIS TU is a string no automated gate can read. The format, the label
         //      clamp, the route-age token and the two reserved columns are pure, driven by
@@ -1538,7 +1565,7 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         body_text(2, l);
         // ⓘ Row 3 is the one the layout already leaves free between the counters and `no stored rows` — see the TEAM
         //   screen's own note for why an empty list still offers `BACK`.
-        if (entered) body_back_row(3, true);
+        if (entered) body_menu_row(3, true);
         body_text(4, "no stored rows");
         return;
     }
@@ -1562,7 +1589,7 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         //   `draw_team_screen`'s note.
         const bool here = entered && !st.inbox_pick_gone && idx == st.cursor;
         // ⛔ Resolved by `list_row_kind`, never positionally (§B66) — see `draw_team_screen`.
-        if (mrui::list_row_kind(idx, s.inbox_shown) == mrui::ListRow::back) { body_back_row(row + 1, here); continue; }
+        if (mrui::list_row_kind(idx, s.inbox_shown) == mrui::ListRow::back) { body_menu_row(row + 1, here); continue; }
         const mrui::InboxRow& e = s.inbox[idx];
         char tag[6];
         // ⓘ §UI-7D: the tag comes from `kind`, the row's ONLY kind field. `is_dm` is gone from the tree.
@@ -2163,8 +2190,9 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
     //      with a body of its own is exactly how a later reader would lose them.
     // ⓘ The `>` is the same highlight every menu row carries: there is exactly one row and it IS the selection.
     if (st.settings == mrui::Settings::closed) {
-        snprintf(l, sizeof l, ">%s", mrui::kSettingsEnterText);
-        body_text(top, l);
+        // ★ W4b (design §6.1 Settings): the MENU-MODE PREVIEW — today's closed view WITHOUT the body `>` (rule 4:
+        //   a preview has no arrow). The label is still `kSettingsEnterText`, CALLED rather than re-spelled.
+        body_text(top, mrui::kSettingsEnterText);
         draw_settings_tail(st, c);
         return;
     }
@@ -2349,6 +2377,13 @@ void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outc
     const uint8_t first = list_first(st.cursor, n, rows);
     for (uint8_t row = 0; row < rows && first + row < n; ++row) {
         char l[kLineCap];
+        // ★ W4b (design §6.5): the SEND LIST's two special rows — `PRESET CHANGED` over item 1 while the note is up,
+        //   `MENU` for the exit row. ⛔ Every phrase row still goes through the unchanged compose line below.
+        if (!dm && mrui::send_list_row_override(l, sizeof l, uint8_t(first + row), list,
+                                                (first + row) == st.cursor, st.home.changed)) {
+            body_text(uint8_t(row + top), l);
+            continue;
+        }
         mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);
         body_text(uint8_t(row + top), l);
     }
@@ -2473,7 +2508,7 @@ void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outcom
     //   is not drawn, and the model has already closed it at `long_arm` regardless.
     if (st.detail != mrui::InboxModal::closed) { draw_inbox_detail(st); return; }
     switch (st.screen) {
-        case mrui::Screen::status:   draw_status_screen(s, c);        break;
+        case mrui::Screen::status:   draw_home_screen(st, s, c);      break;   // W4b: the landing screen is Home
         case mrui::Screen::team:     draw_team_screen(st, s);         break;
         case mrui::Screen::inbox:    draw_inbox_screen(st, s);        break;
         case mrui::Screen::send:     draw_send_screen();              break;
@@ -2583,6 +2618,10 @@ void mr_ui_tick(uint32_t now_ms) {
     //   updated at the freeze exactly as `s_frame_chrome` is) and the operand is the snapshot this tick already
     //   built. While the panel is dark it costs one comparison and changes nothing — the gate tests `blanked` first.
     (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);
+    // ★★★★ W4b (design §6.7) — THE HOME / MY-DEVICE BODY, the same shape one screen over: a rename, a team-DAD answer,
+    //      the key arriving or a new position can change the lit body with NO press and NO strip token moving.
+    //      ⛔ It only ASKS for a paint; the frame being drawn stays one snapshot.
+    (void)mrui::ui_home_invalidate(s_model, s, s_frame_snap);
 
     // ★★ ALL of the render POLICY — the §5 MAC-idle gate, the blank, the page continuation, the 2 Hz throttle and the
     //    emergency bypass — is `mrui::FrameGate::step`, a PURE class in firmware_ui_model.h. It moved there for the

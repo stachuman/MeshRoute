@@ -1,0 +1,40 @@
+{
+  "gateway": {
+    "equal_fields": {
+      "measurements": true,
+      "artifacts": true,
+      "toolchain": true,
+      "paths": true,
+      "fixed_identity": true
+    },
+    "ram_bytes": 203740,
+    "flash_bytes": 571936,
+    "base_to_final": {
+      "ram_bytes": 0,
+      "flash_bytes": 0
+    },
+    "base_to_final_payload_identical": true,
+    "source_different": true,
+    "normal_pio_metadata_different": true,
+    "differences_reason": "QA evidence source inventory and fresh native/ABI build state differ; not a same-source repeatability comparison."
+  },
+  "heltec_mobile": {
+    "equal_fields": {
+      "measurements": true,
+      "artifacts": true,
+      "toolchain": true,
+      "paths": true,
+      "fixed_identity": true
+    },
+    "ram_bytes": 211788,
+    "flash_bytes": 1397696,
+    "base_to_final": {
+      "ram_bytes": 64,
+      "flash_bytes": 2856
+    },
+    "base_to_final_payload_identical": false,
+    "source_different": true,
+    "normal_pio_metadata_different": true,
+    "differences_reason": "QA evidence source inventory and fresh native/ABI build state differ; not a same-source repeatability comparison."
+  }
+}

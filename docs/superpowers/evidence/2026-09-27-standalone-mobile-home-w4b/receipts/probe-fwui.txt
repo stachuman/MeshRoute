@@ -1,0 +1,17 @@
+# firmware-UI probe, default mode, all arms
+557 passed / 0 failed / 557 total
+       1023 passed / 0 failed / 1023 total
+       557 passed / 0 failed / 557 total
+sources unchanged: md5 09a1917430e360e5b27037126d1a3ba0
+coverage: 845 of 995 checks (both arms, unioned) are reddened by at least one control
+controls: 238 verified / 0 unusable
+controls accounted: 238 declared, 238 exactly once with the accepted outcome, 0 guard failure(s)
+PASS
+# independent completeness (recon/completeness.py)
+declared labels=238 unique=238 ctl-call-lines=238 duplicates-in-source=[]
+observed exactly once=238 missing=0 more-than-once=0
+FAIL lines=0 command-not-found=0
+COMPLETE
+# --no-neg (diagnostic only)
+controls: NOT RUN (--no-neg) — 238 declared control(s) were deliberately skipped; this is NOT a gate
+NOT A GATE — probe checks passed; negative controls NOT RUN (--no-neg)

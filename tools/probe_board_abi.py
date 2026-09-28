@@ -290,6 +290,22 @@ FIXTURE_SOURCE = (
 #    ⚠ AN UNMOVED MOBILE `sizeof(Node)` IS NOT UNMOVED MOBILE RAM ([[B331]]): `TimerWheel::kCap` 91 -> 92 costs
 #      +8 B inside `DeviceHal::_wheel` on EVERY build. That is HAL storage, not `Node`, and its authority is
 #      `tools/measure_board.py pair`, not this probe.
+# ★★ RE-PIN — 2026-09-27, W4b (Home and navigation), AUTHORIZED: the OWNER-RULED allocation (design r2.21 §11.1,
+#    brief §2.2 — "Any other retained member, or a different size or alignment, is a STOP"). THREE rows move on every
+#    target, ⛔ no alignof and ⛔ no T column:
+#      mrui::UiState     504  -> 520   all three   (+16: `HomeCapture home` 9 + `HomeView home_view` 1, appended
+#                                                   after `grant`, + the 8-alignment tail)
+#      mrui::UiSnapshot  1336 -> 1368  all three   (+32: `own_name[32]` + `own_name_len`, the length absorbed by the
+#                                                   existing tail padding)
+#      mrui::UiModel     928  -> 944   native      (+16: the enlarged `UiState` 16 + `_home_return` + `_setup_origin`
+#                        912  -> 936   boards       in the existing hole after `_grant_return`; board +24 = 16 + 8 of
+#                                                   4-byte-pointer padding re-quantized to 8 — the pre-check's measured
+#                                                   "full six-item capture" variant, reproduced byte for byte)
+#    `mrui::UiChrome` stays 20/2 (the menu-cue bool lands in its tail padding) and every other row is unmoved.
+#    THE DERIVATION: `tools/probe_board_abi.py --repin` (this file's compile-and-read mechanism on each target's real
+#    `idedata` flags) after the edit, whose printed block equals this table; independently, the W4b supplemental
+#    layout driver (the pre-check's recipe, the same `measure`) on the final headers, and the pre-check's
+#    `layout-measure.py` `reuse_focus_append_name` variant (520 / 1368 / 944|936|936) — three readings, one answer.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
         "meshroute::Node":         (235208, 8, True),   # Slice 10 R-RA-6: 235248 - 40 legacy mirrors, measured on native
@@ -309,9 +325,9 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "mrfw::SavedKeyEntry":     (8, 4, True),
         "mrfw::SavedKeyList":      (36, 4, True),
         "mrfw::PresetCatalog":     (1144, 8, False),   # T: [[B255]] re-pin — native declares no MR_FEAT_OLED=1
-        "mrui::UiState":           (504, 8, False),
-        "mrui::UiSnapshot":        (1336, 8, False),
-        "mrui::UiModel":           (928, 8, False),
+        "mrui::UiState":           (520, 8, False),    # W4b re-pin: 504 -> 520 (see the block above)
+        "mrui::UiSnapshot":        (1368, 8, False),   # W4b re-pin: 1336 -> 1368
+        "mrui::UiModel":           (944, 8, False),    # W4b re-pin: 928 -> 944
         "mrui::UiChrome":          (20, 2, False),
         "mrui::InviteWindow":      (104, 4, False),
         "mrui::InviteMember":      (20, 4, False),
@@ -341,9 +357,9 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "mrfw::SavedKeyEntry":     (8, 4, True),
         "mrfw::SavedKeyList":      (36, 4, True),
         "mrfw::PresetCatalog":     (1132, 4, True),
-        "mrui::UiState":           (504, 8, True),
-        "mrui::UiSnapshot":        (1336, 8, True),
-        "mrui::UiModel":           (912, 8, True),
+        "mrui::UiState":           (520, 8, True),     # W4b re-pin: 504 -> 520
+        "mrui::UiSnapshot":        (1368, 8, True),    # W4b re-pin: 1336 -> 1368
+        "mrui::UiModel":           (936, 8, True),     # W4b re-pin: 912 -> 936
         "mrui::UiChrome":          (20, 2, True),
         "mrui::InviteWindow":      (104, 4, True),
         "mrui::InviteMember":      (20, 4, True),
@@ -376,9 +392,9 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "mrfw::SavedKeyEntry":     (8, 4, True),
         "mrfw::SavedKeyList":      (36, 4, True),
         "mrfw::PresetCatalog":     (1132, 4, False),   # T: [[B255]] re-pin — headless build, the instance is compiled out
-        "mrui::UiState":           (504, 8, False),
-        "mrui::UiSnapshot":        (1336, 8, False),
-        "mrui::UiModel":           (912, 8, False),
+        "mrui::UiState":           (520, 8, False),    # W4b re-pin: 504 -> 520
+        "mrui::UiSnapshot":        (1368, 8, False),   # W4b re-pin: 1336 -> 1368
+        "mrui::UiModel":           (936, 8, False),    # W4b re-pin: 912 -> 936
         "mrui::UiChrome":          (20, 2, False),
         "mrui::InviteWindow":      (104, 4, False),
         "mrui::InviteMember":      (20, 4, False),

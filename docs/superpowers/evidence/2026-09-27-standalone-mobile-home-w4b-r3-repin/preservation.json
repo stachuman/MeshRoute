@@ -1,0 +1,36 @@
+{
+  "links_verified": 2,
+  "metadata_note": "preservation.json and SHA256SUMS reserved for path census and finalized afterward.",
+  "repositories": [
+    {
+      "changed_or_missing": [],
+      "diff_check_exit": 0,
+      "diff_check_output": "",
+      "head": "c8e36d8d5d32f29edf408b36b60d8977993f5ad4",
+      "new_review_paths": [
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin.md",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/authorization.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/brief-delta.patch",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/inputs.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/preflight.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/preservation.json",
+        "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-r3-repin/source-checks.json"
+      ],
+      "protected_paths": 1621,
+      "root": "/home/staszek/MeshRoute",
+      "staged_paths": 0
+    },
+    {
+      "changed_or_missing": [],
+      "diff_check_exit": 0,
+      "diff_check_output": "",
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "new_review_paths": [],
+      "protected_paths": 285,
+      "root": "/home/staszek/lora-universal-simulator",
+      "staged_paths": 0
+    }
+  ],
+  "scope": "All checkpoint input paths unchanged; new report/evidence only. Ignored raw inspection captures are under artifacts/."
+}

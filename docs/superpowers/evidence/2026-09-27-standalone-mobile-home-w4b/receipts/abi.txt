@@ -1,0 +1,2 @@
+# stock ABI probe (full, controls on)
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)

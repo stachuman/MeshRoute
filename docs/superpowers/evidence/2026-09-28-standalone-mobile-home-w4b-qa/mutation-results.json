@@ -1,0 +1,1802 @@
+{
+  "model": {
+    "configured": 239,
+    "red": 238,
+    "survives": 1,
+    "worker_baselines": 8,
+    "baseline_log_occurrences_including_aggregate": 9,
+    "baseline": [
+      3031,
+      198613,
+      0
+    ],
+    "real_tree_unchanged": true,
+    "entries": [
+      {
+        "label": "M01 sync matches `seq` ONLY (the kind clause dropped)",
+        "verdict": "RED",
+        "actual_line": "ok   M01 sync matches `seq` ONLY (the kind clause dropped) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M02 the highlight does NOT follow a moved record (sync is inert)",
+        "verdict": "RED",
+        "actual_line": "ok   M02 the highlight does NOT follow a moved record (sync is inert) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M03 a vanished pick is KEPT rather than dropped (the tempting clamp)",
+        "verdict": "RED",
+        "actual_line": "ok   M03 a vanished pick is KEPT rather than dropped (the tempting clamp) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M04 the GESTURE path stops re-anchoring the cursor (the highlight goes stale)",
+        "verdict": "RED",
+        "actual_line": "ok   M04 the GESTURE path stops re-anchoring the cursor (the highlight goes stale) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M05 activation CLAMPS instead of refusing a lost selection",
+        "verdict": "RED",
+        "actual_line": "ok   M05 activation CLAMPS instead of refusing a lost selection -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M06 a row with seq 0 is selected anyway",
+        "verdict": "RED",
+        "actual_line": "ok   M06 a row with seq 0 is selected anyway -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M07 the erase target assumes the DM store ([[B133]]'s exact shape)",
+        "verdict": "RED",
+        "actual_line": "ok   M07 the erase target assumes the DM store ([[B133]]'s exact shape) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M08 the erase target is the NEIGHBOUR (an off-by-one row)",
+        "verdict": "RED",
+        "actual_line": "ok   M08 the erase target is the NEIGHBOUR (an off-by-one row) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M09 the answer's identity is not checked at all",
+        "verdict": "RED",
+        "actual_line": "ok   M09 the answer's identity is not checked at all -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M10 an UNSOLICITED answer is accepted (the `_inbox_taken` guard dropped)",
+        "verdict": "RED",
+        "actual_line": "ok   M10 an UNSOLICITED answer is accepted (the `_inbox_taken` guard dropped) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M11 the budget's ring is chosen from the WRONG kind",
+        "verdict": "RED",
+        "actual_line": "ok   M11 the budget's ring is chosen from the WRONG kind -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M12 the body length is found by scanning for NUL (i.e. strlen)",
+        "verdict": "RED",
+        "actual_line": "ok   M12 the body length is found by scanning for NUL (i.e. strlen) -> RED (34 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M13 the sanitizer passes raw bytes through",
+        "verdict": "RED",
+        "actual_line": "ok   M13 the sanitizer passes raw bytes through -> RED (336 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M14 pages FLOORS instead of ceiling",
+        "verdict": "RED",
+        "actual_line": "ok   M14 pages FLOORS instead of ceiling -> RED (25 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M15 an empty body yields ZERO pages",
+        "verdict": "RED",
+        "actual_line": "ok   M15 an empty body yields ZERO pages -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M16 the page advance STOPS at the last page instead of cycling",
+        "verdict": "RED",
+        "actual_line": "ok   M16 the page advance STOPS at the last page instead of cycling -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M17 a page turn also refreshes the inactivity deadline",
+        "verdict": "RED",
+        "actual_line": "ok   M17 a page turn also refreshes the inactivity deadline -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M18 both body rows render the SAME 19 columns",
+        "verdict": "RED",
+        "actual_line": "ok   M18 both body rows render the SAME 19 columns -> RED (15 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M20 a freshly opened modal selects `delete`",
+        "verdict": "RED",
+        "actual_line": "ok   M20 a freshly opened modal selects `delete` -> RED (57 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M21 short press does not toggle the action",
+        "verdict": "RED",
+        "actual_line": "ok   M21 short press does not toggle the action -> RED (44 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M22 `io_error` CLOSES the modal (a disappearance without durable success)",
+        "verdict": "RED",
+        "actual_line": "ok   M22 `io_error` CLOSES the modal (a disappearance without durable success) -> RED (10 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M23 `io_error` leaves the selection on `delete` (a retry one press away)",
+        "verdict": "RED",
+        "actual_line": "ok   M23 `io_error` leaves the selection on `delete` (a retry one press away) -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M24 `not_found` is treated as a success and closes the modal",
+        "verdict": "RED",
+        "actual_line": "ok   M24 `not_found` is treated as a success and closes the modal -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M25 the terminal MESSAGE GONE state still accepts an action press",
+        "verdict": "RED",
+        "actual_line": "ok   M25 the terminal MESSAGE GONE state still accepts an action press -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M26 a successful delete keeps the DELETED record as the selection",
+        "verdict": "RED",
+        "actual_line": "ok   M26 a successful delete keeps the DELETED record as the selection -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M27 the modal is closed at `long_fire` (compose's rule, copied)",
+        "verdict": "RED",
+        "actual_line": "ok   M27 the modal is closed at `long_fire` (compose's rule, copied) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M28 the modal is not closed by a long press at all",
+        "verdict": "RED",
+        "actual_line": "ok   M28 the modal is not closed by a long press at all -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M29 a completed DETAIL frame clears the unread counters",
+        "verdict": "RED",
+        "actual_line": "ok   M29 a completed DETAIL frame clears the unread counters -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M30 the DELETE FAILED header is dropped (the failure becomes invisible)",
+        "verdict": "RED",
+        "actual_line": "ok   M30 the DELETE FAILED header is dropped (the failure becomes invisible) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M31 the channel header omits the channel number",
+        "verdict": "RED",
+        "actual_line": "ok   M31 the channel header omits the channel number -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M32 the page indicator is 0-based on the panel",
+        "verdict": "RED",
+        "actual_line": "ok   M32 the page indicator is 0-based on the panel -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM)",
+        "verdict": "RED",
+        "actual_line": "ok   M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M34 the SETTINGS screen is not list-aware (one press leaves it)",
+        "verdict": "RED",
+        "actual_line": "ok   M34 the SETTINGS screen is not list-aware (one press leaves it) -> RED (1043 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M35 `short` WALKS THE ROWS while editing (the double-duty trap)",
+        "verdict": "RED",
+        "actual_line": "ok   M35 `short` WALKS THE ROWS while editing (the double-duty trap) -> RED (144 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M36 the editor closes at `long_fire` instead of `long_arm` (compose's rule, copied)",
+        "verdict": "RED",
+        "actual_line": "ok   M36 the editor closes at `long_fire` instead of `long_arm` (compose's rule, copied) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M37 a long press does not leave the editor at all",
+        "verdict": "RED",
+        "actual_line": "ok   M37 a long press does not leave the editor at all -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M38 `BACK` DISCARDS the draft (the forbidden silent discard, through the door)",
+        "verdict": "RED",
+        "actual_line": "ok   M38 `BACK` DISCARDS the draft (the forbidden silent discard, through the door) -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M39 blanking DISCARDS the draft (the forbidden discard, through the timer)",
+        "verdict": "RED",
+        "actual_line": "ok   M39 blanking DISCARDS the draft (the forbidden discard, through the timer) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M40 the RELOAD row stands permanently, not only while it applies",
+        "verdict": "RED",
+        "actual_line": "ok   M40 the RELOAD row stands permanently, not only while it applies -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M41 the BLE row is rendered unconditionally (the transport condition ignored)",
+        "verdict": "RED",
+        "actual_line": "ok   M41 the BLE row is rendered unconditionally (the transport condition ignored) -> RED (22 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M42 an out-of-range row index CLAMPS to row 0 instead of failing closed",
+        "verdict": "RED",
+        "actual_line": "ok   M42 an out-of-range row index CLAMPS to row 0 instead of failing closed -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M43 the cursor does NOT follow its row when the list changes under it",
+        "verdict": "RED",
+        "actual_line": "ok   M43 the cursor does NOT follow its row when the list changes under it -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M44 a REFUSED save reads as SAVED (the success that isn't)",
+        "verdict": "RED",
+        "actual_line": "ok   M44 a REFUSED save reads as SAVED (the success that isn't) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M45 the SAVE outcome is recorded BEFORE the service returns it",
+        "verdict": "RED",
+        "actual_line": "ok   M45 the SAVE outcome is recorded BEFORE the service returns it -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M46 the unsaved marker is dropped from \u00a73.3's row",
+        "verdict": "RED",
+        "actual_line": "ok   M46 the unsaved marker is dropped from \u00a73.3's row -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M47 the conflict headline is re-spelled here instead of called from the service",
+        "verdict": "RED",
+        "actual_line": "ok   M47 the conflict headline is re-spelled here instead of called from the service -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M48 the transient note is never retired (a stale outcome under a fresh act)",
+        "verdict": "RED",
+        "actual_line": "ok   M48 the transient note is never retired (a stale outcome under a fresh act) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M49 the editor SETS instead of cycling (one press can never turn a value off)",
+        "verdict": "RED",
+        "actual_line": "ok   M49 the editor SETS instead of cycling (one press can never turn a value off) -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M51 the home confirmation age is carried as uint32_t (the ~49.7-day wrap, re-created in the snapshot)",
+        "verdict": "RED",
+        "actual_line": "ok   M51 the home confirmation age is carried as uint32_t (the ~49.7-day wrap, re-created in the snapshot) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only)",
+        "verdict": "RED",
+        "actual_line": "ok   M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only) -> RED (49 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
+        "verdict": "RED",
+        "actual_line": "ok   M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit)",
+        "verdict": "RED",
+        "actual_line": "ok   M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit) -> RED (38 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
+        "verdict": "RED",
+        "actual_line": "ok   M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen) -> RED (89 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M55 the \u00a74 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan \u00a74's conflation, through the ORDER)",
+        "verdict": "RED",
+        "actual_line": "ok   M55 the \u00a74 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan \u00a74's conflation, through the ORDER) -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M56 the UNSAVED cell is dropped \u2014 PROVISION opens over an unsaved draft (\u00a73.6.3's precondition gone)",
+        "verdict": "RED",
+        "actual_line": "ok   M56 the UNSAVED cell is dropped \u2014 PROVISION opens over an unsaved draft (\u00a73.6.3's precondition gone) -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M57 the CONFLICT cell is dropped \u2014 the two states collapse into one",
+        "verdict": "RED",
+        "actual_line": "ok   M57 the CONFLICT cell is dropped \u2014 the two states collapse into one -> RED (22 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
+        "verdict": "RED",
+        "actual_line": "ok   M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses) -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
+        "verdict": "RED",
+        "actual_line": "ok   M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids) -> RED (31 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M60 static join is hidden because the TEAM plane is off (plan \u00a76's named defect, verbatim)",
+        "verdict": "RED",
+        "actual_line": "ok   M60 static join is hidden because the TEAM plane is off (plan \u00a76's named defect, verbatim) -> RED (19 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M61 an unsupported child is rendered anyway (the refusing stub [[B209]] forbids)",
+        "verdict": "RED",
+        "actual_line": "ok   M61 an unsupported child is rendered anyway (the refusing stub [[B209]] forbids) -> RED (21 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M62 a confirmation opens with CONFIRM selected (the destructive default \u00a73.6.3 rules out)",
+        "verdict": "RED",
+        "actual_line": "ok   M62 a confirmation opens with CONFIRM selected (the destructive default \u00a73.6.3 rules out) -> RED (622 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M63 the sub-view does NOT own the press (the SETTINGS menu walks underneath it)",
+        "verdict": "RED",
+        "actual_line": "ok   M63 the sub-view does NOT own the press (the SETTINGS menu walks underneath it) -> RED (969 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M64 the SETTINGS cursor is re-anchored while the sub-view owns it (the highlight leaves the child list)",
+        "verdict": "RED",
+        "actual_line": "ok   M64 the SETTINGS cursor is re-anchored while the sub-view owns it (the highlight leaves the child list) -> RED (757 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M65 the child menu WALKS OFF instead of cycling (a sub-view left by the ordinary screen advance)",
+        "verdict": "RED",
+        "actual_line": "ok   M65 the child menu WALKS OFF instead of cycling (a sub-view left by the ordinary screen advance) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M66 the provisioning sub-view survives the alarm (\u00a73.6.5 rule 1's pre-emption dropped)",
+        "verdict": "RED",
+        "actual_line": "ok   M66 the provisioning sub-view survives the alarm (\u00a73.6.5 rule 1's pre-emption dropped) -> RED (91 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M68 \u2605\u2605 the confirmation fires the transaction on BACK too (the safe action performs the destructive one)",
+        "verdict": "RED",
+        "actual_line": "ok   M68 \u2605\u2605 the confirmation fires the transaction on BACK too (the safe action performs the destructive one) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
+        "verdict": "RED",
+        "actual_line": "ok   M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE) -> RED (87 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M70 \u2605\u2605 the RESULT screen is entered BEFORE the transaction runs (\u00a78 pin 2, inverted)",
+        "verdict": "RED",
+        "actual_line": "ok   M70 \u2605\u2605 the RESULT screen is entered BEFORE the transaction runs (\u00a78 pin 2, inverted) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M71 the answer is never retired, so a stale verdict survives into the next screen",
+        "verdict": "RED",
+        "actual_line": "ok   M71 the answer is never retired, so a stale verdict survives into the next screen -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M72 the result arm RE-RUNS the transaction on the press that leaves it",
+        "verdict": "RED",
+        "actual_line": "ok   M72 the result arm RE-RUNS the transaction on the press that leaves it -> RED (147 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2)",
+        "verdict": "RED",
+        "actual_line": "ok   M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M74 the PHY refusal loses its ruled remedy (it borrows the save failure's line instead)",
+        "verdict": "RED",
+        "actual_line": "ok   M74 the PHY refusal loses its ruled remedy (it borrows the save failure's line instead) -> RED (9 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M75 the PHY refusal renders as a SUCCESS headline (the two outcomes collapse)",
+        "verdict": "RED",
+        "actual_line": "ok   M75 the PHY refusal renders as a SUCCESS headline (the two outcomes collapse) -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M76 the PROVISION row is unconditional again (the parent-row ruling not applied)",
+        "verdict": "RED",
+        "actual_line": "ok   M76 the PROVISION row is unconditional again (the parent-row ruling not applied) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION",
+        "verdict": "RED",
+        "actual_line": "ok   M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M78 the JOIN entry never reads the profile store (the list opens on whatever the last visit left)",
+        "verdict": "RED",
+        "actual_line": "ok   M78 the JOIN entry never reads the profile store (the list opens on whatever the last visit left) -> RED (152 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M79 \u2605\u2605 the join confirmation fires the transaction on BACK too (the safe action performs the join)",
+        "verdict": "RED",
+        "actual_line": "ok   M79 \u2605\u2605 the join confirmation fires the transaction on BACK too (the safe action performs the join) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M80 `short` in the join confirmation ACTS instead of toggling (one press starts a join)",
+        "verdict": "RED",
+        "actual_line": "ok   M80 `short` in the join confirmation ACTS instead of toggling (one press starts a join) -> RED (98 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M81 \u2605\u2605 the RESULT screen is entered BEFORE the join transaction runs (\u00a78 pin 2, inverted, join half)",
+        "verdict": "RED",
+        "actual_line": "ok   M81 \u2605\u2605 the RESULT screen is entered BEFORE the join transaction runs (\u00a78 pin 2, inverted, join half) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M82 \u26d4\u26d4 60 s becomes a TERMINAL FAILURE (plan \u00a72.3 rule 5's forbidden deadline, and retries are unbounded)",
+        "verdict": "RED",
+        "actual_line": "ok   M82 \u26d4\u26d4 60 s becomes a TERMINAL FAILURE (plan \u00a72.3 rule 5's forbidden deadline, and retries are unbounded) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M83 \u26d4 BACK from the waiting screen CANCELS the persisted join (plan \u00a72.3 rule 4's forbidden rollback)",
+        "verdict": "RED",
+        "actual_line": "ok   M83 \u26d4 BACK from the waiting screen CANCELS the persisted join (plan \u00a72.3 rule 4's forbidden rollback) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M84 \u26d4 the ALARM cancels the persisted join (\u00a73.6.5 pre-empts the SCREEN, never the operation)",
+        "verdict": "RED",
+        "actual_line": "ok   M84 \u26d4 the ALARM cancels the persisted join (\u00a73.6.5 pre-empts the SCREEN, never the operation) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M85 \u26d4\u26d4 ANY `join_refused` push FAILS the screen (plan \u00a72.3 rule 6: no reason terminally fails v1)",
+        "verdict": "RED",
+        "actual_line": "ok   M85 \u26d4\u26d4 ANY `join_refused` push FAILS the screen (plan \u00a72.3 rule 6: no reason terminally fails v1) -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M86 the session is armed on EVERY verdict, so a refusal leaves a correlation window open for a BOOT DAD",
+        "verdict": "RED",
+        "actual_line": "ok   M86 the session is armed on EVERY verdict, so a refusal leaves a correlation window open for a BOOT DAD -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M87 a correlated adopt NAVIGATES the panel from whatever screen is up (a push that moves the operator)",
+        "verdict": "RED",
+        "actual_line": "ok   M87 a correlated adopt NAVIGATES the panel from whatever screen is up (a push that moves the operator) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M88 the adopted answer carries no node id (plan \u00a72.3 rule 2's `resulting node id` never shows)",
+        "verdict": "RED",
+        "actual_line": "ok   M88 the adopted answer carries no node id (plan \u00a72.3 rule 2's `resulting node id` never shows) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M89 the SELECT list activates the row INDEX as a slot number (\u00a7B66 \u2014 slot 3 is joined as slot 2)",
+        "verdict": "RED",
+        "actual_line": "ok   M89 the SELECT list activates the row INDEX as a slot number (\u00a7B66 \u2014 slot 3 is joined as slot 2) -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M90 the join intent carries no profile, so the adapter is handed an empty slot",
+        "verdict": "RED",
+        "actual_line": "ok   M90 the join intent carries no profile, so the adapter is handed an empty slot -> RED (41 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model)",
+        "verdict": "RED",
+        "actual_line": "ok   M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M92 [[B231]] the DM block is published OLDEST-FIRST again (the newest message back at the BOTTOM)",
+        "verdict": "RED",
+        "actual_line": "ok   M92 [[B231]] the DM block is published OLDEST-FIRST again (the newest message back at the BOTTOM) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M93 [[B231]] the CHANNEL block is published OLDEST-FIRST (only half the ruling applied)",
+        "verdict": "RED",
+        "actual_line": "ok   M93 [[B231]] the CHANNEL block is published OLDEST-FIRST (only half the ruling applied) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M94 [[B233]] the serviced-mutation latch asks for NO repaint (the stale row stands for ever)",
+        "verdict": "RED",
+        "actual_line": "ok   M94 [[B233]] the serviced-mutation latch asks for NO repaint (the stale row stands for ever) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M95 [[B233]] the latch is never consumed (a permanent repaint, not one more frame)",
+        "verdict": "RED",
+        "actual_line": "ok   M95 [[B233]] the latch is never consumed (a permanent repaint, not one more frame) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M96 [[B233]] every erase ANSWER claims the rows are stale, including the ones that deleted nothing",
+        "verdict": "RED",
+        "actual_line": "ok   M96 [[B233]] every erase ANSWER claims the rows are stale, including the ones that deleted nothing -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M97 [[B232]] SETTINGS auto-enters the menu on arrival again (up to 9 presses to pass the screen)",
+        "verdict": "RED",
+        "actual_line": "ok   M97 [[B232]] SETTINGS auto-enters the menu on arrival again (up to 9 presses to pass the screen) -> RED (59 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel",
+        "verdict": "RED",
+        "actual_line": "ok   M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in)",
+        "verdict": "RED",
+        "actual_line": "ok   M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in) -> RED (1073 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M105 [[B232]] the menu opens over an UNAVAILABLE config (a walk over rows nothing draws)",
+        "verdict": "RED",
+        "actual_line": "ok   M105 [[B232]] the menu opens over an UNAVAILABLE config (a walk over rows nothing draws) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
+        "verdict": "RED",
+        "actual_line": "ok   M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix) -> RED (1178 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M101 [[B232]] REVISED BY W4b (design \u00a76.1): the Settings menu walks off its last row to the closed view instead of WRAPPING",
+        "verdict": "RED",
+        "actual_line": "ok   M101 [[B232]] REVISED BY W4b (design \u00a76.1): the Settings menu walks off its last row to the closed view instead of WRAPPING -> RED (46 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M102 [[B232]] REVISED BY W4b (design \u00a76.1): MENU closes the menu but stays on SETTINGS instead of menu mode on HOME",
+        "verdict": "RED",
+        "actual_line": "ok   M102 [[B232]] REVISED BY W4b (design \u00a76.1): MENU closes the menu but stays on SETTINGS instead of menu mode on HOME -> RED (54 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
+        "verdict": "SURVIVES",
+        "actual_line": "FAIL M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index \u2014 the suite still PASSES; nothing measures this"
+      },
+      {
+        "label": "M104 [[B232]] the entry row has no label (an entry nobody can read \u2014 C2)",
+        "verdict": "RED",
+        "actual_line": "ok   M104 [[B232]] the entry row has no label (an entry nobody can read \u2014 C2) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose)",
+        "verdict": "RED",
+        "actual_line": "ok   M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose) -> RED (1908 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M107 [[UI-17]] a passive list reports its rows, so `short` walks a preview nobody entered",
+        "verdict": "RED",
+        "actual_line": "ok   M107 [[UI-17]] a passive list reports its rows, so `short` walks a preview nobody entered -> RED (394 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M108 [[UI-17]] the BACK row is resolved one row early, so the LAST teammate becomes the exit",
+        "verdict": "RED",
+        "actual_line": "ok   M108 [[UI-17]] the BACK row is resolved one row early, so the LAST teammate becomes the exit -> RED (337 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M109 [[UI-17]] REVISED BY W4b (design \u00a76.1): the MENU row returns to the PASSIVE SAME screen instead of menu mode on HOME",
+        "verdict": "RED",
+        "actual_line": "ok   M109 [[UI-17]] REVISED BY W4b (design \u00a76.1): the MENU row returns to the PASSIVE SAME screen instead of menu mode on HOME -> RED (15 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped)",
+        "verdict": "RED",
+        "actual_line": "ok   M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped) -> RED (71 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M111 [[B223]] the leave reset never resets \u2014 an entered list outlives its screen",
+        "verdict": "RED",
+        "actual_line": "ok   M111 [[B223]] the leave reset never resets \u2014 an entered list outlives its screen -> RED (1991 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M112 [[UI-17]] the pick is recorded on a PASSIVE preview (a refusal for a choice nobody made)",
+        "verdict": "RED",
+        "actual_line": "ok   M112 [[UI-17]] the pick is recorded on a PASSIVE preview (a refusal for a choice nobody made) -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M114 [[UI-17]] `is this screen entered` is inverted for the two list screens",
+        "verdict": "RED",
+        "actual_line": "ok   M114 [[UI-17]] `is this screen entered` is inverted for the two list screens -> RED (1960 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M115 [[UI-17]] the BACK row OUTRANKS the refusal, so a lost pick silently LEAVES instead",
+        "verdict": "RED",
+        "actual_line": "ok   M115 [[UI-17]] the BACK row OUTRANKS the refusal, so a lost pick silently LEAVES instead -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M116 [[UI-17]] the BACK row activates as a MEMBER row (the exit SENDS)",
+        "verdict": "RED",
+        "actual_line": "ok   M116 [[UI-17]] the BACK row activates as a MEMBER row (the exit SENDS) -> RED (34 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M117 [[UI-17]] a `double` on a PASSIVE preview acts on the row instead of entering",
+        "verdict": "RED",
+        "actual_line": "ok   M117 [[UI-17]] a `double` on a PASSIVE preview acts on the row instead of entering -> RED (651 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M118 [[UI-17]] resting on BACK no longer retires the refusal (the dead end)",
+        "verdict": "RED",
+        "actual_line": "ok   M118 [[UI-17]] resting on BACK no longer retires the refusal (the dead end) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M119 [[B223]] leaving the screen no longer retires its message (a stale refusal a lap later)",
+        "verdict": "RED",
+        "actual_line": "ok   M119 [[B223]] leaving the screen no longer retires its message (a stale refusal a lap later) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "M120 [[UI-17]] entering the list records no pick, so the first double inside it refuses",
+        "verdict": "RED",
+        "actual_line": "ok   M120 [[UI-17]] entering the list records no pick, so the first double inside it refuses -> RED (394 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S01 [[UI-17]] the compose sub-view's kBlankMs auto-exit is re-instated (\u00a73.2.1 restored over \u00a73.3)",
+        "verdict": "RED",
+        "actual_line": "ok   S01 [[UI-17]] the compose sub-view's kBlankMs auto-exit is re-instated (\u00a73.2.1 restored over \u00a73.3) -> RED (27 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S02 [[UI-17]] the detail modal's kBlankMs auto-exit is re-instated (\u00a73.5 restored over \u00a73.3)",
+        "verdict": "RED",
+        "actual_line": "ok   S02 [[UI-17]] the detail modal's kBlankMs auto-exit is re-instated (\u00a73.5 restored over \u00a73.3) -> RED (23 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (\u00a7B101's close dropped)",
+        "verdict": "RED",
+        "actual_line": "ok   S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (\u00a7B101's close dropped) -> RED (10 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK",
+        "verdict": "RED",
+        "actual_line": "ok   S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick",
+        "verdict": "RED",
+        "actual_line": "ok   S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page",
+        "verdict": "RED",
+        "actual_line": "ok   S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open",
+        "verdict": "RED",
+        "actual_line": "ok   S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open -> RED (41 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S08 [[UI-17]] the wake marks the model dirty but leaves the panel DARK (\u00a7R1's exact defect, one plane over)",
+        "verdict": "RED",
+        "actual_line": "ok   S08 [[UI-17]] the wake marks the model dirty but leaves the panel DARK (\u00a7R1's exact defect, one plane over) -> RED (21 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S09 [[UI-17]] the wake stamps the input clock the way `on_gesture` does (and consumes [[B65]]'s seed)",
+        "verdict": "RED",
+        "actual_line": "ok   S09 [[UI-17]] the wake stamps the input clock the way `on_gesture` does (and consumes [[B65]]'s seed) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S10 [[UI-17]] the wake deadline is dropped from the blank condition (the one-frame flash)",
+        "verdict": "RED",
+        "actual_line": "ok   S10 [[UI-17]] the wake deadline is dropped from the blank condition (the one-frame flash) -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S11 [[UI-17]] `wake_active` is INVERTED \u2014 the window is live everywhere except during it",
+        "verdict": "RED",
+        "actual_line": "ok   S11 [[UI-17]] `wake_active` is INVERTED \u2014 the window is live everywhere except during it -> RED (20 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S12 [[UI-17]] the ARMED flag is dropped, so a quiet node past 2^31 ms never blanks again",
+        "verdict": "RED",
+        "actual_line": "ok   S12 [[UI-17]] the ARMED flag is dropped, so a quiet node past 2^31 ms never blanks again -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S17 [[UI-17]] the wake window loses its upper bound, so a month-old wake revives",
+        "verdict": "RED",
+        "actual_line": "ok   S17 [[UI-17]] the wake window loses its upper bound, so a month-old wake revives -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S13 [[UI-17]] a wake on an ALREADY-LIT panel restarts the display cadence (the unconditional unblank)",
+        "verdict": "RED",
+        "actual_line": "ok   S13 [[UI-17]] a wake on an ALREADY-LIT panel restarts the display cadence (the unconditional unblank) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S14 [[UI-17]] the wake NAVIGATES to INBOX (the [[B233]] class: the operator's place taken by a push)",
+        "verdict": "RED",
+        "actual_line": "ok   S14 [[UI-17]] the wake NAVIGATES to INBOX (the [[B233]] class: the operator's place taken by a push) -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S15 [[UI-17]] the wake clears the emergency, so a message dismisses a retained distress outcome",
+        "verdict": "RED",
+        "actual_line": "ok   S15 [[UI-17]] the wake clears the emergency, so a message dismisses a retained distress outcome -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message",
+        "verdict": "RED",
+        "actual_line": "ok   S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N01 \u2605\u2605 the JOIN TEAM child is FOLDED into the CREATE predicate \u2014 the coincidence encoded as a rule",
+        "verdict": "RED",
+        "actual_line": "ok   N01 \u2605\u2605 the JOIN TEAM child is FOLDED into the CREATE predicate \u2014 the coincidence encoded as a rule -> RED (14 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N02 \u2605\u2605 the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list \u2014 the third child opens a sub-view no visible row leads to",
+        "verdict": "RED",
+        "actual_line": "ok   N02 \u2605\u2605 the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list \u2014 the third child opens a sub-view no visible row leads to -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N03 \u2605\u2605 the own-team id is not handed to the capture \u2014 the team we are already in is offered as a candidate",
+        "verdict": "RED",
+        "actual_line": "ok   N03 \u2605\u2605 the own-team id is not handed to the capture \u2014 the team we are already in is offered as a candidate -> RED (10 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N04 \u2605\u2605\u2605 the scan is RE-READ EVERY TICK \u2014 owner ruling R-10's frozen-per-entry snapshot is gone and a team that walks into range inserts a row under the operator's cursor",
+        "verdict": "RED",
+        "actual_line": "ok   N04 \u2605\u2605\u2605 the scan is RE-READ EVERY TICK \u2014 owner ruling R-10's frozen-per-entry snapshot is gone and a team that walks into range inserts a row under the operator's cursor -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N05 \u2605\u2605 BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)",
+        "verdict": "RED",
+        "actual_line": "ok   N05 \u2605\u2605 BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N06 \u2605\u2605 ANY double ACTS, not just the one on a TEAM row \u2014 leaving the list opens a JOIN confirmation",
+        "verdict": "RED",
+        "actual_line": "ok   N06 \u2605\u2605 ANY double ACTS, not just the one on a TEAM row \u2014 leaving the list opens a JOIN confirmation -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N07 \u2605\u2605 the confirmation opens on CONFIRM (P-13's safe default gone: one press from a membership change)",
+        "verdict": "RED",
+        "actual_line": "ok   N07 \u2605\u2605 the confirmation opens on CONFIRM (P-13's safe default gone: one press from a membership change) -> RED (131 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N08 \u2605\u2605\u2605 the act is handed the CURSOR INDEX instead of the row identity (\u00a7B66)",
+        "verdict": "RED",
+        "actual_line": "ok   N08 \u2605\u2605\u2605 the act is handed the CURSOR INDEX instead of the row identity (\u00a7B66) -> RED (70 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N09 \u2605\u2605\u2605 the id is RE-DERIVED from the six-hex fingerprint the panel shows (the low 24 bits, [[B48]])",
+        "verdict": "RED",
+        "actual_line": "ok   N09 \u2605\u2605\u2605 the id is RE-DERIVED from the six-hex fingerprint the panel shows (the low 24 bits, [[B48]]) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N10 \u2605\u2605 the confirmation BACK returns to the MENU instead of the NEARBY list (the containment contract)",
+        "verdict": "RED",
+        "actual_line": "ok   N10 \u2605\u2605 the confirmation BACK returns to the MENU instead of the NEARBY list (the containment contract) -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N11 \u2605\u2605 `team_joined` is mapped onto CREATE's string \u2014 a JOIN reports TEAM CREATED (F-4, at its source)",
+        "verdict": "RED",
+        "actual_line": "ok   N11 \u2605\u2605 `team_joined` is mapped onto CREATE's string \u2014 a JOIN reports TEAM CREATED (F-4, at its source) -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N12 \u2605\u2605 a double on BACK falls through into the act (one press means the other)",
+        "verdict": "RED",
+        "actual_line": "ok   N12 \u2605\u2605 a double on BACK falls through into the act (one press means the other) -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "N13 the zero-pick floor is dropped, so a row naming no team performs `team 0` \u2014 a LEAVE",
+        "verdict": "RED",
+        "actual_line": "ok   N13 the zero-pick floor is dropped, so a row naming no team performs `team 0` \u2014 a LEAVE -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V01 \u2605\u2605 the diff is keyed on the row's FRESHNESS (`last_heard_s`) instead of the opening snapshot \u2014 the `last_seen_ms` defect \u00a71.3 names, at the one site where that field is in scope",
+        "verdict": "RED",
+        "actual_line": "ok   V01 \u2605\u2605 the diff is keyed on the row's FRESHNESS (`last_heard_s`) instead of the opening snapshot \u2014 the `last_seen_ms` defect \u00a71.3 names, at the one site where that field is in scope -> RED (120 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V02 \u2605\u2605\u2605 the snapshot is re-taken at every RENDER instead of at the window's OPEN \u2014 so the candidate the window exists to surface is inside the snapshot by the time it is drawn",
+        "verdict": "RED",
+        "actual_line": "ok   V02 \u2605\u2605\u2605 the snapshot is re-taken at every RENDER instead of at the window's OPEN \u2014 so the candidate the window exists to surface is inside the snapshot by the time it is drawn -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V03 \u2605\u2605 the snapshot is NEVER taken \u2014 the window opens with no authorities at all",
+        "verdict": "RED",
+        "actual_line": "ok   V03 \u2605\u2605 the snapshot is NEVER taken \u2014 the window opens with no authorities at all -> RED (177 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "B249-1 \u2605\u2605\u2605 the fresh INVITE open never requests the existing triggered team announcement",
+        "verdict": "RED",
+        "actual_line": "ok   B249-1 \u2605\u2605\u2605 the fresh INVITE open never requests the existing triggered team announcement -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "B249-2 \u2605\u2605\u2605 the fresh INVITE open requests the announcement TWICE",
+        "verdict": "RED",
+        "actual_line": "ok   B249-2 \u2605\u2605\u2605 the fresh INVITE open requests the announcement TWICE -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "B249-3 \u2605\u2605\u2605 the announcement request precedes the member snapshot and established invitation arm",
+        "verdict": "RED",
+        "actual_line": "ok   B249-3 \u2605\u2605\u2605 the announcement request precedes the member snapshot and established invitation arm -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V04 \u2605\u2605\u2605 the expiry RENEWS the window instead of closing it \u2014 the bounded window is unbounded and the panel never says WINDOW CLOSED (P-11)",
+        "verdict": "RED",
+        "actual_line": "ok   V04 \u2605\u2605\u2605 the expiry RENEWS the window instead of closing it \u2014 the bounded window is unbounded and the panel never says WINDOW CLOSED (P-11) -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V05 \u2605\u2605\u2605 the open window WRITES `_last_input_ms` on every tick \u2014 the panel never blanks and the node never light-sleeps while it is up (OQ-3's refusal)",
+        "verdict": "RED",
+        "actual_line": "ok   V05 \u2605\u2605\u2605 the open window WRITES `_last_input_ms` on every tick \u2014 the panel never blanks and the node never light-sleeps while it is up (OQ-3's refusal) -> RED (34 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V06 \u2605\u2605\u2605 the handled set is made PERSISTENT \u2014 a candidate rejected in one window stays suppressed in the next, which the ruling forbids (F-13: it is discarded when the window closes)",
+        "verdict": "RED",
+        "actual_line": "ok   V06 \u2605\u2605\u2605 the handled set is made PERSISTENT \u2014 a candidate rejected in one window stays suppressed in the next, which the ruling forbids (F-13: it is discarded when the window closes) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V07 \u2605\u2605\u2605 the confirmation does NOT freeze the selection \u2014 every refresh re-points it at the row under the cursor, so a member arriving between the two presses moves the target (F-14)",
+        "verdict": "RED",
+        "actual_line": "ok   V07 \u2605\u2605\u2605 the confirmation does NOT freeze the selection \u2014 every refresh re-points it at the row under the cursor, so a member arriving between the two presses moves the target (F-14) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V08 \u2605\u2605\u2605 the row is keyed by the DISPLAY NAME instead of the hash \u2014 N4's selection and N5's reqpubkey target both carry the name-derived value, and the name is MUTABLE (P-7d, node_hashlocate.cpp:346)",
+        "verdict": "RED",
+        "actual_line": "ok   V08 \u2605\u2605\u2605 the row is keyed by the DISPLAY NAME instead of the hash \u2014 N4's selection and N5's reqpubkey target both carry the name-derived value, and the name is MUTABLE (P-7d, node_hashlocate.cpp:346) -> RED (85 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V09 \u2605\u2605\u2605 the window's `left != 0` term is dropped \u2014 at the EXACT deadline the window is still open, so the five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost)",
+        "verdict": "RED",
+        "actual_line": "ok   V09 \u2605\u2605\u2605 the window's `left != 0` term is dropped \u2014 at the EXACT deadline the window is still open, so the five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost) -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V10 \u2605\u2605\u2605 the request is AUTO-ISSUED on candidate entry \u2014 the operator never selected REQUEST PUBKEY or double-confirmed it (the owner-ratified ban reversed)",
+        "verdict": "RED",
+        "actual_line": "ok   V10 \u2605\u2605\u2605 the request is AUTO-ISSUED on candidate entry \u2014 the operator never selected REQUEST PUBKEY or double-confirmed it (the owner-ratified ban reversed) -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V11 \u2605\u2605 the NEED PUBKEY confirmation defaults to REQUEST PUBKEY instead of BACK \u2014 an immediate double airs it",
+        "verdict": "RED",
+        "actual_line": "ok   V11 \u2605\u2605 the NEED PUBKEY confirmation defaults to REQUEST PUBKEY instead of BACK \u2014 an immediate double airs it -> RED (52 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V12 \u2605\u2605\u2605 the request timeout ENABLES GRANT KEY although no matching key arrived",
+        "verdict": "RED",
+        "actual_line": "ok   V12 \u2605\u2605\u2605 the request timeout ENABLES GRANT KEY although no matching key arrived -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V13 \u2605\u2605\u2605 the PRESENCE OF A NAME enables GRANT KEY even when the key is only overheard (display metadata makes an airtime-and-secret decision)",
+        "verdict": "RED",
+        "actual_line": "ok   V13 \u2605\u2605\u2605 the PRESENCE OF A NAME enables GRANT KEY even when the key is only overheard (display metadata makes an airtime-and-secret decision) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V14 \u2605\u2605\u2605 the WAITING FOR PUBKEY screen is entered whatever the seam answered \u2014 an unattached seam and a synchronous refusal both claim an outstanding request (the QG blocker, restored)",
+        "verdict": "RED",
+        "actual_line": "ok   V14 \u2605\u2605\u2605 the WAITING FOR PUBKEY screen is entered whatever the seam answered \u2014 an unattached seam and a synchronous refusal both claim an outstanding request (the QG blocker, restored) -> RED (14 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V15 \u2605\u2605\u2605 THE GRANT TARGET IS TAKEN FROM THE DISPLAY NAME (P-7d) \u2014 the private key is shipped to whatever the MUTABLE label hashes to, so two members sharing a name are one target and a rename re-aims the act",
+        "verdict": "RED",
+        "actual_line": "ok   V15 \u2605\u2605\u2605 THE GRANT TARGET IS TAKEN FROM THE DISPLAY NAME (P-7d) \u2014 the private key is shipped to whatever the MUTABLE label hashes to, so two members sharing a name are one target and a rename re-aims the act -> RED (127 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V16 \u2605\u2605\u2605 `REJECT` CALLS THE SEND \u2014 the SAFE default arm, the one selected on entry, ships the team's private key; one double-press on an unchanged confirmation grants instead of declining",
+        "verdict": "RED",
+        "actual_line": "ok   V16 \u2605\u2605\u2605 `REJECT` CALLS THE SEND \u2014 the SAFE default arm, the one selected on entry, ships the team's private key; one double-press on an unchanged confirmation grants instead of declining -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V17 \u2605\u2605 `REJECT` no longer adds the hash to the handled set (F-13) \u2014 the local refresh re-offers the candidate the operator has just declined, one tick later",
+        "verdict": "RED",
+        "actual_line": "ok   V17 \u2605\u2605 `REJECT` no longer adds the hash to the handled set (F-13) \u2014 the local refresh re-offers the candidate the operator has just declined, one tick later -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V18 \u2605\u2605\u2605 the window's own deadline is not consulted by the act \u2014 a grant fires out of an EXPIRED window because the closing tick has not run yet",
+        "verdict": "RED",
+        "actual_line": "ok   V18 \u2605\u2605\u2605 the window's own deadline is not consulted by the act \u2014 a grant fires out of an EXPIRED window because the closing tick has not run yet -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V19 \u2605\u2605 the verdict is retired by the entry that OPENS it \u2014 the result screen renders the empty word for the act that just ran, and the correlated edge has nothing to promote",
+        "verdict": "RED",
+        "actual_line": "ok   V19 \u2605\u2605 the verdict is retired by the entry that OPENS it \u2014 the result screen renders the empty word for the act that just ran, and the correlated edge has nothing to promote -> RED (60 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V20 \u2605\u2605 a push may promote the verdict on ANY screen \u2014 an alarm (or a menu) left a queued handle in RAM, and a correlated edge upgrades a verdict nobody can see",
+        "verdict": "RED",
+        "actual_line": "ok   V20 \u2605\u2605 a push may promote the verdict on ANY screen \u2014 an alarm (or a menu) left a queued handle in RAM, and a correlated edge upgrades a verdict nobody can see -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V21 \u2605\u2605\u2605 THE CORRELATION dst IS TAKEN FROM THE FROZEN SELECTION instead of the core's SEND-TIME resolution \u2014 a re-DAD inside the window leaves the verdict permanently unpromotable (\u00a7UI-16 N6b, QG blocker 2)",
+        "verdict": "RED",
+        "actual_line": "ok   V21 \u2605\u2605\u2605 THE CORRELATION dst IS TAKEN FROM THE FROZEN SELECTION instead of the core's SEND-TIME resolution \u2014 a re-DAD inside the window leaves the verdict permanently unpromotable (\u00a7UI-16 N6b, QG blocker 2) -> RED (9 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V22 \u2605\u2605\u2605 THE TWO RULED SENTENCES ARE SWAPPED \u2014 a save that FAILED renders `TEAM KEY RECEIVED`, which is the one word spec \u00a74-K4 forbids on that path (the key is live in RAM and will not survive a reboot)",
+        "verdict": "RED",
+        "actual_line": "ok   V22 \u2605\u2605\u2605 THE TWO RULED SENTENCES ARE SWAPPED \u2014 a save that FAILED renders `TEAM KEY RECEIVED`, which is the one word spec \u00a74-K4 forbids on that path (the key is live in RAM and will not survive a reboot) -> RED (89 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V23 \u2605\u2605\u2605 THE NOTE NAVIGATES \u2014 a radio arrival opens the provisioning result arm under the operator's thumb, which is the one thing spec \u00a74-K4 pin 3 rules out in as many words",
+        "verdict": "RED",
+        "actual_line": "ok   V23 \u2605\u2605\u2605 THE NOTE NAVIGATES \u2014 a radio arrival opens the provisioning result arm under the operator's thumb, which is the one thing spec \u00a74-K4 pin 3 rules out in as many words -> RED (77 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V24 \u2605\u2605\u2605 THE NOTE WAKES A DARK PANEL \u2014 \u00a7UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post; widening it here is a new owner ruling nobody made",
+        "verdict": "RED",
+        "actual_line": "ok   V24 \u2605\u2605\u2605 THE NOTE WAKES A DARK PANEL \u2014 \u00a7UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post; widening it here is a new owner ruling nobody made -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V25 \u2605\u2605 THE NOTE IS WRITTEN WITHOUT CLEARING THE SLOT \u2014 a previous verdict's `reason` / `team_id` / `node_id` survive under the new headline, so the panel renders another act's data beside this one's word",
+        "verdict": "RED",
+        "actual_line": "ok   V25 \u2605\u2605 THE NOTE IS WRITTEN WITHOUT CLEARING THE SLOT \u2014 a previous verdict's `reason` / `team_id` / `node_id` survive under the new headline, so the panel renders another act's data beside this one's word -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V26 \u2605\u2605 THE SUCCESS LEXEME IS RE-SPELLED \u2014 S-25 is \u00a73.6.4's own word carried VERBATIM, and it is declared once so an owner re-ruling changes it in exactly one place",
+        "verdict": "RED",
+        "actual_line": "ok   V26 \u2605\u2605 THE SUCCESS LEXEME IS RE-SPELLED \u2014 S-25 is \u00a73.6.4's own word carried VERBATIM, and it is declared once so an owner re-ruling changes it in exactly one place -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V27 \u2605\u2605 THE FAILURE'S SECOND ROW IS CLIPPED INTO THE FIRST \u2014 the ruled 26-column sentence is truncated to fit the 19-column body instead of rendering across two rows (\u00a77.1 rule 5 \u2014 a durability claim may not be clipped)",
+        "verdict": "RED",
+        "actual_line": "ok   V27 \u2605\u2605 THE FAILURE'S SECOND ROW IS CLIPPED INTO THE FIRST \u2014 the ruled 26-column sentence is truncated to fit the 19-column body instead of rendering across two rows (\u00a77.1 rule 5 \u2014 a durability claim may not be clipped) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V28 \u2605 THE THIRD ROW BECOMES A GENERAL SLOT \u2014 `save_failed` grows one too, so the row stops meaning \"the ruled sentence continues here\" and the arm that owns it can no longer be told from the arms that do not",
+        "verdict": "RED",
+        "actual_line": "ok   V28 \u2605 THE THIRD ROW BECOMES A GENERAL SLOT \u2014 `save_failed` grows one too, so the row stops meaning \"the ruled sentence continues here\" and the arm that owns it can no longer be told from the arms that do not -> RED (15 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V29 \u2605\u2605\u2605\u2605 `BACK` PERFORMS THE INSTALL \u2014 the SAFE default arm activates the saved key, so declining the offer does the thing the offer was asking about (P-2b, the model's headline)",
+        "verdict": "RED",
+        "actual_line": "ok   V29 \u2605\u2605\u2605\u2605 `BACK` PERFORMS THE INSTALL \u2014 the SAFE default arm activates the saved key, so declining the offer does the thing the offer was asking about (P-2b, the model's headline) -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V30 \u2605\u2605\u2605 THE OFFER OPENS WITHOUT THE KEYRING'S REPORT \u2014 every nearby join lands on `SAVED KEY FOUND`, so the operator is offered a key for a team no record exists for",
+        "verdict": "RED",
+        "actual_line": "ok   V30 \u2605\u2605\u2605 THE OFFER OPENS WITHOUT THE KEYRING'S REPORT \u2014 every nearby join lands on `SAVED KEY FOUND`, so the operator is offered a key for a team no record exists for -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V31 \u2605\u2605 THE OFFER OPENS ON **ANY** ACKNOWLEDGEMENT \u2014 a CREATE's result screen leads into a saved-key offer for a team whose key was just minted",
+        "verdict": "RED",
+        "actual_line": "ok   V31 \u2605\u2605 THE OFFER OPENS ON **ANY** ACKNOWLEDGEMENT \u2014 a CREATE's result screen leads into a saved-key offer for a team whose key was just minted -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V32 \u2605\u2605\u2605 THE ACT IS KEYED ON THE **FINGERPRINT** \u2014 the low 24 bits the offer screen printed, which 255 other teams share, instead of the id the transaction joined ([[B48]]'s class, over a stored secret)",
+        "verdict": "RED",
+        "actual_line": "ok   V32 \u2605\u2605\u2605 THE ACT IS KEYED ON THE **FINGERPRINT** \u2014 the low 24 bits the offer screen printed, which 255 other teams share, instead of the id the transaction joined ([[B48]]'s class, over a stored secret) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V33 \u2605\u2605\u2605 THE OFFER OPENS ON THE **ACT** \u2014 `prov_confirm` is moved to CONFIRM after the entry, so the first `double` installs a stored secret (P-13 broken at the one screen that reaches a key)",
+        "verdict": "RED",
+        "actual_line": "ok   V33 \u2605\u2605\u2605 THE OFFER OPENS ON THE **ACT** \u2014 `prov_confirm` is moved to CONFIRM after the entry, so the first `double` installs a stored secret (P-13 broken at the one screen that reaches a key) -> RED (23 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V34 \u2605\u2605\u2605 THE UNFINISHED OFFER SURVIVES THE BLANK \u2014 the operator wakes onto a screen they may not remember opening, one `double` from installing a key (OQ-3, and the arm is the one that reaches a secret)",
+        "verdict": "RED",
+        "actual_line": "ok   V34 \u2605\u2605\u2605 THE UNFINISHED OFFER SURVIVES THE BLANK \u2014 the operator wakes onto a screen they may not remember opening, one `double` from installing a key (OQ-3, and the arm is the one that reaches a secret) -> RED (37 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V35 \u2605\u2605 THE OFFER'S TARGET IS NOT RETIRED BY THE ENTRY \u2014 a stale team id survives into later screens, so a later act can be aimed at a team the operator left",
+        "verdict": "RED",
+        "actual_line": "ok   V35 \u2605\u2605 THE OFFER'S TARGET IS NOT RETIRED BY THE ENTRY \u2014 a stale team id survives into later screens, so a later act can be aimed at a team the operator left -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V36 \u2605\u2605 THE SUCCESS AND FAILURE ENDINGS COLLAPSE INTO ONE WORD \u2014 a failed activation renders `TEAM KEY ACTIVE`, which is the 'success that isn't' over a node that holds no key",
+        "verdict": "RED",
+        "actual_line": "ok   V36 \u2605\u2605 THE SUCCESS AND FAILURE ENDINGS COLLAPSE INTO ONE WORD \u2014 a failed activation renders `TEAM KEY ACTIVE`, which is the 'success that isn't' over a node that holds no key -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V37 \u2605\u2605 THE SUCCESS SCREEN GROWS THE DURABILITY WARNING \u2014 `NOT SAVED` under a key that IS durable, i.e. S-27's ruled sentence said about the one path where it is false",
+        "verdict": "RED",
+        "actual_line": "ok   V37 \u2605\u2605 THE SUCCESS SCREEN GROWS THE DURABILITY WARNING \u2014 `NOT SAVED` under a key that IS durable, i.e. S-27's ruled sentence said about the one path where it is false -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V38 \u2605 the ruled offer lexeme is re-spelled \u2014 S-28 is owner-ruled and declared once, so a re-ruling must change it in exactly one place",
+        "verdict": "RED",
+        "actual_line": "ok   V38 \u2605 the ruled offer lexeme is re-spelled \u2014 S-28 is owner-ruled and declared once, so a re-ruling must change it in exactly one place -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V39 \u2605 the ruled ACTION lexeme is re-spelled \u2014 S-29 is owner-ruled, and the word the operator presses is the one place the offer states what it will do",
+        "verdict": "RED",
+        "actual_line": "ok   V39 \u2605 the ruled ACTION lexeme is re-spelled \u2014 S-29 is owner-ruled, and the word the operator presses is the one place the offer states what it will do -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V40 \u2605\u2605\u2605\u2605 THE LANDING IS REVERTED TO THE MENU \u2014 the owner's ask undone, and undone in the shape it would really arrive in: the helper stays, and simply goes back where every other terminal goes",
+        "verdict": "RED",
+        "actual_line": "ok   V40 \u2605\u2605\u2605\u2605 THE LANDING IS REVERTED TO THE MENU \u2014 the owner's ask undone, and undone in the shape it would really arrive in: the helper stays, and simply goes back where every other terminal goes -> RED (33 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V41 \u2605\u2605\u2605 THE SCOPE OVERRUN \u2014 the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the operator away from the flow the remedies are in (the \u26d4 consistency extension nobody ruled)",
+        "verdict": "RED",
+        "actual_line": "ok   V41 \u2605\u2605\u2605 THE SCOPE OVERRUN \u2014 the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the operator away from the flow the remedies are in (the \u26d4 consistency extension nobody ruled) -> RED (23 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V42 \u2605\u2605\u2605\u2605 THE **ARRIVAL** NAVIGATES, THROUGH THE NEW LANDING \u2014 a radio receipt moves the panel to STATUS under the operator's thumb. \u26d4 Spec \u00a74-K4 pin 3 is unchanged by the ruling: only the PRESS may choose a destination",
+        "verdict": "RED",
+        "actual_line": "ok   V42 \u2605\u2605\u2605\u2605 THE **ARRIVAL** NAVIGATES, THROUGH THE NEW LANDING \u2014 a radio receipt moves the panel to STATUS under the operator's thumb. \u26d4 Spec \u00a74-K4 pin 3 is unchanged by the ruling: only the PRESS may choose a destination -> RED (35 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V43 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS BYPASSED \u2014 `double` on **BACK** falls through into the removal, so one press destroys a stored secret the operator was still looking at (P-13 broken at the one screen that is irreversible)",
+        "verdict": "RED",
+        "actual_line": "ok   V43 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS BYPASSED \u2014 `double` on **BACK** falls through into the removal, so one press destroys a stored secret the operator was still looking at (P-13 broken at the one screen that is irreversible) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V44 \u2605\u2605\u2605\u2605 THE **ACTIVE** ROW IS GIVEN THE DESTRUCTIVE CONFIRMATION \u2014 the protected record lands on a screen that offers `FORGET KEY`, so the panel invites the one removal the service must refuse (and the operator learns the refusal only after pressing it)",
+        "verdict": "RED",
+        "actual_line": "ok   V44 \u2605\u2605\u2605\u2605 THE **ACTIVE** ROW IS GIVEN THE DESTRUCTIVE CONFIRMATION \u2014 the protected record lands on a screen that offers `FORGET KEY`, so the panel invites the one removal the service must refuse (and the operator learns the refusal only after pressing it) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V45 \u2605\u2605\u2605\u2605 THE REMOVAL IS KEYED ON THE **CURSOR** \u2014 a row INDEX stands in for the record's identity, and the list skips a corrupt zero-id record, so the index names a different record than the panel drew (\u00a7B66, over a delete)",
+        "verdict": "RED",
+        "actual_line": "ok   V45 \u2605\u2605\u2605\u2605 THE REMOVAL IS KEYED ON THE **CURSOR** \u2014 a row INDEX stands in for the record's identity, and the list skips a corrupt zero-id record, so the index names a different record than the panel drew (\u00a7B66, over a delete) -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V46 \u2605\u2605\u2605\u2605 THE CREATE IS **AUTOMATICALLY RESUMED** after the full-keyring refusal \u2014 the ruling's *two explicit transactions* collapsed into one, so a create that fails its second write can destroy an unrelated saved key on the way, and the operator never chose either half",
+        "verdict": "RED",
+        "actual_line": "ok   V46 \u2605\u2605\u2605\u2605 THE CREATE IS **AUTOMATICALLY RESUMED** after the full-keyring refusal \u2014 the ruling's *two explicit transactions* collapsed into one, so a create that fails its second write can destroy an unrelated saved key on the way, and the operator never chose either half -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V47 \u2605\u2605\u2605 THE \"REFRESHED LIST\" IS NOT REFRESHED \u2014 acknowledging `KEY FORGOTTEN` returns to the FROZEN copy, so the record just removed is still on the panel: a screen contradicting an act it reported as complete",
+        "verdict": "RED",
+        "actual_line": "ok   V47 \u2605\u2605\u2605 THE \"REFRESHED LIST\" IS NOT REFRESHED \u2014 acknowledging `KEY FORGOTTEN` returns to the FROZEN copy, so the record just removed is still on the panel: a screen contradicting an act it reported as complete -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V48 \u2605\u2605\u2605 A FAILED REMOVAL RENDERS THE SUCCESS WORD \u2014 `KEY FORGOTTEN` for a store that refused or a write that did not land, which is the 'success that isn't' over a key that is still there (spec \u00a74-K6 pin 5)",
+        "verdict": "RED",
+        "actual_line": "ok   V48 \u2605\u2605\u2605 A FAILED REMOVAL RENDERS THE SUCCESS WORD \u2014 `KEY FORGOTTEN` for a store that refused or a write that did not land, which is the 'success that isn't' over a key that is still there (spec \u00a74-K6 pin 5) -> RED (21 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V49 \u2605\u2605 THE FULL-STORE DOOR OPENS ON THE DISPLAY TOKEN \u2014 the navigation decision is taken by comparing `reason`'s TEXT instead of the typed flag, so a re-worded service token silently closes the one route out of the dead end ([[B48]]'s class at the navigation layer)",
+        "verdict": "RED",
+        "actual_line": "ok   V49 \u2605\u2605 THE FULL-STORE DOOR OPENS ON THE DISPLAY TOKEN \u2014 the navigation decision is taken by comparing `reason`'s TEXT instead of the typed flag, so a re-worded service token silently closes the one route out of the dead end ([[B48]]'s class at the navigation layer) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V51 \u2605\u2605\u2605\u2605 THE RECEIVED-GRANT FULL LANDING IS DROPPED \u2014 the fifth received grant shows three correct rows and then acknowledges into the MENU, which is the QG blocker restored at the layer that owns the landing",
+        "verdict": "RED",
+        "actual_line": "ok   V51 \u2605\u2605\u2605\u2605 THE RECEIVED-GRANT FULL LANDING IS DROPPED \u2014 the fifth received grant shows three correct rows and then acknowledges into the MENU, which is the QG blocker restored at the layer that owns the landing -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V52 \u2605\u2605\u2605 **EVERY** UNSAVED RECEIPT ACKNOWLEDGES INTO THE REMOVAL LIST \u2014 a corrupt store, an unreadable record or a failed activation all walk the operator into a screen that offers to delete a key, which is a FALSE remedy",
+        "verdict": "RED",
+        "actual_line": "ok   V52 \u2605\u2605\u2605 **EVERY** UNSAVED RECEIPT ACKNOWLEDGES INTO THE REMOVAL LIST \u2014 a corrupt store, an unreadable record or a failed activation all walk the operator into a screen that offers to delete a key, which is a FALSE remedy -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V53 \u2605\u2605\u2605 THE FLAG IS ACCEPTED ON THE **SAVED** ARM \u2014 a `TEAM KEY RECEIVED` screen whose acknowledgement opens a removal list, i.e. the 'success that isn't' from the other side",
+        "verdict": "RED",
+        "actual_line": "ok   V53 \u2605\u2605\u2605 THE FLAG IS ACCEPTED ON THE **SAVED** ARM \u2014 a `TEAM KEY RECEIVED` screen whose acknowledgement opens a removal list, i.e. the 'success that isn't' from the other side -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V54 \u2605\u2605\u2605 THE FULL LANDING IS KEYED ON THE **ARM** INSTEAD OF THE ANSWER \u2014 the static-join result screen renders the same note and would then give ONE receipt TWO endings",
+        "verdict": "RED",
+        "actual_line": "ok   V54 \u2605\u2605\u2605 THE FULL LANDING IS KEYED ON THE **ARM** INSTEAD OF THE ANSWER \u2014 the static-join result screen renders the same note and would then give ONE receipt TWO endings -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W01 \u2605\u2605\u2605\u2605 THE ACT AUTO-FIRES ON ROW SELECTION \u2014 merely opening a member's act sub-view opens the grant chain, so the operator is put one press from shipping a private key by an act they did not ask for (P-12, the no-unsolicited shape, and the headline control of this slice)",
+        "verdict": "RED",
+        "actual_line": "ok   W01 \u2605\u2605\u2605\u2605 THE ACT AUTO-FIRES ON ROW SELECTION \u2014 merely opening a member's act sub-view opens the grant chain, so the operator is put one press from shipping a private key by an act they did not ask for (P-12, the no-unsolicited shape, and the headline control of this slice) -> RED (113 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W02 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS SKIPPED \u2014 the act performs the grant itself instead of opening the chain's REJECT-default screen, so ONE double ships the key (P-13: the deliberate short-then-double is the whole guard)",
+        "verdict": "RED",
+        "actual_line": "ok   W02 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS SKIPPED \u2014 the act performs the grant itself instead of opening the chain's REJECT-default screen, so ONE double ships the key (P-13: the deliberate short-then-double is the whole guard) -> RED (66 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W03 \u2605\u2605\u2605\u2605 A **SECOND OUTCOME MAPPING IS FORKED** \u2014 the act stops going through the ONE reused call and maps the dispatch itself, so the panel's word and the core's word are free to disagree (the other headline; the anchor IS the reused call, which is what makes 'K7 adds no mapping' measurable rather than argued)",
+        "verdict": "RED",
+        "actual_line": "ok   W03 \u2605\u2605\u2605\u2605 A **SECOND OUTCOME MAPPING IS FORKED** \u2014 the act stops going through the ONE reused call and maps the dispatch itself, so the panel's word and the core's word are free to disagree (the other headline; the anchor IS the reused call, which is what makes 'K7 adds no mapping' measurable rather than argued) -> RED (47 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W04 \u2605\u2605\u2605 THE TARGET IS RE-RESOLVED AT PRESS TIME FROM THE MUTABLE TEAM-LOCAL ID instead of the hash frozen when the operator pointed at the row \u2014 a member that re-ran team-DAD between the two is granted to whoever now wears its id, or to nobody (P-7d)",
+        "verdict": "RED",
+        "actual_line": "ok   W04 \u2605\u2605\u2605 THE TARGET IS RE-RESOLVED AT PRESS TIME FROM THE MUTABLE TEAM-LOCAL ID instead of the hash frozen when the operator pointed at the row \u2014 a member that re-ran team-DAD between the two is granted to whoever now wears its id, or to nobody (P-7d) -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W05 \u2605\u2605\u2605 THE TARGET IS KEYED BY THE **DISPLAY NAME** \u2014 a mutable, self-asserted label decides whose private key is shipped, which is [[B48]]'s class at the worst possible site (P-7d)",
+        "verdict": "RED",
+        "actual_line": "ok   W05 \u2605\u2605\u2605 THE TARGET IS KEYED BY THE **DISPLAY NAME** \u2014 a mutable, self-asserted label decides whose private key is shipped, which is [[B48]]'s class at the worst possible site (P-7d) -> RED (166 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W06 \u2605\u2605\u2605 THE SELF REFUSAL IS DROPPED \u2014 the roster row that is US offers a GRANT KEY, and the operator is invited to run a pubkey ceremony against themselves",
+        "verdict": "RED",
+        "actual_line": "ok   W06 \u2605\u2605\u2605 THE SELF REFUSAL IS DROPPED \u2014 the roster row that is US offers a GRANT KEY, and the operator is invited to run a pubkey ceremony against themselves -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W07 \u2605\u2605\u2605 THE KEYLESS OFFER APPEARS \u2014 a node with NO team content key offers to grant one, so the act's own precondition is discovered at the seam instead of never being offered (\u00a7K7 pin 6)",
+        "verdict": "RED",
+        "actual_line": "ok   W07 \u2605\u2605\u2605 THE KEYLESS OFFER APPEARS \u2014 a node with NO team content key offers to grant one, so the act's own precondition is discovered at the seam instead of never being offered (\u00a7K7 pin 6) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W08 \u2605\u2605 THE AUTHORITATIVE FLOOR IS DROPPED \u2014 a ROUTE-ONLY member (no binding, no seal target) is offered as a grant target, which is the same fail-OPEN F-7 keeps off the invite list",
+        "verdict": "RED",
+        "actual_line": "ok   W08 \u2605\u2605 THE AUTHORITATIVE FLOOR IS DROPPED \u2014 a ROUTE-ONLY member (no binding, no seal target) is offered as a grant target, which is the same fail-OPEN F-7 keeps off the invite list -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W09 \u2605\u2605\u2605 THE ROSTER ENTRY TAKES THE WINDOW'S SNAPSHOT \u2014 the door that deliberately bypasses the F-11 diff starts feeding it, so the two authorities and the volatile handled set acquire a second, unruled writer",
+        "verdict": "RED",
+        "actual_line": "ok   W09 \u2605\u2605\u2605 THE ROSTER ENTRY TAKES THE WINDOW'S SNAPSHOT \u2014 the door that deliberately bypasses the F-11 diff starts feeding it, so the two authorities and the volatile handled set acquire a second, unruled writer -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W10 \u2605\u2605 THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (\u00a7B66) \u2014 the grant's slot is claimed whether or not the act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row",
+        "verdict": "RED",
+        "actual_line": "ok   W10 \u2605\u2605 THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (\u00a7B66) \u2014 the grant's slot is claimed whether or not the act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row -> RED (80 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W11 \u2605\u2605 THE RULED FIVE-MINUTE BOUND IS NOT ARMED \u2014 the approval opened from the roster has no deadline at all, so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
+        "verdict": "RED",
+        "actual_line": "ok   W11 \u2605\u2605 THE RULED FIVE-MINUTE BOUND IS NOT ARMED \u2014 the approval opened from the roster has no deadline at all, so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door -> RED (49 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W12 \u2605\u2605\u2605\u2605 THE ROSTER-ORIGIN BINDING IS DELETED while the rest of run_roster_grant remains \u2014 every shared exit sees `none` and falls to PROVISION instead of returning to the member who opened it",
+        "verdict": "RED",
+        "actual_line": "ok   W12 \u2605\u2605\u2605\u2605 THE ROSTER-ORIGIN BINDING IS DELETED while the rest of run_roster_grant remains \u2014 every shared exit sees `none` and falls to PROVISION instead of returning to the member who opened it -> RED (78 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W13 \u2605\u2605\u2605 THE CALLER IS DERIVED FROM InviteWindow::taken instead of bound by the roster action \u2014 the empty roster carrier is treated as having no caller and terminal acknowledgement loses its parent",
+        "verdict": "RED",
+        "actual_line": "ok   W13 \u2605\u2605\u2605 THE CALLER IS DERIVED FROM InviteWindow::taken instead of bound by the roster action \u2014 the empty roster carrier is treated as having no caller and terminal acknowledgement loses its parent -> RED (78 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W14 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE INVITATION LANDING \u2014 a roster REJECT/ack opens PROVISION's invitation parent instead of returning to TEAM",
+        "verdict": "RED",
+        "actual_line": "ok   W14 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE INVITATION LANDING \u2014 a roster REJECT/ack opens PROVISION's invitation parent instead of returning to TEAM -> RED (76 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W15 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE TEAM LANDING \u2014 an invitation-window REJECT leaves its window and selects a roster row the invitation never named",
+        "verdict": "RED",
+        "actual_line": "ok   W15 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE TEAM LANDING \u2014 an invitation-window REJECT leaves its window and selects a roster row the invitation never named -> RED (45 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W16 \u2605\u2605\u2605 GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed \u2014 the natural no-selection expiry re-opens an invitation list it has no selected caller for",
+        "verdict": "RED",
+        "actual_line": "ok   W16 \u2605\u2605\u2605 GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed \u2014 the natural no-selection expiry re-opens an invitation list it has no selected caller for -> RED (14 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W17 \u2605\u2605\u2605 THE ROSTER IS RESTORED PASSIVE \u2014 the caller's entered list is lost and the next double only enters row zero instead of operating at the saved member",
+        "verdict": "RED",
+        "actual_line": "ok   W17 \u2605\u2605\u2605 THE ROSTER IS RESTORED PASSIVE \u2014 the caller's entered list is lost and the next double only enters row zero instead of operating at the saved member -> RED (23 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W18 \u2605\u2605\u2605 SETTINGS/PROVISIONING IS LEFT OPEN BEHIND THE TEAM BODY \u2014 the top-level screen says TEAM while the sub-state still owns SETTINGS",
+        "verdict": "RED",
+        "actual_line": "ok   W18 \u2605\u2605\u2605 SETTINGS/PROVISIONING IS LEFT OPEN BEHIND THE TEAM BODY \u2014 the top-level screen says TEAM while the sub-state still owns SETTINGS -> RED (35 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W19 \u2605\u2605\u2605 THE RETURN RESTORES ROW ZERO instead of the saved TEAM-local identity \u2014 selecting member 1 and returning silently points at member 0",
+        "verdict": "RED",
+        "actual_line": "ok   W19 \u2605\u2605\u2605 THE RETURN RESTORES ROW ZERO instead of the saved TEAM-local identity \u2014 selecting member 1 and returning silently points at member 0 -> RED (10 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W20 \u2605\u2605\u2605 THE B64 IDENTITY-FOLLOW STEP IS REMOVED \u2014 a member reordered while the terminal screen was up leaves the highlight at the old row",
+        "verdict": "RED",
+        "actual_line": "ok   W20 \u2605\u2605\u2605 THE B64 IDENTITY-FOLLOW STEP IS REMOVED \u2014 a member reordered while the terminal screen was up leaves the highlight at the old row -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W21 \u2605\u2605\u2605 A GONE RETURN SELECTS ITS NEIGHBOUR \u2014 the existing B64 refusal is replaced by row zero, so the next double opens a DM for somebody else",
+        "verdict": "RED",
+        "actual_line": "ok   W21 \u2605\u2605\u2605 A GONE RETURN SELECTS ITS NEIGHBOUR \u2014 the existing B64 refusal is replaced by row zero, so the next double opens a DM for somebody else -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W22 \u2605\u2605\u2605 A MATCHING ROSTER PUBKEY PUSH RETURNS TO THE INVITATION LIST \u2014 it loses the operation the operator started instead of opening the safe-default confirmation",
+        "verdict": "RED",
+        "actual_line": "ok   W22 \u2605\u2605\u2605 A MATCHING ROSTER PUBKEY PUSH RETURNS TO THE INVITATION LIST \u2014 it loses the operation the operator started instead of opening the safe-default confirmation -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W23 \u2605\u2605\u2605 A MATCHING INVITATION PUBKEY PUSH OPENS THE ROSTER CONFIRMATION \u2014 invite-origin behaviour is no longer byte-identical and the refreshed candidate list is skipped",
+        "verdict": "RED",
+        "actual_line": "ok   W23 \u2605\u2605\u2605 A MATCHING INVITATION PUBKEY PUSH OPENS THE ROSTER CONFIRMATION \u2014 invite-origin behaviour is no longer byte-identical and the refreshed candidate list is skipped -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W24 \u2605\u2605\u2605 A RETURN REPEATS THE PUBKEY REQUEST \u2014 cancellation/acknowledgement grows an unauthorised second device command instead of being navigation-only",
+        "verdict": "RED",
+        "actual_line": "ok   W24 \u2605\u2605\u2605 A RETURN REPEATS THE PUBKEY REQUEST \u2014 cancellation/acknowledgement grows an unauthorised second device command instead of being navigation-only -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W25 \u2605\u2605\u2605 A TERMINAL ACKNOWLEDGEMENT REPEATS THE GRANT \u2014 the result's frozen hash is sent a second time before the roster landing",
+        "verdict": "RED",
+        "actual_line": "ok   W25 \u2605\u2605\u2605 A TERMINAL ACKNOWLEDGEMENT REPEATS THE GRANT \u2014 the result's frozen hash is sent a second time before the roster landing -> RED (26 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W26 \u2605\u2605\u2605 AN UNRELATED CLOSE CLEARS ONLY THE ROSTER PAYLOAD, NOT ITS ORIGIN \u2014 a later invitation window with no selected candidate inherits TEAM as its terminal parent instead of failing closed to PROVISION",
+        "verdict": "RED",
+        "actual_line": "ok   W26 \u2605\u2605\u2605 AN UNRELATED CLOSE CLEARS ONLY THE ROSTER PAYLOAD, NOT ITS ORIGIN \u2014 a later invitation window with no selected candidate inherits TEAM as its terminal parent instead of failing closed to PROVISION -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "W27 \u2605\u2605\u2605 EMERGENCY RETIRES INVITATION CALLERS BUT LEAVES A ROSTER CALLER ARMED \u2014 after pre-emption, a fresh unbound expiry jumps to TEAM instead of the fail-closed PROVISION parent",
+        "verdict": "RED",
+        "actual_line": "ok   W27 \u2605\u2605\u2605 EMERGENCY RETIRES INVITATION CALLERS BUT LEAVES A ROSTER CALLER ARMED \u2014 after pre-emption, a fresh unbound expiry jumps to TEAM instead of the fail-closed PROVISION parent -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "V50 \u2605 the ruled RETENTION lexemes are re-spelled \u2014 S-40/S-42 are owner-ruled and declared once, so a re-ruling must change each in exactly one place (the V38/V39 treatment, one screen over)",
+        "verdict": "RED",
+        "actual_line": "ok   V50 \u2605 the ruled RETENTION lexemes are re-spelled \u2014 S-40/S-42 are owner-ruled and declared once, so a re-ruling must change each in exactly one place (the V38/V39 treatment, one screen over) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y01 \u2605\u2605\u2605\u2605 THE SLOT IS DERIVED FROM THE ROW INDEX \u2014 \u00a7B66's exact defect, and on a GAPPED catalog (dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for",
+        "verdict": "RED",
+        "actual_line": "ok   Y01 \u2605\u2605\u2605\u2605 THE SLOT IS DERIVED FROM THE ROW INDEX \u2014 \u00a7B66's exact defect, and on a GAPPED catalog (dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for -> RED (10 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are empty\". \u00a73.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS",
+        "verdict": "RED",
+        "actual_line": "ok   Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are empty\". \u00a73.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS -> RED (86 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y03 \u2605\u2605\u2605\u2605 THE L / - COLUMN IS DROPPED FROM A PRESET ROW \u2014 OQ-A's premise is that BOTH location states are shown, because the wearer CONFIRMS the marker as part of the double press. A blank column reads as `-`",
+        "verdict": "RED",
+        "actual_line": "ok   Y03 \u2605\u2605\u2605\u2605 THE L / - COLUMN IS DROPPED FROM A PRESET ROW \u2014 OQ-A's premise is that BOTH location states are shown, because the wearer CONFIRMS the marker as part of the double press. A blank column reads as `-` -> RED (18 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y04 \u2605\u2605\u2605 THE FIXED TABLE IS RESURRECTED \u2014 the projection bypassed and the retired kDmTexts re-created inside the row resolver. The panel then shows the compiled defaults for ever while the verbs edit a record nothing reads",
+        "verdict": "RED",
+        "actual_line": "ok   Y04 \u2605\u2605\u2605 THE FIXED TABLE IS RESURRECTED \u2014 the projection bypassed and the retired kDmTexts re-created inside the row resolver. The panel then shows the compiled defaults for ever while the verbs edit a record nothing reads -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y05 \u2605\u2605\u2605\u2605 K7's GRANT KEY ROW IS DISPLACED \u2014 pinned at the COMPILED list's length instead of the projection's, which is R-1's \"may not move K7's row\" broken the moment the wearer enables a third preset",
+        "verdict": "RED",
+        "actual_line": "ok   Y05 \u2605\u2605\u2605\u2605 K7's GRANT KEY ROW IS DISPLACED \u2014 pinned at the COMPILED list's length instead of the projection's, which is R-1's \"may not move K7's row\" broken the moment the wearer enables a third preset -> RED (37 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y06 \u2605\u2605\u2605\u2605 THE MODAL CLOSES ON A NO-OP \u2014 the equality dropped, so ANY ui preset verb (including an identical set that wrote nothing) shuts an open compose. Spec \u00a72's table rules the opposite in two of its rows",
+        "verdict": "RED",
+        "actual_line": "ok   Y06 \u2605\u2605\u2605\u2605 THE MODAL CLOSES ON A NO-OP \u2014 the equality dropped, so ANY ui preset verb (including an identical set that wrote nothing) shuts an open compose. Spec \u00a72's table rules the opposite in two of its rows -> RED (274 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y07 \u2605\u2605\u2605 THE EMPTY STATE IS BYPASSED \u2014 \u00a73.2.1's note never answered, so a wearer who cleared every preset gets a sub-view with one unexplained back row and no reason for it",
+        "verdict": "RED",
+        "actual_line": "ok   Y07 \u2605\u2605\u2605 THE EMPTY STATE IS BYPASSED \u2014 \u00a73.2.1's note never answered, so a wearer who cleared every preset gets a sub-view with one unexplained back row and no reason for it -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "Y08 \u2605\u2605\u2605\u2605 PRESET CHANGED FALLS THROUGH TO THE GENERIC FAILURE \u2014 spec \u00a72 gives the refusal a RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted",
+        "verdict": "RED",
+        "actual_line": "ok   Y08 \u2605\u2605\u2605\u2605 PRESET CHANGED FALLS THROUGH TO THE GENERIC FAILURE \u2014 spec \u00a72 gives the refusal a RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted -> RED (5 assertion(s) failed, match count 1)"
+      }
+    ]
+  },
+  "sliceCbudget": {
+    "configured": 1,
+    "red": 1,
+    "survives": 0,
+    "worker_baselines": 1,
+    "baseline_log_occurrences_including_aggregate": 2,
+    "baseline": [
+      3031,
+      198613,
+      0
+    ],
+    "real_tree_unchanged": true,
+    "entries": [
+      {
+        "label": "S10 \u2605\u2605\u2605 THE ORDINARY-VIEW TOTAL IS TAKEN **AFTER** THE RING CAP \u2014 `inbox_total` collapses onto `inbox_shown` and a truncated list starts claiming it is the whole mailbox",
+        "verdict": "RED",
+        "actual_line": "ok   S10 \u2605\u2605\u2605 THE ORDINARY-VIEW TOTAL IS TAKEN **AFTER** THE RING CAP \u2014 `inbox_total` collapses onto `inbox_shown` and a truncated list starts claiming it is the whole mailbox -> RED (3 assertion(s) failed, match count 1)"
+      }
+    ]
+  },
+  "w4aident": {
+    "configured": 9,
+    "red": 9,
+    "survives": 0,
+    "worker_baselines": 8,
+    "baseline_log_occurrences_including_aggregate": 9,
+    "baseline": [
+      3031,
+      198613,
+      0
+    ],
+    "real_tree_unchanged": true,
+    "entries": [
+      {
+        "label": "F01 \u2605\u2605 the MARKER IS DROPPED \u2014 the last kept cell is the next name byte, a SILENT clip (B441's defect restored)",
+        "verdict": "RED",
+        "actual_line": "ok   F01 \u2605\u2605 the MARKER IS DROPPED \u2014 the last kept cell is the next name byte, a SILENT clip (B441's defect restored) -> RED (38 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F02 \u2605\u2605\u2605 the SANITIZER IS BYPASSED \u2014 raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells)",
+        "verdict": "RED",
+        "actual_line": "ok   F02 \u2605\u2605\u2605 the SANITIZER IS BYPASSED \u2014 raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells) -> RED (169 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F03 \u2605\u2605 the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.`",
+        "verdict": "RED",
+        "actual_line": "ok   F03 \u2605\u2605 the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.` -> RED (35 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F04 \u2605\u2605\u2605 an unnamed peer at 6-9 columns gets a CLIPPED `0x\u2026` hash instead of its fingerprint (the third spelling)",
+        "verdict": "RED",
+        "actual_line": "ok   F04 \u2605\u2605\u2605 an unnamed peer at 6-9 columns gets a CLIPPED `0x\u2026` hash instead of its fingerprint (the third spelling) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F05 \u2605\u2605 the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled",
+        "verdict": "RED",
+        "actual_line": "ok   F05 \u2605\u2605 the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F06 \u2605\u2605\u2605 NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost)",
+        "verdict": "RED",
+        "actual_line": "ok   F06 \u2605\u2605\u2605 NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost) -> RED (24 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F07 \u2605\u2605 the marker is written ONE PAST the budget \u2014 the abbreviated label is `cols + 1` cells wide",
+        "verdict": "RED",
+        "actual_line": "ok   F07 \u2605\u2605 the marker is written ONE PAST the budget \u2014 the abbreviated label is `cols + 1` cells wide -> RED (41 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F08 \u2605\u2605 the CAPACITY rule is dropped \u2014 a destination shorter than the budget gets a partial result past its end",
+        "verdict": "RED",
+        "actual_line": "ok   F08 \u2605\u2605 the CAPACITY rule is dropped \u2014 a destination shorter than the budget gets a partial result past its end -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "F09 \u2605\u2605 a NAME is ignored whenever a hash is known \u2014 the peer's chosen name is replaced by its hash token",
+        "verdict": "RED",
+        "actual_line": "ok   F09 \u2605\u2605 a NAME is ignored whenever a hash is known \u2014 the peer's chosen name is replaced by its hash token -> RED (22 assertion(s) failed, match count 1)"
+      }
+    ]
+  },
+  "chrome": {
+    "configured": 48,
+    "red": 48,
+    "survives": 0,
+    "worker_baselines": 8,
+    "baseline_log_occurrences_including_aggregate": 9,
+    "baseline": [
+      3031,
+      198613,
+      0
+    ],
+    "real_tree_unchanged": true,
+    "entries": [
+      {
+        "label": "X01 the compact age takes a 32-bit millisecond parameter (the ~49.7-day wrap, re-created)",
+        "verdict": "RED",
+        "actual_line": "ok   X01 the compact age takes a 32-bit millisecond parameter (the ~49.7-day wrap, re-created) -> RED (20 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X02 `ever` is ignored, so a never-confirmed home renders `0s` instead of `--`",
+        "verdict": "RED",
+        "actual_line": "ok   X02 `ever` is ignored, so a never-confirmed home renders `0s` instead of `--` -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X03 the seconds bucket is inclusive (60 s renders `60s`, not `1m`)",
+        "verdict": "RED",
+        "actual_line": "ok   X03 the seconds bucket is inclusive (60 s renders `60s`, not `1m`) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X04 the 100-day cutoff is inclusive (100 d renders a day count instead of `old`)",
+        "verdict": "RED",
+        "actual_line": "ok   X04 the 100-day cutoff is inclusive (100 d renders a day count instead of `old`) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X05 the tokens are not NUL-padded (equality then depends on what the buffer held before)",
+        "verdict": "RED",
+        "actual_line": "ok   X05 the tokens are not NUL-padded (equality then depends on what the buffer held before) -> RED (35 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X06 the mail slot carries the RAW combined count instead of the drawn digits",
+        "verdict": "RED",
+        "actual_line": "ok   X06 the mail slot carries the RAW combined count instead of the drawn digits -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X07 the battery ROUNDS instead of truncating (4199 mV becomes 4.2V)",
+        "verdict": "RED",
+        "actual_line": "ok   X07 the battery ROUNDS instead of truncating (4199 mV becomes 4.2V) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X08 equality is a `memcmp` over the struct, padding included (\u00a78.2 forbids it in as many words)",
+        "verdict": "RED",
+        "actual_line": "ok   X08 equality is a `memcmp` over the struct, padding included (\u00a78.2 forbids it in as many words) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X09 NO TEAM is collapsed into a team with zero teammates (`--` becomes `0`)",
+        "verdict": "RED",
+        "actual_line": "ok   X09 NO TEAM is collapsed into a team with zero teammates (`--` becomes `0`) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X10 the key slot is filled with no team configured (`blank` collapses into `crossed`)",
+        "verdict": "RED",
+        "actual_line": "ok   X10 the key slot is filled with no team configured (`blank` collapses into `crossed`) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X11 the people count is the UI's row capacity, not the true total (the retired `T8/12`)",
+        "verdict": "RED",
+        "actual_line": "ok   X11 the people count is the UI's row capacity, not the true total (the retired `T8/12`) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X12 a build with no mobile plane draws the CROSSED house (\u00a74.2's forbidden fault icon)",
+        "verdict": "RED",
+        "actual_line": "ok   X12 a build with no mobile plane draws the CROSSED house (\u00a74.2's forbidden fault icon) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X13 the home slot is classified without asking whether the plane exists at all",
+        "verdict": "RED",
+        "actual_line": "ok   X13 the home slot is classified without asking whether the plane exists at all -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X14 a blank home slot still prints `--` ('not applicable' rendered as 'never confirmed')",
+        "verdict": "RED",
+        "actual_line": "ok   X14 a blank home slot still prints `--` ('not applicable' rendered as 'never confirmed') -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X15 UNSAVED outranks CONFLICT (the operator is not told their draft is stale)",
+        "verdict": "RED",
+        "actual_line": "ok   X15 UNSAVED outranks CONFLICT (the operator is not told their draft is stale) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X16 RESTART-REQUIRED outranks UNSAVED (an unsaved draft hides behind a reboot notice)",
+        "verdict": "RED",
+        "actual_line": "ok   X16 RESTART-REQUIRED outranks UNSAVED (an unsaved draft hides behind a reboot notice) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X17 the emergency exception is dropped (the rail is drawn over a 128-px headline)",
+        "verdict": "RED",
+        "actual_line": "ok   X17 the emergency exception is dropped (the rail is drawn over a 128-px headline) -> RED (50 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X18 the rail is always visible",
+        "verdict": "RED",
+        "actual_line": "ok   X18 the rail is always visible -> RED (35 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X19 the compose modal does not claim the rail (a DM compose from TEAM reads TEAM)",
+        "verdict": "RED",
+        "actual_line": "ok   X19 the compose modal does not claim the rail (a DM compose from TEAM reads TEAM) -> RED (32 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X20 the send RESULT phase falls back to the screen underneath it",
+        "verdict": "RED",
+        "actual_line": "ok   X20 the send RESULT phase falls back to the screen underneath it -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X21 a body-replacing inbox modal loses its slot (precedence dropped)",
+        "verdict": "RED",
+        "actual_line": "ok   X21 a body-replacing inbox modal loses its slot (precedence dropped) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X22 a non-team build still exposes the TEAM/SEND rail slots (misleading dead icons)",
+        "verdict": "RED",
+        "actual_line": "ok   X22 a non-team build still exposes the TEAM/SEND rail slots (misleading dead icons) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X23 the rail fields are published while the rail is SUPPRESSED (visible equality stops being visible)",
+        "verdict": "RED",
+        "actual_line": "ok   X23 the rail fields are published while the rail is SUPPRESSED (visible equality stops being visible) -> RED (15 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X24 the inbox-detail clause is tested BEFORE compose (the rail names a body the renderer is not drawing)",
+        "verdict": "RED",
+        "actual_line": "ok   X24 the inbox-detail clause is tested BEFORE compose (the rail names a body the renderer is not drawing) -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X25 an unrenderable battery reading is CLAMPED to a plausible voltage instead of `--`",
+        "verdict": "RED",
+        "actual_line": "ok   X25 an unrenderable battery reading is CLAMPED to a plausible voltage instead of `--` -> RED (9 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X26 the formatter's own width guard is dropped (it can emit a token wider than the frozen slot)",
+        "verdict": "RED",
+        "actual_line": "ok   X26 the formatter's own width guard is dropped (it can emit a token wider than the frozen slot) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X27 the invalidation marks the model CLEAN when nothing changed (\u00a78.3.1's WITHDRAWN instruction)",
+        "verdict": "RED",
+        "actual_line": "ok   X27 the invalidation marks the model CLEAN when nothing changed (\u00a78.3.1's WITHDRAWN instruction) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X28 the invalidation's sense is inverted (it raises when nothing moved, and misses what did)",
+        "verdict": "RED",
+        "actual_line": "ok   X28 the invalidation's sense is inverted (it raises when nothing moved, and misses what did) -> RED (33 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X29 nothing ever invalidates (the strip goes stale on a lit panel)",
+        "verdict": "RED",
+        "actual_line": "ok   X29 nothing ever invalidates (the strip goes stale on a lit panel) -> RED (9 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X30 the slot mask bit is not one-per-slot (two rail slots share a bit)",
+        "verdict": "RED",
+        "actual_line": "ok   X30 the slot mask bit is not one-per-slot (two rail slots share a bit) -> RED (10 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X31 the mask is widened to the whole id (the top byte leaks into the shared token)",
+        "verdict": "RED",
+        "actual_line": "ok   X31 the mask is widened to the whole id (the top byte leaks into the shared token) -> RED (534 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X32 the width loses its ZERO (a low id renders SPACE-padded, `     1` for `000001`)",
+        "verdict": "RED",
+        "actual_line": "ok   X32 the width loses its ZERO (a low id renders SPACE-padded, `     1` for `000001`) -> RED (23 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X33 the hex digits are LOWER case (the two ends of a join render the same team differently)",
+        "verdict": "RED",
+        "actual_line": "ok   X33 the hex digits are LOWER case (the two ends of a join render the same team differently) -> RED (298 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X34 the FULL id loses its zero padding (a low id renders short, and it is the AUTHORITY value)",
+        "verdict": "RED",
+        "actual_line": "ok   X34 the FULL id loses its zero padding (a low id renders short, and it is the AUTHORITY value) -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X35 the success screen's 'full id' is the MASKED one (the fingerprint drawn twice, no authority value)",
+        "verdict": "RED",
+        "actual_line": "ok   X35 the success screen's 'full id' is the MASKED one (the fingerprint drawn twice, no authority value) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X36 a TEAMLESS node is warned that its membership will be replaced (a warning about nothing)",
+        "verdict": "RED",
+        "actual_line": "ok   X36 a TEAMLESS node is warned that its membership will be replaced (a warning about nothing) -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X37 the replacement warning names the team by a PRIVATE truncation of the shared token",
+        "verdict": "RED",
+        "actual_line": "ok   X37 the replacement warning names the team by a PRIVATE truncation of the shared token -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X38 100 % is drawn as the full gauge (the warning mark never appears \u2014 right about the level, silent about the consequence)",
+        "verdict": "RED",
+        "actual_line": "ok   X38 100 % is drawn as the full gauge (the warning mark never appears \u2014 right about the level, silent about the consequence) -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X39 the pct is tested BEFORE `enabled` (a node with NO duty limit reports itself duty-blocked at 100)",
+        "verdict": "RED",
+        "actual_line": "ok   X39 the pct is tested BEFORE `enabled` (a node with NO duty limit reports itself duty-blocked at 100) -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X40 `enabled` is ignored, so an UNLIMITED node draws an empty gauge (`0 % used`, which it never measured)",
+        "verdict": "RED",
+        "actual_line": "ok   X40 `enabled` is ignored, so an UNLIMITED node draws an empty gauge (`0 % used`, which it never measured) -> RED (15 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X41 the step map divides by the gauge's ROW count, not its LEVEL count (the full gauge becomes unreachable)",
+        "verdict": "RED",
+        "actual_line": "ok   X41 the step map divides by the gauge's ROW count, not its LEVEL count (the full gauge becomes unreachable) -> RED (72 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X42 every step boundary begins one percent early (the off-by-one a re-derived table would agree with)",
+        "verdict": "RED",
+        "actual_line": "ok   X42 every step boundary begins one percent early (the off-by-one a re-derived table would agree with) -> RED (24 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X43 the gauge is dropped from the equality (a visible bucket change owes no repaint \u2014 the strip goes stale)",
+        "verdict": "RED",
+        "actual_line": "ok   X43 the gauge is dropped from the equality (a visible bucket change owes no repaint \u2014 the strip goes stale) -> RED (9 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X44 the projection hard-codes the gauge, so the slot always claims there is no duty limit",
+        "verdict": "RED",
+        "actual_line": "ok   X44 the projection hard-codes the gauge, so the slot always claims there is no duty limit -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X45 \u2605\u2605 the menu cue is drawn in EVERY state (list focus included \u2014 a second cue beside the body's own `>`)",
+        "verdict": "RED",
+        "actual_line": "ok   X45 \u2605\u2605 the menu cue is drawn in EVERY state (list focus included \u2014 a second cue beside the body's own `>`) -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X46 \u2605\u2605 the cue is dropped from the equality (entering/leaving menu mode owes no repaint \u2014 the rail goes stale)",
+        "verdict": "RED",
+        "actual_line": "ok   X46 \u2605\u2605 the cue is dropped from the equality (entering/leaving menu mode owes no repaint \u2014 the rail goes stale) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X47 the cue is projected OUTSIDE the rail's visibility, so an emergency frame still carries it (\u00a75.3 normalisation lost)",
+        "verdict": "RED",
+        "actual_line": "ok   X47 the cue is projected OUTSIDE the rail's visibility, so an emergency frame still carries it (\u00a75.3 normalisation lost) -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "X48 \u2605\u2605 the blocked-setup note boxes STATUS instead of SETTINGS (the rail describes a body it is not showing)",
+        "verdict": "RED",
+        "actual_line": "ok   X48 \u2605\u2605 the blocked-setup note boxes STATUS instead of SETTINGS (the rail describes a body it is not showing) -> RED (1 assertion(s) failed, match count 1)"
+      }
+    ]
+  },
+  "uistatus": {
+    "configured": 19,
+    "red": 19,
+    "survives": 0,
+    "worker_baselines": 8,
+    "baseline_log_occurrences_including_aggregate": 9,
+    "baseline": [
+      3031,
+      198613,
+      0
+    ],
+    "real_tree_unchanged": true,
+    "entries": [
+      {
+        "label": "S02 the fix predicate becomes AND \u2014 a node on the equator or the meridian loses its position",
+        "verdict": "RED",
+        "actual_line": "ok   S02 the fix predicate becomes AND \u2014 a node on the equator or the meridian loses its position -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S03 the fix predicate reads ONE coordinate only (the core's refusal reads both)",
+        "verdict": "RED",
+        "actual_line": "ok   S03 the fix predicate reads ONE coordinate only (the core's refusal reads both) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S04 \u2605\u2605 the coordinate ROUNDS instead of truncating (a position further along than the stored one)",
+        "verdict": "RED",
+        "actual_line": "ok   S04 \u2605\u2605 the coordinate ROUNDS instead of truncating (a position further along than the stored one) -> RED (4 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S13 \u2605\u2605 row 4 RE-DERIVES the fix instead of trusting the published `own_fix` (a second definition)",
+        "verdict": "RED",
+        "actual_line": "ok   S13 \u2605\u2605 row 4 RE-DERIVES the fix instead of trusting the published `own_fix` (a second definition) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S14 \u26d4 NO TEAM is replaced by a zero id on the team line \u2014 `TEAM 00000000 NO ID`, a plausible team nobody is in",
+        "verdict": "RED",
+        "actual_line": "ok   S14 \u26d4 NO TEAM is replaced by a zero id on the team line \u2014 `TEAM 00000000 NO ID`, a plausible team nobody is in -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S15 \u26d4 a node before team-DAD renders `T0` \u2014 a PLAUSIBLE local id for a node that has none (was: NO ID)",
+        "verdict": "RED",
+        "actual_line": "ok   S15 \u26d4 a node before team-DAD renders `T0` \u2014 a PLAUSIBLE local id for a node that has none (was: NO ID) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S16 a build with NO team plane says `NO TEAM` instead of a blank team line (a fact the build cannot have)",
+        "verdict": "RED",
+        "actual_line": "ok   S16 a build with NO team plane says `NO TEAM` instead of a blank team line (a fact the build cannot have) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S17 \u2605\u2605 the team-line SPELLING drifts: the full formatter's `0x` is kept (`TEAM 0x3D9348A5 T220`, 20 columns in 19)",
+        "verdict": "RED",
+        "actual_line": "ok   S17 \u2605\u2605 the team-line SPELLING drifts: the full formatter's `0x` is kept (`TEAM 0x3D9348A5 T220`, 20 columns in 19) -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S18 \u2605\u2605\u2605 the WITHDRAWN word returns on the TEAM item \u2014 `TEAM 4 HEARD` for a count that is ROUTE EVIDENCE",
+        "verdict": "RED",
+        "actual_line": "ok   S18 \u2605\u2605\u2605 the WITHDRAWN word returns on the TEAM item \u2014 `TEAM 4 HEARD` for a count that is ROUTE EVIDENCE -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S19 the TEAM item's count is shown at ZERO (`TEAM 0 KNOWN`) instead of being omitted",
+        "verdict": "RED",
+        "actual_line": "ok   S19 the TEAM item's count is shown at ZERO (`TEAM 0 KNOWN`) instead of being omitted -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S20 the INBOX item's token becomes the RAW SUM (the strip's 99+ and Home's label stop agreeing)",
+        "verdict": "RED",
+        "actual_line": "ok   S20 the INBOX item's token becomes the RAW SUM (the strip's 99+ and Home's label stop agreeing) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S21 the INBOX item's count is shown at ZERO (`INBOX 0 NEW`) instead of being omitted",
+        "verdict": "RED",
+        "actual_line": "ok   S21 the INBOX item's count is shown at ZERO (`INBOX 0 NEW`) instead of being omitted -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S22 \u2605\u2605\u2605 MY DEVICE splits the name at 16 instead of 19 (the Home budget reused: three cells of row 0 wasted)",
+        "verdict": "RED",
+        "actual_line": "ok   S22 \u2605\u2605\u2605 MY DEVICE splits the name at 16 instead of 19 (the Home budget reused: three cells of row 0 wasted) -> RED (12 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S23 \u2605\u2605 MY DEVICE's second row skips the sanitizer (raw high bytes reach the panel on row 1 only)",
+        "verdict": "RED",
+        "actual_line": "ok   S23 \u2605\u2605 MY DEVICE's second row skips the sanitizer (raw high bytes reach the panel on row 1 only) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S24 \u26d4 an UNNAMED device's My device rows are blank instead of `NO NAME SET` (unnamed is a real state, D10)",
+        "verdict": "RED",
+        "actual_line": "ok   S24 \u26d4 an UNNAMED device's My device rows are blank instead of `NO NAME SET` (unnamed is a real state, D10) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S25 \u26d4 no name AND no key hash fabricate an identity on Home row 0 \u2014 `ME 0x00000000` (was: `ME` alone)",
+        "verdict": "RED",
+        "actual_line": "ok   S25 \u26d4 no name AND no key hash fabricate an identity on Home row 0 \u2014 `ME 0x00000000` (was: `ME` alone) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S26 the blocked note offers `IN SETTINGS` for CFG UNAVAILABLE too (a remedy Settings cannot give)",
+        "verdict": "RED",
+        "actual_line": "ok   S26 the blocked note offers `IN SETTINGS` for CFG UNAVAILABLE too (a remedy Settings cannot give) -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S27 \u2605\u2605 the body invalidation compares the name's LENGTH only (a same-length rename never repaints)",
+        "verdict": "RED",
+        "actual_line": "ok   S27 \u2605\u2605 the body invalidation compares the name's LENGTH only (a same-length rename never repaints) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "S28 the body invalidation ignores the SCREEN (it repaints on TEAM for a Home fact nobody can see)",
+        "verdict": "RED",
+        "actual_line": "ok   S28 the body invalidation ignores the SCREEN (it repaints on TEAM for a Home fact nobody can see) -> RED (1 assertion(s) failed, match count 1)"
+      }
+    ]
+  },
+  "w4bhome": {
+    "configured": 26,
+    "red": 26,
+    "survives": 0,
+    "worker_baselines": 8,
+    "baseline_log_occurrences_including_aggregate": 9,
+    "baseline": [
+      3031,
+      198613,
+      0
+    ],
+    "real_tree_unchanged": true,
+    "entries": [
+      {
+        "label": "H01 \u2605\u2605\u2605 a missing key no longer OUTRANKS a pending ID (the key-missing profile hides behind ID-pending)",
+        "verdict": "RED",
+        "actual_line": "ok   H01 \u2605\u2605\u2605 a missing key no longer OUTRANKS a pending ID (the key-missing profile hides behind ID-pending) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H02 \u2605\u2605 the JOIN TEAM item bypasses its CAPABILITY (a build that cannot join offers the act)",
+        "verdict": "RED",
+        "actual_line": "ok   H02 \u2605\u2605 the JOIN TEAM item bypasses its CAPABILITY (a build that cannot join offers the act) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H03 \u2605\u2605 the INVITE MEMBER item bypasses its CAPABILITY",
+        "verdict": "RED",
+        "actual_line": "ok   H03 \u2605\u2605 the INVITE MEMBER item bypasses its CAPABILITY -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H04 \u2605\u2605\u2605 the arrow is kept by ROW instead of by IDENTITY (a list change moves the arrow onto another item, silently)",
+        "verdict": "RED",
+        "actual_line": "ok   H04 \u2605\u2605\u2605 the arrow is kept by ROW instead of by IDENTITY (a list change moves the arrow onto another item, silently) -> RED (22 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H05 \u2605\u2605\u2605 OPTIONS CHANGED is never RAISED (the arrow jumps to item 1 with no word said)",
+        "verdict": "RED",
+        "actual_line": "ok   H05 \u2605\u2605\u2605 OPTIONS CHANGED is never RAISED (the arrow jumps to item 1 with no word said) -> RED (17 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H06 \u2605\u2605\u2605 OPTIONS CHANGED does not refuse the DOUBLE (the press the operator aimed at the old item opens item 1)",
+        "verdict": "RED",
+        "actual_line": "ok   H06 \u2605\u2605\u2605 OPTIONS CHANGED does not refuse the DOUBLE (the press the operator aimed at the old item opens item 1) -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H07 \u2605\u2605\u2605 MENU leaves the operator in LIST FOCUS on Home instead of MENU MODE (the rail cannot be walked)",
+        "verdict": "RED",
+        "actual_line": "ok   H07 \u2605\u2605\u2605 MENU leaves the operator in LIST FOCUS on Home instead of MENU MODE (the rail cannot be walked) -> RED (1988 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H08 \u2605\u2605\u2605\u2605 a BLANK RE-HOMES \u2014 the power action throws away the screen, the focus and the arrow (rule 7)",
+        "verdict": "RED",
+        "actual_line": "ok   H08 \u2605\u2605\u2605\u2605 a BLANK RE-HOMES \u2014 the power action throws away the screen, the focus and the arrow (rule 7) -> RED (186 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H09 \u2605\u2605\u2605\u2605 an OQ-3 CANCELLATION IS REMOVED \u2014 the saved-key offer survives the blank, one double from a SECRET install",
+        "verdict": "RED",
+        "actual_line": "ok   H09 \u2605\u2605\u2605\u2605 an OQ-3 CANCELLATION IS REMOVED \u2014 the saved-key offer survives the blank, one double from a SECRET install -> RED (37 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H10 \u2605\u2605\u2605 the Home-origin exit goes to the PROVISION MENU (the typed origin ignored at the return sites)",
+        "verdict": "RED",
+        "actual_line": "ok   H10 \u2605\u2605\u2605 the Home-origin exit goes to the PROVISION MENU (the typed origin ignored at the return sites) -> RED (23 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H10b \u2605\u2605\u2605 the PROVISION menu's own BACK ignores the Home origin (lands on the Settings menu)",
+        "verdict": "RED",
+        "actual_line": "ok   H10b \u2605\u2605\u2605 the PROVISION menu's own BACK ignores the Home origin (lands on the Settings menu) -> RED (5 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H11 \u2605\u2605\u2605 the blocked reason is RE-READ, not FROZEN \u2014 a recovery under the note changes it, or resumes nothing honestly",
+        "verdict": "RED",
+        "actual_line": "ok   H11 \u2605\u2605\u2605 the blocked reason is RE-READ, not FROZEN \u2014 a recovery under the note changes it, or resumes nothing honestly -> RED (16 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H12 \u2605\u2605\u2605\u2605 a Send `PRESET CHANGED` press SENDS \u2014 the catalog moved under the operator's thumb and the press is honoured",
+        "verdict": "RED",
+        "actual_line": "ok   H12 \u2605\u2605\u2605\u2605 a Send `PRESET CHANGED` press SENDS \u2014 the catalog moved under the operator's thumb and the press is honoured -> RED (6 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H13 \u2605\u2605 the Home INVITE open never takes the member SNAPSHOT (the window opens with no authorities)",
+        "verdict": "RED",
+        "actual_line": "ok   H13 \u2605\u2605 the Home INVITE open never takes the member SNAPSHOT (the window opens with no authorities) -> RED (14 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H14 \u2605\u2605\u2605 the Home INVITE open never requests the team announcement",
+        "verdict": "RED",
+        "actual_line": "ok   H14 \u2605\u2605\u2605 the Home INVITE open never requests the team announcement -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H15 \u2605\u2605\u2605 the Home INVITE open requests the announcement TWICE",
+        "verdict": "RED",
+        "actual_line": "ok   H15 \u2605\u2605\u2605 the Home INVITE open requests the announcement TWICE -> RED (7 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H16 \u2605\u2605\u2605\u2605 Home JOIN/CREATE SKIP THE SETTINGS GATE (a dirty or conflicted draft is carried into a provisioning act)",
+        "verdict": "RED",
+        "actual_line": "ok   H16 \u2605\u2605\u2605\u2605 Home JOIN/CREATE SKIP THE SETTINGS GATE (a dirty or conflicted draft is carried into a provisioning act) -> RED (44 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H17 \u2605\u2605 an unavailable service is refused with NO reason (the note says nothing the operator can read)",
+        "verdict": "RED",
+        "actual_line": "ok   H17 \u2605\u2605 an unavailable service is refused with NO reason (the note says nothing the operator can read) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H18 \u2605\u2605\u2605 a return lands on item 1 instead of its OPENER (the operator loses their place on every way back)",
+        "verdict": "RED",
+        "actual_line": "ok   H18 \u2605\u2605\u2605 a return lands on item 1 instead of its OPENER (the operator loses their place on every way back) -> RED (8 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H19 \u2605\u2605 the SETTINGS PROVISION row does not type the origin (a stale Home origin sends Settings' exits Home)",
+        "verdict": "RED",
+        "actual_line": "ok   H19 \u2605\u2605 the SETTINGS PROVISION row does not type the origin (a stale Home origin sends Settings' exits Home) -> RED (15 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H20 \u2605\u2605 the origin is NOT RETIRED when the flow leaves SETTINGS (a later flow inherits a dead session's exits)",
+        "verdict": "RED",
+        "actual_line": "ok   H20 \u2605\u2605 the origin is NOT RETIRED when the flow leaves SETTINGS (a later flow inherits a dead session's exits) -> RED (11 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H21 \u2605\u2605\u2605 acknowledging a Send result CLOSES the Send list instead of returning to it on item 1",
+        "verdict": "RED",
+        "actual_line": "ok   H21 \u2605\u2605\u2605 acknowledging a Send result CLOSES the Send list instead of returning to it on item 1 -> RED (1 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H22 \u2605\u2605\u2605 a catalog change CLOSES the Send list (the DM rule applied to the top-level list: the operator is thrown out)",
+        "verdict": "RED",
+        "actual_line": "ok   H22 \u2605\u2605\u2605 a catalog change CLOSES the Send list (the DM rule applied to the top-level list: the operator is thrown out) -> RED (13 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H23 \u2605\u2605 a press on the SAME tick the item vanished clears the note it could not have seen (ruling)",
+        "verdict": "RED",
+        "actual_line": "ok   H23 \u2605\u2605 a press on the SAME tick the item vanished clears the note it could not have seen (ruling) -> RED (2 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H24 \u2605\u2605 a `short` on My device's one BACK row LEAVES (the sub-view has one row; only `double` returns)",
+        "verdict": "RED",
+        "actual_line": "ok   H24 \u2605\u2605 a `short` on My device's one BACK row LEAVES (the sub-view has one row; only `double` returns) -> RED (3 assertion(s) failed, match count 1)"
+      },
+      {
+        "label": "H25 \u2605\u2605\u2605\u2605 the Settings MENU is shown over a CLOSED service (B457 \u2014 a pre-empted ungated flow leaves an invisible menu)",
+        "verdict": "RED",
+        "actual_line": "ok   H25 \u2605\u2605\u2605\u2605 the Settings MENU is shown over a CLOSED service (B457 \u2014 a pre-empted ungated flow leaves an invisible menu) -> RED (14 assertion(s) failed, match count 1)"
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+# tools discovery: python3 -m unittest discover -s tools -p 'test_*.py'
+Ran 375 tests in 737.593s
+OK
+per module (unittest loader): 22 test_b278_correlation_census, 8 test_check_command_authority, 31 test_compare_corpus_slice_s1b, 76 test_gen_command_inventory, 46 test_measure_board, 7 test_mutation_unusable_reason, 18 test_probe_b278_row_abi, 18 test_probe_ble_line, 56 test_probe_board_abi, 22 test_probe_console_sink, 12 test_probe_custody_usb, 33 test_probe_features, 19 test_probe_firmware_ui (NEW, B456), 7 test_worker_formula_derived = 375; 0 skipped

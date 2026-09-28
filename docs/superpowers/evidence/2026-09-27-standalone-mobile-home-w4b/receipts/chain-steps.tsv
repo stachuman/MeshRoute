@@ -1,0 +1,17 @@
+01-diff-check	rc=0	0s
+02-native-build	rc=0	2s
+02-native-binary	rc=0	1s
+03-sim-configure	rc=0	1s
+03-sim-build	rc=0	32s
+03-corpus	rc=0	52s
+03-corpus-validate	rc=0	0s
+03-corpus-compare	rc=0	0s
+04-abi	rc=0	18s
+04-layout	rc=0	11s
+05-fwui	rc=0	370s
+05-fwui-completeness	rc=0	0s
+05-fwui-noneg	rc=0	35s
+05-board-ui-noneg	rc=1	11s
+06-discovery	rc=0	738s
+07-census	rc=0	164s
+DONE
