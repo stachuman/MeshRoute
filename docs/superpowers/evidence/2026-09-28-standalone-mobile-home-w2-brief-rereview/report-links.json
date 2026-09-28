@@ -1,0 +1,18 @@
+[
+  {
+    "target": "../plans/2026-09-28-standalone-mobile-home-w2-board-ui-readers.md",
+    "exists_or_checksum_index_pending": true
+  },
+  {
+    "target": "2026-09-28-standalone-mobile-home-w2-brief-review.md",
+    "exists_or_checksum_index_pending": true
+  },
+  {
+    "target": "2026-09-28-standalone-mobile-home-w2-precheck.md",
+    "exists_or_checksum_index_pending": true
+  },
+  {
+    "target": "2026-09-28-standalone-mobile-home-w2-brief-rereview/SHA256SUMS",
+    "exists_or_checksum_index_pending": true
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "scratch": "/tmp/meshroute-w2-precheck-pp47nr1x",
+  "tree": "/tmp/meshroute-w2-precheck-pp47nr1x/model-projection",
+  "purpose": "Synthetic retirement feasibility only; not W2 implementation or approval",
+  "removed_tuple": " (\"M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index\",\n  \"        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;\",\n  \"        _st.settings = Settings::closed;   _st.dirty = true;\"),\n",
+  "original_harness_sha256": "71c860f9a1fd9a4807fa4789da58545f9fbd4c1d90befee5545ece418d15687e",
+  "projected_harness_sha256": "550b7595e91c44d74a0e0111cba939f9a8f779032f77ed36ef6db9040821b003",
+  "copied_inputs": 1699,
+  "only_changed_input": "tools/probe_ui_model_mutations.py"
+}

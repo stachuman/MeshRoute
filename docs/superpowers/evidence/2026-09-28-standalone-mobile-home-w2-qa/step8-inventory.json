@@ -1,0 +1,5 @@
+{
+  "command": "python3 tools/gen_command_inventory.py --check",
+  "exit": 0,
+  "output": "gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)\n"
+}

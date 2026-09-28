@@ -1,0 +1,7 @@
+W2 QA accounting_audit.py pattern +wchk_in@N|w_ctl=k on the B459 trace: 186 increments, 1..186 in order: True
+W2 QA accounting_audit.py pattern +wchk_in@N|w_pass=k on the B459 trace: 60 increments, 1..60 in order: True
+W2 QA accounting_audit.py pattern +schk@N|s_pass=k on the B459 trace: 23 increments, 1..23 in order: True
+W2 QA accounting_audit.py pattern +trait_control@N|trait_pass=k on the B459 trace: 14 increments, 1..14 in order: True
+W2 QA accounting_audit.py pattern +missing_trait_control@N|missing_pass=k on the B459 trace: 12 increments, 1..12 in order: True
+no failure-counter increments: True
+W2-QA-PATTERNS HOLD

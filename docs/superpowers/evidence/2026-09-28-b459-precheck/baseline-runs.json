@@ -1,0 +1,37 @@
+[
+  {
+    "name": "board-default",
+    "command": [
+      "bash",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 22.87
+  },
+  {
+    "name": "board-no-neg",
+    "command": [
+      "bash",
+      "tools/probe_board_ui/run.sh",
+      "--no-neg"
+    ],
+    "exit": 0,
+    "seconds": 11.56
+  },
+  {
+    "name": "b456-tests",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_probe_firmware_ui.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 0.31
+  }
+]

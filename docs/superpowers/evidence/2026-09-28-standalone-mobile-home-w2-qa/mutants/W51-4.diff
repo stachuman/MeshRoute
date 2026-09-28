@@ -1,0 +1,11 @@
+--- real/fw_main.cpp
++++ mutant/W51-4
+@@ -679,7 +679,7 @@
+     const mrfw::CommandContext ctx{mrfw::CommandTransport::ble, mrfw::CommandAuthority::local,
+                                    false, 0, mrble::kLineStorageBytes - 1};
+     const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);
+-    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }
++    if (ex.state == mrfw::LineExec::State::streamed) { return 0; }
+     if (ex.state == mrfw::LineExec::State::buffered) return ex.n;
+     if (ex.state == mrfw::LineExec::State::empty)    return 0;
+     // §3: a malformed peerkey -> the contract's peerkey_err.

@@ -1,0 +1,38 @@
+{
+  "kind": "labelled synthetic example of suggested recipe; no candidate or production edit",
+  "source_sha256": "3eea954914b6b3d788dbe9c672972578da15144bd8f6944ae65d3367ef13893f",
+  "recipe_sed": "/^static void handle_teststatus(Print& out) {$/ {\n h\n a\\\n#if MR_FEAT_OLED   // \u2605 [[B255]] the `ui` dispatch arm\\\n    if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\\\n#endif   // MR_FEAT_OLED\n}\n/^#if MR_FEAT_OLED   \\/\\/ \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm$/ {\n x\n /./ {\n  x\n  N\n  N\n  /^#if MR_FEAT_OLED   \\/\\/ \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm\\n    if ((len == 2 || (len > 2 && line\\[2\\] == ' ')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\\n#endif   \\/\\/ MR_FEAT_OLED$/d\n  b\n }\n x\n}\n",
+  "stock_w49_current_signature": "fn_body() { awk -v sig=\"$2\" 'index($0, sig)==1 {inside=1} inside {print} inside && /^}$/ {exit}' \"$1\"; }\nfn_flat() { fn_body \"$1\" \"$2\" | sed 's://.*::' | tr '\\n' ' ' | tr -s ' '; }   # \u00a7B77: comments stripped FIRST\nw49() {\n  [ \"$(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' \"$1\")\" = 1 ] || return 1\n  fn_flat \"$1\" \"$DISPATCH_SIG\" | grep -qF \"$UI_ARM_GUARDED\"\n}\nUI_ARM=\"if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, \\\"ui\\\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\"\nUI_ARM_GUARDED=\"#if MR_FEAT_OLED $UI_ARM #endif\"\n\nDISPATCH_SIG='bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {'\nw49 \"$1\"\n",
+  "cases": [
+    {
+      "synthetic_case": "both_present",
+      "source_block_matches": 1,
+      "destination_matches": 1,
+      "baseline_w49_exit": 0,
+      "unchanged_output": false,
+      "arm_count_before": 1,
+      "arm_count_after": 1,
+      "mutated_w49_exit": 1
+    },
+    {
+      "synthetic_case": "destination_missing",
+      "source_block_matches": 1,
+      "destination_matches": 0,
+      "baseline_w49_exit": 0,
+      "unchanged_output": true,
+      "arm_count_before": 1,
+      "arm_count_after": 1,
+      "mutated_w49_exit": 0
+    },
+    {
+      "synthetic_case": "source_anchor_missing_only_comment_changed",
+      "source_block_matches": 0,
+      "destination_matches": 1,
+      "baseline_w49_exit": 0,
+      "unchanged_output": false,
+      "arm_count_before": 1,
+      "arm_count_after": 2,
+      "mutated_w49_exit": 1
+    }
+  ]
+}

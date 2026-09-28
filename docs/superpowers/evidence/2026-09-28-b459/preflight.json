@@ -1,0 +1,215 @@
+{
+ "brief_sha256": "443b95ea697353d36ef595975a002c1c1b3335dcb21cbe46886aea500d57de5a",
+ "executable": {
+  "tools/probe_board_ui/negctl.py": {
+   "base": true,
+   "lines": 375,
+   "sha256": "067e1e1b2e9bc464a4e4677b63c0058038a83568a4f801dd48192ba95917f76f"
+  },
+  "tools/probe_board_ui/probe_main.cpp": {
+   "base": true,
+   "lines": 659,
+   "sha256": "6cffd422588280136e09b05a1bdf9b602420336c7fba76315953a13d23af07b8"
+  },
+  "tools/probe_board_ui/run.sh": {
+   "base": true,
+   "lines": 1474,
+   "sha256": "0ee0bc90df8d8a6e1d5adce73958f2dd32061388c0f3644f70d9e1f88ce56fe8"
+  },
+  "tools/probe_firmware_ui/run.sh": {
+   "base": true,
+   "lines": 2040,
+   "sha256": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc"
+  },
+  "tools/test_probe_firmware_ui.py": {
+   "base": true,
+   "lines": 178,
+   "sha256": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16"
+  }
+ },
+ "failures": [],
+ "git_diff_check": {
+  "exit": 0,
+  "out": ""
+ },
+ "head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+ "inventory": {
+  "meshroute": {
+   "changed": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "tracker.md"
+   ],
+   "git_visible_now": 1893,
+   "inventoried": 1843,
+   "missing": [],
+   "new": [
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview.md",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/brief-delta.diff",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/delta-verification.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/final-preservation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/inputs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/preflight.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/register-delta.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/revision-1-reconstructed.md",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/seal.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/validation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/verify_delta.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/verify_inputs.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review.md",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/b456-tests.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/final-preservation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/identity-census.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/identity_census.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/inputs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate-exits.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate-exits.tsv",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate_exits.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/preflight.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/preflight.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/raw-logs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/seal.py",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/validation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck.md",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/base-reconciliation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/baseline-runs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/baseline-summary.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/board-fault-measurements.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/board-reconciliation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/board-reconciliation.tsv",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/census.py",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/final-preservation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/focused-baselines.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/inputs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/measure_board_accounting.py",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/raw-logs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/reader-search.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/receipt-validation.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/recommended-inputs.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/register-additions.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/runner-census.json",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/seal.py",
+    "docs/superpowers/evidence/2026-09-28-b459/scope.py",
+    "docs/superpowers/plans/2026-09-28-b459-board-ui-accounting.md"
+   ],
+   "new_hashes": {
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview.md": "cd6a371f6c6ce59d2fb0af23ae7fe5108a19fcaf8ba440223a3db9c20e5f29b2",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/SHA256SUMS": "7edfb6cf0ae16e1d44e645a536b1dfb1e51c03ad4340de860146252f3582b08f",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/brief-delta.diff": "796de786a9872e1d36d801f5bbfabd4d5e2f44dc4f9f6c57cd7b907613043a66",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/delta-verification.json": "e70535ef80f0a0fa5e702d0926c0230b6f35566eb3afbbb761a308d5062846c4",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/final-preservation.json": "099c045f2a4a56ba7d92d148101c08ff5c3c6f458fd58ed740415f788a928d2c",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/inputs.json": "5ab87a32f2eb89c72c069da73ce495f7da3f46b612ea2708c299ec43f2e91c02",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/preflight.json": "c4f7b81541308aee4fa12324778edc2454fdc0af4cadb0897a4979d6efd39afe",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/register-delta.json": "42968232034e53e13df518ba59ad9cbe79193991fb789523f0962549536d684b",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/revision-1-reconstructed.md": "f485c49427838f1480fb5a8b32a0dd454f3e88a4c7eab65b54aaeeb46c7e1453",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/seal.py": "aa5f84c5e3ff11538da1a75c3b573807cc81bbebfefaac7d06d2002ec3eb2e5b",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/validation.json": "2855790a545876afdd16744c8e1e7da3f2921e45d2b1122e312efad0588f74ee",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/verify_delta.py": "ea096f41583a03c19df8988a857cf391a4ea98578eec61b1a5e97cfdcae509f2",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-rereview/verify_inputs.py": "d261e541966e0669e8cb0cc2c50d1669651a4d8d6e33516695ec8ef9c4d54e53",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review.md": "f28760efe03f5cd203e6d20905e603043c4467f50cf230575b6fd5209150f34e",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/SHA256SUMS": "aeb3dff72bd356030e681f26356f7be87b760d3954f3a81ba71b2a98e2c6e957",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/b456-tests.json": "9e89d48a00b18cac649427417e1f184e5a9b895853d343a920c875093ef3f189",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/final-preservation.json": "c6de92194ea5cbbb6dbc3f236ded3226b1a7abbd9451f912edf9aec0a1220a39",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/identity-census.json": "a4b4fcfe57554d8beb855ffdd96349f05f465a3ddfebcee2c5b5c249d4877887",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/identity_census.py": "895efe81a0e9845786ec64c21543d8d27ed59f65cfdcacbd39bfd4ade9634f73",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/inputs.json": "6e8f9c7c0bc0c03d760709b78dc19c3a3f4cf6e4dac6627203733f6a15478aed",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate-exits.json": "d706892ff60f00c33dcb3c32eedf429353c2789737461e3c2f052a659ca3ced0",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate-exits.tsv": "e1f58f6ebdd833ffada34cfc7d9277f0c57a23ddfe5fcfa74d308653263a02e1",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate_exits.py": "0a8146d58773457c0497a32f6dcf27ec3cbde71ae6ec7c0b4501f7c6308bb6ba",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/preflight.json": "9020ea5c417151063789ebf349bfdfc14188d9d7692085d0b36949531f5fc0ed",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/preflight.py": "6778069be577ea5c87660440e550bedbfa12de7d529912c19e0c898c5af7219a",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/raw-logs.json": "9b6e8d4ee7a46cc77576cc3a1d332f753c7a367720ad215637b1997f78ba2832",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/seal.py": "f7588571a0c3f3e524c415cb9f77725a03157fe26a33cbbcfd6caafe30f4c368",
+    "docs/superpowers/evidence/2026-09-28-b459-brief-review/validation.json": "3b3a76b54cce811313885e22290dd19409e4612af8488e6e1e64d761e772760d",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck.md": "98d96dc538288145f4ea88b60a0271d02a53dfbeae8d0f8e01edc2c11734c710",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS": "a0eebbdd65cb494e3bc77f8c8e9d9008e919f44c7412c03709db9bddcb26265f",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/base-reconciliation.json": "85e7336704d15502c5f963d7cb04df0d04af628d1994463b84a5703fa53492ea",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/baseline-runs.json": "3fef257ac2c1e52f0aa7258f925c32f010daec86c5ad2151246337aa5e38ff26",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/baseline-summary.json": "a8b7e32286279244c23a9231111459b0d3fef806226bc99e91f97520200f2ad4",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/board-fault-measurements.json": "297a9bc5bb86137880aadc9a32dbdcc78007f3168a5ee82c12bead72ea7e0d99",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/board-reconciliation.json": "36a2439928408f21899880606be8e1c63ef3a6a670aef83baabfe1e593d303d1",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/board-reconciliation.tsv": "4109f7732d909192b98f290bb452eb6b683886c17b6f81db664228d98eddbb83",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/census.py": "85fe4a2f3a13e8a4be45305060fc0fda286d19a90e795fd13983821c93438edf",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/final-preservation.json": "1c3fb7ed32b0a6cce73542c612e09f48503a05e18b4ac8aafbc2e44b6b2b773e",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/focused-baselines.json": "e871dff48116849e3c574e11fc9a566cd02c10c9c662ff3df77aebe062f974b5",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/inputs.json": "22d1b7314eb7bf8e37f19ca2c4438d26d2c7e49e820643949e25d010219e051f",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/measure_board_accounting.py": "d5b903a35f509b2d389ceb2480e3136ea70da780a84dcf58cf1b2364da4141a9",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/raw-logs.json": "4f6b294920ebdc508b97850448f2e3f781e3a52830445551e27d9ae2fd99c1c2",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/reader-search.json": "8c715a08f52175096d0740473b4e34ed8809b6c094dfc32be5a4561c18c27fc5",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/receipt-validation.json": "218fbff7405a980359193338964db82e21dc66a1b4f6f79eca9d99ffa3618094",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/recommended-inputs.json": "f8c246b2c0bbc7f6f436094885b39c98e154113095df0c56879f5abc9e6c81d0",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/register-additions.json": "eea25a0eb9e9f581ffa6ccd9a2ab1c5cfc57de849dff2928631709e6c97f5089",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/runner-census.json": "10f3a37f669c7fccaeb93fbe192943517c8a6d7fa16b53d71085fb7990ada196",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/seal.py": "10360e2be82fba21a5caf36ad3134c25ebfc9c213773337e7253c4dbc26425af",
+    "docs/superpowers/evidence/2026-09-28-b459/scope.py": "d5ad2bc0cc9522518472190562d8c2cf3ab45bbb40a2ae31b376ac6ec9ff3abb",
+    "docs/superpowers/plans/2026-09-28-b459-board-ui-accounting.md": "443b95ea697353d36ef595975a002c1c1b3335dcb21cbe46886aea500d57de5a"
+   },
+   "unexplained_changed": [],
+   "unexplained_new": []
+  },
+  "simulator": {
+   "changed": [],
+   "git_visible_now": 285,
+   "inventoried": 285,
+   "missing": [],
+   "new": [],
+   "new_hashes": {},
+   "unexplained_changed": [],
+   "unexplained_new": []
+  }
+ },
+ "new_paths": {
+  "tools/probe_accounting.sh": null,
+  "tools/probe_board_ui/accounting.py": null,
+  "tools/probe_board_ui/expected.tsv": null,
+  "tools/test_probe_board_ui.py": null
+ },
+ "phase": "preflight",
+ "precheck_sums": {
+  "exit": 0,
+  "ok": 19
+ },
+ "preparation": {
+  "MEMORY.md": "a55e27aa416a7ed64a694a8ddbf222a34fcd3eb71188a04dc3ad947b536d278c",
+  "docs/2026-07-30-open-bug-register.md": "ebed97ce326b3a0d2be664d76e756388a5d9756462a12b3dbb8703d78f19bab5",
+  "docs/superpowers/evidence/2026-09-28-b459-precheck.md": "98d96dc538288145f4ea88b60a0271d02a53dfbeae8d0f8e01edc2c11734c710",
+  "docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS": "a0eebbdd65cb494e3bc77f8c8e9d9008e919f44c7412c03709db9bddcb26265f",
+  "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "dd64b400cab260cfc7b9edd07c7739a88e71665a1efb0ca8b485f99d83d137a4",
+  "tracker.md": "ef73543d1f749b529a81751bc391613a6222b9e80f7d584685fa848e5a788276"
+ },
+ "readonly": {
+  "AGENTS.md": {
+   "match": true,
+   "sha256": "abbbce6592f4cfc09a295e54985978f88a9d954eeffcb5449fdc9da7d7e89340"
+  },
+  "docs/2026-09-02-agent-roles.md": {
+   "match": true,
+   "sha256": "037d6bc5a3843f2df2520c17a6fb27b72709edde5b47f256e0ca6e130c5ef254"
+  },
+  "docs/CODE_GUIDELINES.md": {
+   "match": true,
+   "sha256": "c356981674305605c3d4ef255e42ec3ec5bdb15c26350e83bdea94b0ac8dd839"
+  },
+  "tools/probe_board_ui/fakes/Arduino.h": {
+   "match": true,
+   "sha256": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853"
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+   "match": true,
+   "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163"
+  },
+  "tools/probe_ui_model_mutations.py": {
+   "match": true,
+   "sha256": "81842cc53d806f1ed4dbce5bb7699a945e50dc6381f8258cf3c60eec73e2781a"
+  }
+ },
+ "simulator": {
+  "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "status": ""
+ },
+ "staged": "",
+ "verdict": "PASS"
+}

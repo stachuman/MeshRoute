@@ -1,0 +1,48 @@
+{
+  "counts": {
+    "w_ctl": {
+      "observed": 186,
+      "ordered_1_through_expected": true
+    },
+    "w_pass": {
+      "observed": 60,
+      "ordered_1_through_expected": true
+    },
+    "s_pass": {
+      "observed": 23,
+      "ordered_1_through_expected": true
+    },
+    "trait_pass": {
+      "observed": 14,
+      "ordered_1_through_expected": true
+    },
+    "missing_pass": {
+      "observed": 12,
+      "ordered_1_through_expected": true
+    }
+  },
+  "omission_controls": [
+    {
+      "case": "missing-check",
+      "removed_lines": 1,
+      "result": "FAIL",
+      "problems": [
+        "wiring W1: executed 0 times"
+      ]
+    },
+    {
+      "case": "missing-red",
+      "removed_lines": 1,
+      "result": "FAIL",
+      "problems": [
+        "wiring W54-help: {'kind': 'wiring', 'id': 'W54-help', 'source_line': 1450, 'declared_controls': 1, 'executed': 1, 'executed_controls': 1, 'controls_red': 0, 'scripts_identical': True, 'pred': 'w54_help', 'check_passed': True}"
+      ]
+    }
+  ],
+  "helper_scripts_reviewed_and_rerun": [
+    "declared.py",
+    "reconcile.py",
+    "per_control.py"
+  ],
+  "QA_setup_correction": "Initial omission-selector regex expected label=quoted-value but bash quotes the whole assignment. It matched zero and failed loud before a result; fixed using shlex. Stock trace and all instrument results unchanged."
+}

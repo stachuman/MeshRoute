@@ -1,0 +1,126 @@
+--- reviewed-r2
++++ proposed-r3
+@@ -1,8 +1,8 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # Standalone Home W2 — the board-UI probe's stale readers (B418), with B451 and B458 (tool-only)
+ 
+-**Revision 2 — 2026-09-28 — for QA review.** It supersedes revision 1 (`c52d573c…b1c`) before review, folding in the
+-owner's B459 ruling; the contract, fence, ledger and gates are unchanged (§8).
++**Revision 3 — 2026-09-28 — for QA's scoped re-review.** The [brief review](../evidence/2026-09-28-standalone-mobile-home-w2-brief-review.md)
++held revision 2 (`0b8606ea…60c0`) on W2R-1–W2R-3; this revision folds them in (§8).
+ 
+ - **Base:** owner commit **`8079e54`** (`8079e545fb2e1065c2bbc347eb9a66160f6cbf8e`, "W4b implemented"). The tree was
+   clean at the pre-check, and W1c, W3, W4a and W4b are all committed, so no uncommitted candidates are stacked on the
+@@ -91,14 +91,14 @@
+ 
+ | Path | Kind | SHA-256 |
+ | --- | --- | --- |
+-| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.22; §13 statuses) | `b52ab297be97c96bb9d410219080b3de2a8dafd89afde0b94ff35bec88fcd03b` |
+-| `docs/2026-07-30-open-bug-register.md` | authority (B418, B451, B458–B460; §0) | `c6f96e29bff3a4157887df4daab7882f05a0fce8254a6f5e31a09b7ad8dd1ec0` |
++| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.22; §13 statuses) | `a7b0515e633682bdb246f64b46dd345ca9b021764e078a10863a796d92796428` |
++| `docs/2026-07-30-open-bug-register.md` | authority (B418, B451, B458–B460; §0) | `56edcd1addf15879021a133b4726e2acf82aa9e483ca1cd4714e45ec7b7e5986` |
+ | `docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck.md` | authority (pre-check) | `e235319a7a4d4368a863a2b3e6645d50d51c9f0489fd8800a42c4b91dd651a24` |
+ | `docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/SHA256SUMS` | evidence — 26 entries, including `inputs.json` (`af364f91…34f6`) and `recommended-inputs.json` | `38d5a4821073a532e094e7798c98aca90e9eb2333edb32488f85cb5f95161169` |
+ | `tracker.md`, `MEMORY.md` | context pointers | `a40d074d643c6d1be6820a6a5da88ca8bd7e92743c819aeaaea8d6993f923f5c`, `cb10bdcde351184ea91d7a0640d8d7312b929cbd4a20927e4ba2171f2793b33b` |
+ 
+-The design and register changes are status pointers, B460's registration, the next-free number (B461) and the
+-owner's B459 ruling. This brief is pinned by the hash QA issues on PASS, not listed here.
++The design and register changes are status pointers (now naming revision 3), B460's registration, the next-free
++number (B461) and the owner's B459 ruling. This brief is pinned by the hash QA issues on PASS, not listed here.
+ 
+ **Preflight:**
+ 1. Check both repositories: MeshRoute `HEAD` = `8079e54`; the simulator at `6585649` and clean.
+@@ -128,10 +128,15 @@
+   arm and its `#endif`) out of `dispatch()` and into `static void handle_teststatus(Print& out) {`, which sits just
+   above it. The guard moves with the arm, so the experiment tests placement alone. The mutant keeps exactly one arm
+   in the file and none in `dispatch()`, so W49 fails on the in-`dispatch()` clause alone.
+-- **All-or-nothing.** If either anchor is missing, the control must change nothing, so that `wchk_in` reports it
+-  vacuous and fails. It must never degrade into a plain deletion — that is how B418 hid it. One sed program can do
+-  this, because `handle_teststatus` precedes `dispatch()`: insert the copy after the neighbour's signature, and delete
+-  the original only if that insertion happened (for example, with a hold-space flag).
++- **All-or-nothing, in both directions (W2R-1).** The control must establish **both** anchors — the destination
++  signature and the exact source block, marker comment included — before it changes anything. If either is
++  missing, its output must equal its input, so that `wchk_in` reports it vacuous and fails. It must never become
++  deletion-only (no arm — how B418 hid it) or insertion-only (a second arm, which W49 would wrongly credit as a
++  uniqueness failure).
++- **How.** A recipe that inserts line by line and deletes later behind a flag protects only one direction. Use a
++  whole-input transformation instead: for example, a sed program that first reads the whole file (`:a;N;$!ba`)
++  and then makes one substitution whose pattern spans both the destination signature and the source block, so it
++  can match only when both exist.
+ - **Structural only.** The mutant is not compiled; claim no compilation proof for it (pre-check Q2).
+ 
+ ### 2.2 W51 — BLE has no `ui` handler of its own and keeps the shared seam
+@@ -292,8 +297,8 @@
+    - every read-only dependency is byte-identical;
+    - the simulator is still clean at `6585649`.
+ 2. **Comment-only proof** for `Arduino.h` and `transcript_main.cpp`. Either the file is byte-identical to its base
+-   once the approved comment delta is removed, or the preprocessed, comment-stripped tokens are equal
+-   (`g++ -fpreprocessed -dD -E`, base versus final).
++   once the approved comment delta is removed, or the comment-stripped tokens are equal (`g++ -fpreprocessed -dD -E
++   -P`, base versus final). Compare the tokens, never the file names or line markers of two temporary paths.
+ 3. **M103 proof:**
+    - an AST check that the `model` battery contains no active M103 entry;
+    - every other entry, target and worker line is byte-identical to the base;
+@@ -308,8 +313,14 @@
+      - the check is RED;
+      - a decomposed evaluation of the check's clauses on the mutant shows the §2.6 clause failing — for W49's
+        relocation and W54-help, **only** that clause.
+-   - **W49 relocation, all-or-nothing:** on a scratch copy with `handle_teststatus`'s signature altered, the control's
+-     output equals its input.
++   - **W49 relocation, both directions (W2R-1):** each missing anchor is tested on its own scratch copy, on which
++     the live W49 check is still GREEN:
++     - `handle_teststatus`'s signature renamed — the control's output equals its input;
++     - the source block's marker comment changed, a comment-only edit that W49 ignores — the control's output
++       equals its input.
++
++     The positive proof on the real file stays: one arm in the file, none inside `dispatch()`, and only the
++     placement clause fails.
+ 5. **Console-sink, stock default run:** exit 0. S23 and S24 GREEN. X14–X16 RED on S23; X17 RED on S24 (and S53/S62),
+    reported by its actual edit. Record its counts.
+ 6. **Model battery:** the stock `python3 tools/probe_ui_model_mutations.py --target=model`. Expect 238 configured,
+@@ -348,7 +359,7 @@
+   that claims a `whoami` radix witness.
+ - **Ledger:** a check or control changed, added or retired outside §2.6; a check weakened; totals other than §2.6's.
+ - **Controls:** a re-anchored, replaced or new control that is vacuous, matches more than once, or goes RED on a
+-  clause other than its named one; a W49 relocation that can degrade into a deletion.
++  clause other than its named one; a W49 relocation that can become insertion-only or deletion-only.
+ - **Model battery:** any entry other than M103 changed; any non-RED entry; a worker baseline other than
+   3031/198613/0.
+ - **Other instruments:** console-sink not exit 0, or S23, S24 or X14–X17 behaving differently from pre-check Q3; a
+@@ -380,7 +391,10 @@
+ 3. **Diff:** `git diff --stat` and the §2.6 ledger with the ordinal map.
+ 4. **Figures:** every §4.1 figure, derived by the coder.
+ 5. **Reconciliation** and the per-control proofs.
+-6. **Freeze inventory:**
++6. **The pin line:** the exact line `PIN re-synced? YES — <derivation>`, derived from the coder's own run. The
++   expected derivation: native 3031/198613 unchanged; model 239 − 1 retired M103 = 238; wiring checks 59 + 1 = 60;
++   wiring controls 171 + 6 + 4 + 4 + 1 = 186 (W2R-2).
++7. **Freeze inventory:**
+    - the final SHA-256 of every fenced file;
+    - the authorized brief hash;
+    - the simulator commit and status;
+@@ -388,7 +402,7 @@
+    - the inventory check;
+    - the new evidence paths with hashes;
+    - the stability statement.
+-7. **Not run,** with reasons (§4.2). Each reason is that the instrument's predicates are unaffected — confirmed by the
++8. **Not run,** with reasons (§4.2). Each reason is that the instrument's predicates are unaffected — confirmed by the
+    reader audit — never "it reads none of the files".
+ 
+ ## 6. Owner rulings
+@@ -430,3 +444,15 @@
+ dispatched right after W2. The delta is the §0 and §6 B459 bullets, the §7 next step, and the four preparation pins
+ (design, register, `tracker.md`, `MEMORY.md`), which changed only to record the ruling. The contract, fence, closed
+ ledger and gates are unchanged.
++
++**Revision 3 (2026-09-28)** folds in the brief review (HOLD, W2R-1–W2R-3):
++- **W2R-1:** revision 2's relocation recipe protected only against a missing destination; with the source anchor
++  changed it would insert a second arm. §2.1 now requires both anchors before any change (a whole-input
++  transformation), §4.1 step 4 tests each missing anchor on its own copy, and §4.3's STOP names insertion-only and
++  deletion-only.
++- **W2R-2:** §5 adds the `PIN re-synced? YES` line and its expected derivation.
++- **W2R-3:** the register §0 and design §13 pointers name revision 3; their pins are refreshed.
++- **Also, from the review's notes:** §4.1 step 2's preprocessing alternative compares tokens, not file names or
++  line markers.
++
++Nothing else changes.

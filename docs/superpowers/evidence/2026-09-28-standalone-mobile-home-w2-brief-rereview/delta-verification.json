@@ -1,0 +1,22 @@
+{
+  "r3_sha256": "341d4bc0c401c8fd254107eea90915cefb2dee94580cdcaf912a99f015c89737",
+  "reconstructed_r2_sha256": "0b8606ea274c7ab950f1cb4b2ad5bcc297e5a5d29ac654037ea99fdad62960c0",
+  "expected_r2_sha256": "0b8606ea274c7ab950f1cb4b2ad5bcc297e5a5d29ac654037ea99fdad62960c0",
+  "match": true,
+  "r2_lines": 432,
+  "r3_lines": 458,
+  "reversed_edits": [
+    "**Revision 3 \u2014 2026-09-28 \u2014 for QA's scoped re-review.** The [brief review](../evidence/2026-09-28-standalone-mobile-home-w2-brief-review.md)",
+    "a7b0515e633682bdb246f64b46dd345ca9b021764e078a10863a796d92796428",
+    "56edcd1addf15879021a133b4726e2acf82aa9e483ca1cd4714e45ec7b7e5986",
+    "The design and register changes are status pointers (now naming revision 3), B460's registration, the next-free",
+    "- **All-or-nothing, in both directions (W2R-1).** The control must establish **both** anchors \u2014 the destination",
+    "   once the approved comment delta is removed, or the comment-stripped tokens are equal (`g++ -fpreprocessed -dD -E",
+    "   - **W49 relocation, both directions (W2R-1):** each missing anchor is tested on its own scratch copy, on which",
+    "a W49 relocation that can become insertion-only or deletion-only.",
+    "6. **The pin line:** the exact line `PIN re-synced? YES \u2014 <derivation>`, derived from the coder's own run. The",
+    "7. **Freeze inventory:**",
+    "8. **Not run,**",
+    ""
+  ]
+}

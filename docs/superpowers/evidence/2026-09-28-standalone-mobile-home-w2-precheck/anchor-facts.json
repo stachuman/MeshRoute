@@ -1,0 +1,74 @@
+{
+  "old_dispatch": {
+    "file": "commands",
+    "needle": "bool dispatch(const char* line, size_t len, Print& out) {",
+    "count": 0,
+    "lines": []
+  },
+  "dispatch": {
+    "file": "commands",
+    "needle": "bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {",
+    "count": 1,
+    "lines": [
+      1548
+    ]
+  },
+  "ui_arm": {
+    "file": "commands",
+    "needle": "handle_ui(line + 2, len - 2, out); return true;",
+    "count": 1,
+    "lines": [
+      1636
+    ]
+  },
+  "old_help_neighbor": {
+    "file": "commands",
+    "needle": "static void dump_help(Print& out) {",
+    "count": 0,
+    "lines": []
+  },
+  "new_neighbor": {
+    "file": "commands",
+    "needle": "static void handle_teststatus(Print& out) {",
+    "count": 1,
+    "lines": [
+      1534
+    ]
+  },
+  "old_ble_insertion": {
+    "file": "main",
+    "needle": "    if (e == ParseErr::unknown_verb) {",
+    "count": 0,
+    "lines": []
+  },
+  "seam": {
+    "file": "main",
+    "needle": "mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx)",
+    "count": 1,
+    "lines": [
+      681
+    ]
+  },
+  "flush": {
+    "file": "main",
+    "needle": "if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }",
+    "count": 1,
+    "lines": [
+      682
+    ]
+  },
+  "old_help": {
+    "file": "commands",
+    "needle": "out.println(F(\"UI PRESETS",
+    "count": 0,
+    "lines": []
+  },
+  "new_help": {
+    "file": "help",
+    "needle": "#if MR_FEAT_OLED\n    out.println(F(\"ui\"));\n#endif   // MR_FEAT_OLED",
+    "count": 1,
+    "lines": [
+      132
+    ]
+  }
+}

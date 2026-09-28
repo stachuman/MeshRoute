@@ -1,0 +1,70 @@
+{
+  "existing_inputs": {
+    "tools/probe_board_ui/run.sh": {
+      "sha256": "0ee0bc90df8d8a6e1d5adce73958f2dd32061388c0f3644f70d9e1f88ce56fe8",
+      "lines": 1474
+    },
+    "tools/probe_board_ui/probe_main.cpp": {
+      "sha256": "6cffd422588280136e09b05a1bdf9b602420336c7fba76315953a13d23af07b8",
+      "lines": 659
+    },
+    "tools/probe_board_ui/negctl.py": {
+      "sha256": "067e1e1b2e9bc464a4e4677b63c0058038a83568a4f801dd48192ba95917f76f",
+      "lines": 375
+    },
+    "tools/probe_firmware_ui/run.sh": {
+      "sha256": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc",
+      "lines": 2040
+    },
+    "tools/test_probe_firmware_ui.py": {
+      "sha256": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16",
+      "lines": 178
+    },
+    "tools/probe_board_ui/fakes/Arduino.h": {
+      "sha256": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+      "lines": 162
+    },
+    "tools/probe_inbox_verbs/transcript_main.cpp": {
+      "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+      "lines": 148
+    },
+    "tools/probe_ui_model_mutations.py": {
+      "sha256": "81842cc53d806f1ed4dbce5bb7699a945e50dc6381f8258cf3c60eec73e2781a",
+      "lines": 12699
+    },
+    "docs/2026-07-30-open-bug-register.md": {
+      "sha256": "97ffbe68c849537db7d77c70f6224615ef1859fd432c504076833144faac6922",
+      "lines": 638
+    },
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": {
+      "sha256": "dd64b400cab260cfc7b9edd07c7739a88e71665a1efb0ca8b485f99d83d137a4",
+      "lines": 1284
+    },
+    "MEMORY.md": {
+      "sha256": "54ef0f8e908e2dbbe55697b1aa9fa1ed060ffaed650f90578e79b38ac91589d7",
+      "lines": 199
+    },
+    "tracker.md": {
+      "sha256": "c21969070a97ad81501ce6af3541a7f33a4c762a0836c8da4a3735db7d03de8b",
+      "lines": 105
+    },
+    "AGENTS.md": {
+      "sha256": "abbbce6592f4cfc09a295e54985978f88a9d954eeffcb5449fdc9da7d7e89340",
+      "lines": 63
+    },
+    "docs/CODE_GUIDELINES.md": {
+      "sha256": "c356981674305605c3d4ef255e42ec3ec5bdb15c26350e83bdea94b0ac8dd839",
+      "lines": 43
+    },
+    "docs/2026-09-02-agent-roles.md": {
+      "sha256": "037d6bc5a3843f2df2520c17a6fb27b72709edde5b47f256e0ca6e130c5ef254",
+      "lines": 137
+    }
+  },
+  "suggested_new_paths_currently_absent": [
+    "tools/probe_accounting.sh",
+    "tools/probe_board_ui/accounting.py",
+    "tools/test_probe_board_ui.py"
+  ],
+  "note": "New paths are recommendations; author must pin the selected exact fence. Existing file hashes do not authorize editing every read-only input."
+}

@@ -1,0 +1,25 @@
+[
+  {
+    "repository": "meshroute",
+    "head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+    "preserved_paths": 1730,
+    "changed_under_review": [],
+    "new_before_this_record_and_checksum": [
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/inputs.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/precheck-reconciliation.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/preflight.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/relocation-recipe-proof.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/relocation-recipe-proof.py"
+    ],
+    "staged": []
+  },
+  {
+    "repository": "simulator",
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "preserved_paths": 285,
+    "changed_under_review": [],
+    "new_before_this_record_and_checksum": [],
+    "staged": []
+  }
+]

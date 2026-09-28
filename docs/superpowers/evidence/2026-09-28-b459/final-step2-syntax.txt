@@ -1,0 +1,6 @@
+bash -n tools/probe_board_ui/run.sh: OK
+bash -n tools/probe_firmware_ui/run.sh: OK
+bash -n tools/probe_accounting.sh: OK
+python compile tools/probe_board_ui/negctl.py: OK
+python compile tools/probe_board_ui/accounting.py: OK
+python compile tools/test_probe_board_ui.py: OK

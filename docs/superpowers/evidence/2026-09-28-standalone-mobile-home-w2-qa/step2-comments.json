@@ -1,0 +1,62 @@
+[
+  {
+    "path": "tools/probe_board_ui/fakes/Arduino.h",
+    "hunks": [
+      {
+        "old_lines": [
+          90,
+          91
+        ],
+        "new_lines": [
+          90,
+          101
+        ],
+        "old": [
+          "    // \u24d8 The base argument is ACCEPTED AND IGNORED for text purposes (HEX prints decimal here). Nothing this probe\n",
+          "    //   asserts reads a based number; a check that did would have to pin the digits itself rather than trust a shim.\n"
+        ],
+        "new": [
+          "    // \u24d8 FIDELITY LIMIT, KEPT EXPLICIT (corrected 2026-09-28 by W2, [[B451]]): the numeric overloads ACCEPT a base\n",
+          "    //   and IGNORE it, so `HEX` prints DECIMAL digits here. What that bounds, per consumer of this fake:\n",
+          "    //     \u00b7 probe_board_ui \u2014 no assertion depends on a based numeral.\n",
+          "    //     \u00b7 probe_firmware_ui \u2014 no console assertion reads based digits; the panel's hex comes from the UI\n",
+          "    //       formatters, not from this shim.\n",
+          "    //     \u00b7 probe_inbox_verbs X21\u2013X26, on the ACCEPT and the CLIENT arm (12 checks), compare exact `whoami` lines\n",
+          "    //       whose oracle (`hash=0x%lu`) deliberately FOLLOWS this shim: they prove equality with the shim, not the\n",
+          "    //       board's hex.\n",
+          "    //     \u00b7 the inbox-verbs transcript comparator (`transcript_main.cpp`) shares the limitation.\n",
+          "    //   Radix witnesses: console-sink `structural.py` S27 pins the send handle's dh/lp `HEX` radix structurally.\n",
+          "    //   \u26d4 NOTHING pins `whoami`'s radix ([[B460]]). A check that needs based digits must pin them itself, never\n",
+          "    //   trust this shim.\n"
+        ]
+      }
+    ],
+    "preprocessed_equal": true,
+    "preprocessed_sha256": "f88589e2785774e4d649bea6cdc66b79a7d8e2b90464ad76754507633ccd8851",
+    "added_code_control": "RED"
+  },
+  {
+    "path": "tools/probe_inbox_verbs/transcript_main.cpp",
+    "hunks": [
+      {
+        "old_lines": [
+          33,
+          33
+        ],
+        "new_lines": [
+          33,
+          33
+        ],
+        "old": [
+          "//   structurally (`structural.py` S24). \u26d4 The fake is NOT edited: three other probes share it.\n"
+        ],
+        "new": [
+          "//   structurally (`structural.py` S27). \u26d4 The fake is NOT edited: three other probes share it.\n"
+        ]
+      }
+    ],
+    "preprocessed_equal": true,
+    "preprocessed_sha256": "5a0b74e4db117653e71a66e70ad796ec5c8107c956059f69580d71b5be428c65",
+    "added_code_control": "RED"
+  }
+]

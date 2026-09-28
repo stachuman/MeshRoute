@@ -1,0 +1,62 @@
+[
+  {
+    "from": "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "target": "../plans/2026-09-28-standalone-mobile-home-w2-board-ui-readers.md",
+    "valid": true
+  },
+  {
+    "from": "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "target": "2026-09-28-standalone-mobile-home-w2.md",
+    "valid": true
+  },
+  {
+    "from": "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "target": "2026-09-28-standalone-mobile-home-w2-qa/SHA256SUMS",
+    "valid": true
+  },
+  {
+    "from": "docs/2026-07-30-open-bug-register.md",
+    "target": "superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "docs/2026-07-30-open-bug-register.md",
+    "target": "superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "docs/2026-07-30-open-bug-register.md",
+    "target": "superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "docs/2026-07-30-open-bug-register.md",
+    "target": "superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/b461-comment-drift.json",
+    "valid": true
+  },
+  {
+    "from": "docs/2026-07-30-open-bug-register.md",
+    "target": "superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "docs/2026-07-30-open-bug-register.md",
+    "target": "superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "target": "../evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "tracker.md",
+    "target": "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  },
+  {
+    "from": "MEMORY.md",
+    "target": "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+    "valid": true
+  }
+]

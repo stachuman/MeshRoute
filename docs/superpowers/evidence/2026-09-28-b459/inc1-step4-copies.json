@@ -1,0 +1,47 @@
+{
+ "cases": [
+  {
+   "case": "A stock + real library linked",
+   "exit": 1,
+   "stdout_tail": [
+    "  FAIL [[B456]] MISSING verdict \u2014 the control never reached ctl: S2 the middle synthetic control",
+    "controls accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)",
+    "FAIL"
+   ],
+   "sourced_trace": [
+    "+main@68|. <d>/tools/probe_accounting.sh"
+   ],
+   "link_resolves_to": "/home/staszek/MeshRoute/tools/probe_accounting.sh"
+  },
+  {
+   "case": "B statement removed + real library linked",
+   "exit": 0,
+   "stdout_tail": [
+    "PASS"
+   ],
+   "sourced_trace": [
+    "+main@68|. <d>/tools/probe_accounting.sh"
+   ],
+   "link_resolves_to": "/home/staszek/MeshRoute/tools/probe_accounting.sh"
+  },
+  {
+   "case": "C stock, no library",
+   "exit": 2,
+   "stdout_tail": [
+    "FATAL: the shared accounting library is missing: /tmp/b459-inc1-mo_1aaci/tools/probe_accounting.sh \u2014 nothing can be accounted, so nothing runs"
+   ],
+   "sourced_trace": [],
+   "link_resolves_to": null
+  },
+  {
+   "case": "D statement removed, no library",
+   "exit": 2,
+   "stdout_tail": [
+    "FATAL: the shared accounting library is missing: /tmp/b459-inc1-t0f0gmv5/tools/probe_accounting.sh \u2014 nothing can be accounted, so nothing runs"
+   ],
+   "sourced_trace": [],
+   "link_resolves_to": null
+  }
+ ],
+ "verdict": "PASS"
+}

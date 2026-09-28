@@ -1,0 +1,28 @@
+{
+  "meshroute": {
+    "preserved_paths": 1739,
+    "changed_or_missing": [],
+    "added": [
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/approved-brief.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/delta-verification.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/inputs.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/preflight.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/relocation-feasibility.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/relocation-feasibility.py",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/revision-2-to-3.diff",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/verify-delta.py"
+    ],
+    "head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+    "staged": "",
+    "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md\n M tracker.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/\n?? docs/superpowers/plans/2026-09-28-standalone-mobile-home-w2-board-ui-readers.md\n"
+  },
+  "simulator": {
+    "preserved_paths": 285,
+    "changed_or_missing": [],
+    "added": [],
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "staged": "",
+    "status": ""
+  }
+}

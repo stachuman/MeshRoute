@@ -1,0 +1,11 @@
+--- real/firmware_commands.cpp
++++ mutant/W49-3
+@@ -1633,7 +1633,7 @@
+     //    `xiao_mobile`, `xiao_esp32s3*` are ordinary normal-node builds with no panel. Reusing that token here would
+     //    have been a false statement, and coining a new one was forbidden.
+ #if MR_FEAT_OLED   // ★ [[B255]] the `ui` dispatch arm
+-    if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }
++    if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { return true; }
+ #endif   // MR_FEAT_OLED
+     // §RADMIN slice 3 — the two TARGET-STORE families, ACCEPT builds only (R-RA-8). ⓘ ONE arm each for the whole
+     // namespace, so a future sub-verb needs no second dispatch line; the sub-verb parse and the refusal for an

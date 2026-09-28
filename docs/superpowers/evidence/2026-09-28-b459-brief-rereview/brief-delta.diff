@@ -1,0 +1,133 @@
+--- reviewed-revision-1
++++ revision-2
+@@ -1,7 +1,8 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # B459 — completeness accounting for the board-UI probe, with B461 (tool-only, two increments)
+ 
+-**Revision 1 — 2026-09-28 — draft for QA review.**
++**Revision 2 — 2026-09-28 — for QA's scoped re-review.** The [brief review](../evidence/2026-09-28-b459-brief-review.md)
++held revision 1 (`f485c494…1453`) on B459R-1–B459R-3; this revision folds them in (§8).
+ 
+ - **Base:** owner commit **`8079e54`** (`8079e545fb2e1065c2bbc347eb9a66160f6cbf8e`) **plus the uncommitted, QA-passed
+   W2 candidate** — four tool files, W2's evidence and QA's W2 landing
+@@ -73,7 +74,7 @@
+ | --- | --- | ---: | --- |
+ | `tools/probe_accounting.sh` | **new file** | — | 1 |
+ | `tools/probe_firmware_ui/run.sh` | `60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc` | 2040 | 1 |
+-| `tools/test_probe_firmware_ui.py` | `50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16` | 178 | 1 — the library resolution only |
++| `tools/test_probe_firmware_ui.py` | `50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16` | 178 | 1 — the library's resolution from a temporary copy only |
+ | `tools/probe_board_ui/run.sh` | `0ee0bc90df8d8a6e1d5adce73958f2dd32061388c0f3644f70d9e1f88ce56fe8` | 1474 | 2 (W2 candidate) |
+ | `tools/probe_board_ui/probe_main.cpp` | `6cffd422588280136e09b05a1bdf9b602420336c7fba76315953a13d23af07b8` | 659 | 2 — records and `P4a`'s iterations only |
+ | `tools/probe_board_ui/negctl.py` | `067e1e1b2e9bc464a4e4677b63c0058038a83568a4f801dd48192ba95917f76f` | 375 | 2 — records and completion only |
+@@ -98,14 +99,14 @@
+ 
+ | Path | Kind | SHA-256 |
+ | --- | --- | --- |
+-| `docs/2026-07-30-open-bug-register.md` | authority (B459, B461 with the owner's fold ruling, B473; §0) | `86837517b071729925d5b9bbb67e68cce8f6eed64209ec8e74dc523b7de4d3ed` |
++| `docs/2026-07-30-open-bug-register.md` | authority (B459, B461 with the owner's fold ruling, B473; §0) | `ebed97ce326b3a0d2be664d76e756388a5d9756462a12b3dbb8703d78f19bab5` |
+ | `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | context (§13; unchanged since the pre-check) | `dd64b400cab260cfc7b9edd07c7739a88e71665a1efb0ca8b485f99d83d137a4` |
+ | `docs/superpowers/evidence/2026-09-28-b459-precheck.md` | authority (pre-check) | `98d96dc538288145f4ea88b60a0271d02a53dfbeae8d0f8e01edc2c11734c710` |
+ | `docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS` | evidence — 19 entries, including `inputs.json` (`22d1b731…051f`) and `recommended-inputs.json` (`f8c246b2…81d0`) | `a0eebbdd65cb494e3bc77f8c8e9d9008e919f44c7412c03709db9bddcb26265f` |
+ | `tracker.md`, `MEMORY.md` | context pointers | `ef73543d1f749b529a81751bc391613a6222b9e80f7d584685fa848e5a788276`, `a55e27aa416a7ed64a694a8ddbf222a34fcd3eb71188a04dc3ad947b536d278c` |
+ 
+ The author's register changes after the pre-check are the owner's B461 ruling, B473's registration, the next-free
+-number (B474) and a B459 entry in §0. This brief is pinned by the hash QA issues on PASS, not listed here.
++number (B474) and a B459 entry in §0, which now names revision 2. This brief is pinned by the hash QA issues on PASS, not listed here.
+ 
+ **Preflight:**
+ 1. Check both repositories: MeshRoute `HEAD` = `8079e54`; the simulator at `6585649` and clean.
+@@ -150,12 +151,14 @@
+   and every accounting and summary line (temporary paths may be normalized).
+ 
+ **The load-bearing regression keeps working (D6):**
+-- `ACCOUNTING_STATEMENT`, the exact final-accounting call that B456's bypass test removes, stays **exactly once** in
+-  the firmware-UI runner and still disables the real final comparison. If its text must change, only the test's
+-  constant changes with it.
++- `ACCOUNTING_STATEMENT`, the exact final-accounting call that B456's bypass test removes, stays **byte-identical and
++  exactly once** in the firmware-UI runner, and removing it still disables the real final comparison. Keeping
++  `account_controls` as the firmware-UI adapter's name and signature makes this possible; the test's constant does
++  not change (B459R-2).
+ - The bypass test copies `run.sh` alone into a temporary directory. That copy must still reach the **real** shared
+-  library through an explicit mechanism that the test sets up. A missing library must fail loudly with its own
+-  message, and must never be what makes the regression pass.
++  library through an explicit mechanism that the test sets up — the **only** change allowed in
++  `tools/test_probe_firmware_ui.py`. No assertion is weakened and no test is retired. A missing library must fail
++  loudly with its own message, and must never be what makes the regression pass.
+ - In normal runs, the runner finds the library by an absolute path from its repository root.
+ 
+ **Freeze.** At the end of increment 1, record the SHA-256 of its three files and snapshot them into the evidence.
+@@ -294,7 +297,9 @@
+ **Coverage:**
+ - an omitted call with its declaration intact;
+ - a census mismatch, and an unsupported call shape;
+-- a declaration and call removed together, which the manifest comparison rejects;
++- a source call and its declaration removed while the checked-in manifest stays intact — the census rejects the
++  mismatch (B459R-3). Removing both the source and its manifest line stays the §2.2.1 limit, visible only in the
++  frozen coverage diff and review;
+ - shortened trait, missing-trait and S6 loops;
+ - a shortened negctl iterator while its full list stays declared.
+ 
+@@ -344,6 +349,8 @@
+ 
+ ## 3. Fence
+ 
++**IN — both increments:** the report and evidence (§5), including increment 1's baselines and freeze snapshots.
++
+ **IN — increment 1:**
+ - new `tools/probe_accounting.sh`;
+ - `tools/probe_firmware_ui/run.sh` — the extraction only;
+@@ -354,8 +361,7 @@
+ - `tools/probe_board_ui/probe_main.cpp` — record emission and `P4a`'s iteration keys only;
+ - `tools/probe_board_ui/negctl.py` — records and completion only;
+ - new `tools/probe_board_ui/expected.tsv`, new `tools/probe_board_ui/accounting.py` (optional) and new
+-  `tools/test_probe_board_ui.py`;
+-- the report and evidence (§5).
++  `tools/test_probe_board_ui.py`.
+ 
+ **OUT:**
+ - every `src/`, `lib/`, `test/` and `variants/` file, `platformio.ini`, and the simulator;
+@@ -383,13 +389,17 @@
+ - **Tools:** full discovery (375 expected) and `python3 tools/gen_command_inventory.py --check` (197 rows).
+ 
+ **Increment 1, then its gate:**
+-1. Only increment-1 files differ; `git diff --check` is clean.
++1. Only increment 1's three files differ, apart from the report and evidence (§3); `git diff --check` is clean.
+ 2. The firmware-UI stock default run reproduces the baseline (§2.1).
+ 3. B456's 19 tests pass, and every self-test output is byte-identical to its capture.
+ 4. On scratch copies:
+    - the bypass regression disables the **real** final call and resolves the real library;
+    - a missing library fails with its own message.
+-5. **Freeze:** record the three files' hashes and snapshot them into the evidence.
++5. **Tools discovery (D5, B459R-1):** `python3 -m unittest discover -s tools -p 'test_*.py'` on increment 1's own
++   candidate. Expect the same 375 tests, OK, 0 skipped, no import failure — increment 1 adds no test. Record the run
++   against the three files' hashes.
++6. **Freeze:** record the three files' hashes and snapshot them into the evidence. The receipt keeps this
++   first-freeze evidence separate from the final candidate's.
+ 
+ **Increment 2, then the final chain:**
+ 1. **Scope and inputs:**
+@@ -436,7 +446,8 @@
+ - **Fence:** an edit outside §3; a change to the other runners; a crash-classification change (B473); an
+   increment-1 file changed in increment 2.
+ - **Refactor:** any firmware-UI behaviour or output difference in increment 1; the bypass regression no longer
+-  disabling the real call; a missing library satisfying a regression.
++  disabling the real call; a missing library satisfying a regression; `ACCOUNTING_STATEMENT` changed, or any change
++  to `tools/test_probe_firmware_ui.py` beyond the library's resolution.
+ - **Ledger:** an identity added, removed or renamed outside §2.4; the manifest differing from the pre-change set by
+   more than `P4a`'s keys; a check or control's meaning changed; a contract in §2.2.3 tightened or loosened.
+ - **Accounting:** an identity observed twice or through two paths; mutant records reaching the `canvas/` namespace;
+@@ -521,3 +532,14 @@
+ - B461's one-token correction.
+ 
+ It keeps B460, B462–B472 and B473 out.
++
++**Revision 2 (2026-09-28)** folds in the brief review (HOLD, B459R-1–B459R-3):
++- **B459R-1:** increment 1's gate runs full tools discovery on its own candidate before the freeze (375 expected).
++- **B459R-2:** `ACCOUNTING_STATEMENT` stays byte-identical, so the B456 test changes only to resolve the library;
++  the report and evidence are fenced for both increments and excluded from increment 1's file comparison.
++- **B459R-3:** the coverage regression removes a source call and its declaration while the manifest stays
++  intact; the paired source-plus-manifest removal stays the stated limit.
++- **Pin:** the register's §0 now names revision 2; its hash is refreshed.
++- **STOP list:** §4.3 names the two B459R-2 limits.
++
++Nothing else changes.

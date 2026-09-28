@@ -1,0 +1,147 @@
+kind	id	source_line	declared	executed	declared_controls	executed_controls	controls_red	scripts_identical	verdict
+wiring	W1	469		1	1	1	1	True	OK
+wiring	W2	476		1	1	1	1	True	OK
+wiring	W3	482		1	1	1	1	True	OK
+wiring	W4	493		1	1	1	1	True	OK
+wiring	W5	499		1	1	1	1	True	OK
+wiring	W6	513		1	1	1	1	True	OK
+wiring	W7	536		1	2	2	2	True	OK
+wiring	W8	544		1	1	1	1	True	OK
+wiring	W9	575		1	1	1	1	True	OK
+wiring	W10	591		1	1	1	1	True	OK
+wiring	W10b	608		1	3	3	3	True	OK
+wiring	W11	632		1	4	4	4	True	OK
+wiring	W11b	648		1	2	2	2	True	OK
+wiring	W12	754		1	4	4	4	True	OK
+wiring	W13	764		1	1	1	1	True	OK
+wiring	W14	776		1	4	4	4	True	OK
+wiring	W15	793		1	4	4	4	True	OK
+wiring	W16	799		1	4	4	4	True	OK
+wiring	W17	819		1	4	4	4	True	OK
+wiring	W18	825		1	4	4	4	True	OK
+wiring	W20	852		1	6	6	6	True	OK
+wiring	W21	877		1	4	4	4	True	OK
+wiring	W22	896		1	3	3	3	True	OK
+wiring	W23	920		1	4	4	4	True	OK
+wiring	W24	929		1	1	1	1	True	OK
+wiring	W25	935		1	2	2	2	True	OK
+wiring	W26	944		1	2	2	2	True	OK
+wiring	W26b	955		1	4	4	4	True	OK
+wiring	W27	976		1	8	8	8	True	OK
+wiring	W27b	993		1	2	2	2	True	OK
+wiring	W27c	1000		1	2	2	2	True	OK
+wiring	W28	1009		1	1	1	1	True	OK
+wiring	W28b	1011		1	1	1	1	True	OK
+wiring	W29	1030		1	7	7	7	True	OK
+wiring	W30	1043		1	3	3	3	True	OK
+wiring	W31	1060		1	4	4	4	True	OK
+wiring	W32	1077		1	6	6	6	True	OK
+wiring	W33	1099		1	4	4	4	True	OK
+wiring	W34	1121		1	4	4	4	True	OK
+wiring	W35	1142		1	3	3	3	True	OK
+wiring	W36	1146		1	3	3	3	True	OK
+wiring	W37	1158		1	3	3	3	True	OK
+wiring	W38	1179		1	3	3	3	True	OK
+wiring	W39	1192		1	3	3	3	True	OK
+wiring	W40	1208		1	4	4	4	True	OK
+wiring	W41	1231		1	3	3	3	True	OK
+wiring	W42	1245		1	3	3	3	True	OK
+wiring	W43	1258		1	2	2	2	True	OK
+wiring	W44	1310		1	3	3	3	True	OK
+wiring	W45	1325		1	5	5	5	True	OK
+wiring	W46	1343		1	2	2	2	True	OK
+wiring	W47	1377		1	8	8	8	True	OK
+wiring	W48	1398		1	3	3	3	True	OK
+wiring	W49	1464		1	6	6	6	True	OK
+wiring	W50	1489		1	3	3	3	True	OK
+wiring	W51	1525		1	4	4	4	True	OK
+wiring	W52	1554		1	5	5	5	True	OK
+wiring	W53	1569		1	2	2	2	True	OK
+wiring	W54	1618		1	4	4	4	True	OK
+wiring	W54-help	1635		1	1	1	1	True	OK
+structural	S1	349	1	1					OK
+structural	S2/mr_ui_init	355	3	3					OK
+structural	S2b	360	1	1					OK
+structural	S3/draw_frame	373	3	3					OK
+structural	S4a	382	1	1					OK
+structural	S4b	384	1	1					OK
+structural	S5	387	1	1					OK
+structural	S6/MR_UI_OLED_RST	406	12	12					OK
+trait	T1	275	1	1					OK
+trait	T2	276	1	1					OK
+trait	T3	277	1	1					OK
+trait	T4	278	1	1					OK
+trait	T5	279	1	1					OK
+trait	T6	280	1	1					OK
+trait	T7	281	1	1					OK
+trait	T8	282	1	1					OK
+trait	T9	283	1	1					OK
+trait	T10	284	1	1					OK
+trait	T11	285	1	1					OK
+trait	T12	286	1	1					OK
+trait	T13	287	1	1					OK
+trait	T14	288	1	1					OK
+missing	MR_UI_OLED_RST	319	12	12					OK
+negctl-v3	C1		1	1					OK
+negctl-v3	C2		1	1					OK
+negctl-v3	C3		1	1					OK
+negctl-v3	C4		1	1					OK
+negctl-v3	C5		1	1					OK
+negctl-v3	C6		1	1					OK
+negctl-v3	C7a		1	1					OK
+negctl-v3	C7b		1	1					OK
+negctl-v3	C7c		1	1					OK
+negctl-v3	C7k		1	1					OK
+negctl-v3	C7l		1	1					OK
+negctl-v3	C7m		1	1					OK
+negctl-v3	C7n		1	1					OK
+negctl-v3	C7o		1	1					OK
+negctl-v3	C7p		1	1					OK
+negctl-v3	C7d		1	1					OK
+negctl-v3	C7e		1	1					OK
+negctl-v3	C7f		1	1					OK
+negctl-v3	C7g		1	1					OK
+negctl-v3	C7h		1	1					OK
+negctl-v3	C7i		1	1					OK
+negctl-v3	C7j		1	1					OK
+negctl-v3	C8		1	1					OK
+negctl-v3	C9a		1	1					OK
+negctl-v3	C9b		1	1					OK
+negctl-v3	C9c		1	1					OK
+negctl-v3	C9c2		1	1					OK
+negctl-v3	C9d		1	1					OK
+negctl-v3	C9e		1	1					OK
+negctl-v3	C9f		1	1					OK
+negctl-v3	C9g		1	1					OK
+negctl-v3	C9h		1	1					OK
+negctl-v3	C9i		1	1					OK
+negctl-v3	C9j		1	1					OK
+negctl-v3	C9k		1	1					OK
+negctl-v3	C9l		1	1					OK
+negctl-v3	C9l2		1	1					OK
+negctl-v3	C9m		1	1					OK
+negctl-v3	C9n		1	1					OK
+negctl-v3	C9r		1	1					OK
+negctl-v3	C9s		1	1					OK
+negctl-v3	C9t		1	1					OK
+negctl-v3	C9u		1	1					OK
+negctl-v3	C9v		1	1					OK
+negctl-v3	C9o		1	1					OK
+negctl-v3	C9p		1	1					OK
+negctl-v3	C9w		1	1					OK
+negctl-v3	C9q		1	1					OK
+negctl-v3	C10a		1	1					OK
+negctl-v3	C10b		1	1					OK
+negctl-v3	C10c		1	1					OK
+negctl-v3	C10d		1	1					OK
+negctl-v3	C10e		1	1					OK
+negctl-v3	C10f		1	1					OK
+negctl-v3	C10g		1	1					OK
+negctl-v3	C10h		1	1					OK
+negctl-v3	C10i		1	1					OK
+negctl-v3	C10j		1	1					OK
+negctl-v3	C10k		1	1					OK
+negctl-v3	C10l		1	1					OK
+negctl-v4	C11a		1	1					OK
+negctl-v4	C11b		1	1					OK
+negctl-v4	C11c		1	1					OK

@@ -1,0 +1,415 @@
+diff --git a/tools/probe_board_ui/run.sh (W2 base 0ee0bc90) b/tools/probe_board_ui/run.sh
+index 5a511fa..3adecf2 100755
+--- a/tools/probe_board_ui/run.sh (W2 base 0ee0bc90)
++++ b/tools/probe_board_ui/run.sh
+@@ -63,20 +63,185 @@ build() {   # build($1 = defs array name, $2 = board_ui.cpp path, $3 = output bi
+      "$HERE/probe_main.cpp" "$2" -o "$3" 2>&1
+ }
+ 
++# =====================================================================================================================
++# ★★★★ [[B459]] — EVERY DECLARED IDENTITY GETS EXACTLY ONE TERMINAL OBSERVATION, AND THE RUN PROVES IT
++# =====================================================================================================================
++# ⛔ THE DEFECT THIS CLOSES, MEASURED (B459 pre-check Q2, 2026-09-28): every layer below only COUNTED what happened to
++#   run, and nothing compared the counts with what should have run. A false or undefined guard before W1, an early
++#   return, a negctl loop shortened by one control, or one deleted canvas CHK each still exited 0.
++# ★ THE CONTRACT (brief §2.2):
++#   1. the EXPECTED set is the checked-in manifest `expected.tsv` — every identity, each with its ONE accepted outcome.
++#      Adding, retiring or renaming a check is a manifest edit, visible in the diff;
++#   2. before anything compiles, the STATIC CENSUS (`accounting.py`) lists what the SOURCE declares, and the shared
++#      comparator must find that list equal to the manifest (fail-closed: an unrecognised call shape fails too) — so a
++#      call removed from the source while its manifest line stays is caught before any build;
++#   3. every executed identity records ONE terminal observation through ONE recorder (`rec`): the shell layers
++#      directly; the two positive canvas runs and `negctl.py` through a record file this runner names and imports.
++#      ⛔ Only the two POSITIVE canvas runs are ever handed a canvas record file, so a mutant can never satisfy one;
++#   4. the run ends in ONE finalization (`board_final`) for all three modes: the manifest against the observations and
++#      the guard ledger, through the SHARED comparator (`tools/probe_accounting.sh`). A missing, duplicate or unknown
++#      identity, a wrong outcome or any guard failure fails the run;
++#   5. harness errors are recorded, never credited: a failed sed is a rejected control, a predicate exit other than 0
++#      or 1 is an error on the live AND the mutant path, and a guard that stops a call leaves its identity MISSING.
++# ⛔ THE HONEST LIMIT: a check removed TOGETHER with its manifest line is invisible to the census and at runtime —
++#   nothing can infer the deleted intent. The manifest diff is what makes such a removal visible, in review.
++# ⓘ THE OUTCOME CONTRACTS ARE PRESERVED, NOT TIGHTENED (brief §2.2.3): e.g. a trait mutant that CRASHES still counts
++#   as `red`, exactly as before — that weakness is [[B473]], deliberately not fixed here.
++PA_LIB="$ROOT/tools/probe_accounting.sh"
++if [ ! -f "$PA_LIB" ]; then
++  echo "FATAL: the shared accounting library is missing: $PA_LIB — nothing can be accounted, so nothing runs"; exit 2
++fi
++. "$PA_LIB"
++MANIFEST="$HERE/expected.tsv"
++NO_NEG_BANNER="PROBE-ONLY — NOT A GATE (--no-neg: canvas mutation controls skipped)"
++MODE=gate; [ "${1:-}" = "--no-neg" ] && MODE=no-neg
++OBS="$OUT/observations.tsv"; GUARDS="$OUT/guards.txt"
++: > "$OBS"; : > "$GUARDS"
++unset MR_BOARD_UI_RECORDS MR_BOARD_UI_NEGCTL_RECORDS   # ⛔ a record file is named per positive run, never inherited
++rec()   { pa_record "$OBS" "$@"; }     # rec <id> <outcome> [<detail>] — THE one terminal-observation path
++guard() { pa_guard "$GUARDS" "$1"; }   # guard <what failed> — a guard is not an identity, so it has its own ledger
++
++import_records() {   # import_records <namespace> <record file> — a child's `id<TAB>outcome[<TAB>kind]` lines, checked
++  local ns=$1 file=$2 line n=0
++  if [ ! -f "$file" ]; then guard "$ns: the child wrote no record file"; return; fi
++  if [ -s "$file" ] && [ -n "$(tail -c1 "$file")" ]; then guard "$ns: the record file is truncated (no final newline)"; fi
++  while IFS= read -r line; do
++    n=$((n+1))
++    if [[ "$line" =~ ^([A-Za-z][A-Za-z0-9-]*(/[0-9]+)?)$'\t'([a-z_]+)($'\t'([a-z_]+))?$ ]]; then
++      if [ -n "${BASH_REMATCH[5]}" ]; then rec "$ns/${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}"
++      else                                 rec "$ns/${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
++      fi
++    else
++      guard "$ns: malformed record $n: ${line:0:80}"
++    fi
++  done < "$file"
++}
++
++# THE OUTCOME OF EACH LAYER, AS ONE FUNCTION EACH — the layer below calls it, and the selftest drives it directly.
++# ⚠ Each reproduces its layer's contract EXACTLY as it was (brief §2.2.3); only the harness errors are new words.
++trait_outcome() {   # <anchor hits> <build exit> <probe exit> -> red | anchor_miss | no_compile | stayed_green
++  if   [ "$1" -ne 1 ]; then echo anchor_miss
++  elif [ "$2" -ne 0 ]; then echo no_compile
++  elif [ "$3" -eq 0 ]; then echo stayed_green
++  else                      echo red          # ⓘ ANY nonzero probe exit, a crash included — [[B473]], unchanged
++  fi
++}
++missing_outcome() {   # <removal hits> <build exit> <named #error seen: 1|0> -> named_compile_error | anchor_miss | compiled | unrelated_compile_error
++  if   [ "$1" -ne 1 ]; then echo anchor_miss
++  elif [ "$2" -eq 0 ]; then echo compiled
++  elif [ "$3" -ne 1 ]; then echo unrelated_compile_error
++  else                      echo named_compile_error
++  fi
++}
++wiring_outcome() {   # <live predicate exit> -> pass | fail | harness_error
++  case $1 in 0) echo pass ;; 1) echo fail ;; *) echo harness_error ;; esac
++}
++wiring_control_outcome() {   # <sed exit> <copy differs: 1|0> <mutant predicate exit> -> red | sed_failed | vacuous | still_true | harness_error
++  if   [ "$1" -ne 0 ]; then echo sed_failed
++  elif [ "$2" -ne 1 ]; then echo vacuous
++  else case $3 in 1) echo red ;; 0) echo still_true ;; *) echo harness_error ;; esac
++  fi
++}
++
++board_final() {   # board_final <gate|no-neg> <expected set> — THE ONE finalization, for all three modes
++  local mode=$1 expected="$OUT/expected_run.tsv"
++  if [ "$mode" = no-neg ]; then grep -v -e '^#' -e '^$' -e '^negctl/' "$2" > "$expected"
++  else                          grep -v -e '^#' -e '^$' "$2" > "$expected"
++  fi
++  echo
++  echo "== [[B459]] completion accounting (every expected identity against the recorded observations) =="
++  pa_compare "$expected" "$OBS" "$GUARDS" '[[B459]]' 'probe identity' 'its recorder' 'identities accounted' || rc=1
++  awk -F'\t' '   # per-namespace counts — diagnostic only; the verdict above belongs to the comparator
++    function ns(id,   p) { split(id, p, "/")
++      if (p[1] == "wiring") return (id ~ /\/control\//) ? "wiring/control" : "wiring"
++      if (p[1] == "canvas" || p[1] == "negctl") return p[1] "/" p[2]
++      return p[1] }
++    FILENAME == ARGV[1] { k = ns($1); if (!(k in d) && !(k in x)) o[++m] = k; d[k]++; next }
++    { k = ns($1); if (!(k in d) && !(k in x)) o[++m] = k; x[k]++ }
++    END { for (i = 1; i <= m; i++) printf "  %-15s %4d expected, %4d observed\n", o[i], d[o[i]] + 0, x[o[i]] + 0 }' \
++    "$expected" "$OBS"
++  awk -F'\t' '   # brief §2.2.4 — every live wiring predicate must exit 0 and every mutant evaluation 1
++    $1 ~ /^wiring\// && $3 ~ /^pred_exit=/ { e = substr($3, 11); if ($1 ~ /\/control\//) m[e]++; else l[e]++ }
++    $1 ~ /^negctl\// && NF >= 3 { split($1, p, "/"); kinds[p[2] " " $3]++ }
++    END { printf "wiring predicate exits: live"; for (e in l) printf " %d x exit %s", l[e], e
++          printf "; mutant"; for (e in m) printf " %d x exit %s", m[e], e; printf "\n"
++          for (k in kinds) printf "negctl %s: %d\n", k, kinds[k] }' "$OBS"
++  if [ "$mode" = no-neg ]; then
++    echo "negctl: $(grep -c '^negctl/' "$2") identities SKIPPED by mode (--no-neg), and any negctl observation fails the run"
++  fi
++}
++board_end() {   # board_end <gate|no-neg> — the last line: PASS or FAIL, and the banner in --no-neg (never a PASS)
++  if [ "$1" = no-neg ]; then [ "$rc" -eq 0 ] || echo "FAIL"; echo "$NO_NEG_BANNER"
++  elif [ "$rc" -eq 0 ]; then echo "PASS"
++  else echo "FAIL"
++  fi
++}
++
++if [ "${1:-}" = "--selftest-accounting" ]; then
++  # ⓘ SYNTHETIC. <dir>/expected.tsv is the expected set and <dir>/events one `kind<TAB>args…` line per event, replayed
++  #   through THIS runner's recorder, importer, outcome functions, guards and `board_final` — nothing is compiled.
++  st_dir=${2:?--selftest-accounting needs a directory}; st_mode=gate; [ "${3:-}" = "--no-neg" ] && st_mode=no-neg
++  rc=0
++  echo "== [[B459]] SYNTHETIC accounting selftest ($st_mode) — replayed records; nothing is compiled or run =="
++  while IFS=$'\t' read -r st_k st_a st_b st_c st_d; do
++    case "$st_k" in
++      record)         if [ -n "$st_c" ]; then rec "$st_a" "$st_b" "$st_c"; else rec "$st_a" "$st_b"; fi ;;
++      guard)          guard "$st_a" ;;
++      guard_nonzero)  false && rec "$st_a" pass ;;                                              # `<guard> && call`
++      guard_127)      __b459_selftest_undefined_helper__ 2>/dev/null && rec "$st_a" pass ;;    # exit 127
++      import)         import_records "$st_a" "$st_dir/$st_b" ;;
++      trait)          rec "$st_a" "$(trait_outcome "$st_b" "$st_c" "$st_d")" ;;
++      missing)        rec "$st_a" "$(missing_outcome "$st_b" "$st_c" "$st_d")" ;;
++      wiring)         rec "$st_a" "$(wiring_outcome "$st_b")" "pred_exit=$st_b" ;;
++      wiring_control) rec "$st_a" "$(wiring_control_outcome "$st_b" "$st_c" "$st_d")" "pred_exit=$st_d" ;;
++      '')             ;;
++      *)              echo "  FAIL [[B459]] selftest: unknown event kind [$st_k]"; rc=1 ;;
++    esac
++  done < "$st_dir/events"
++  board_final "$st_mode" "$st_dir/expected.tsv"
++  board_end "$st_mode"
++  exit $rc
++fi
++
++# ★ THE STATIC DECLARATION CENSUS, before anything is compiled (brief §2.2.5). The probe is PREPROCESSED per arm with
++#   that arm's own defines (directives only, no macro expansion), so a CHK behind the other arm's `#if` is not counted.
++echo "== [[B459]] static declaration census (what the source declares, against expected.tsv) =="
++board_census() {
++  "$CXX" -std=gnu++20 -E -fdirectives-only "${V3_DEFS[@]}" \
++     -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
++     "$HERE/probe_main.cpp" -o "$OUT/probe_v3.i" || return 1
++  "$CXX" -std=gnu++20 -E -fdirectives-only "${V4_DEFS[@]}" \
++     -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
++     "$HERE/probe_main.cpp" -o "$OUT/probe_v4.i" || return 1
++  python3 "$HERE/accounting.py" census "$HERE/$(basename "${BASH_SOURCE[0]}")" "$OUT/probe_v3.i" "$OUT/probe_v4.i" \
++     "$HERE/negctl.py" > "$OUT/declared.tsv" || return 1
++  grep -v -e '^#' -e '^$' "$MANIFEST" > "$OUT/manifest.tsv" 2>/dev/null
++  : > "$OUT/census_guards.txt"
++  pa_compare "$OUT/manifest.tsv" "$OUT/declared.tsv" "$OUT/census_guards.txt" '[[B459]] census:' 'manifest identity' \
++             'a declaration in the source' 'declarations census'
++}
++if ! board_census; then
++  echo "  FAIL [[B459]] the source's declarations are not the manifest's — fail-closed: nothing is built or run"
++  rc=1; board_end "$MODE"; exit 1
++fi
++echo
++
+ echo "== shared Heltec board-canvas probe: V3 traits =="
+ if ! build V3_DEFS "$CANVAS/board_ui.cpp" "$OUT/probe_v3"; then
+-  echo "V3 PROBE BUILD FAILED — see above"; exit 1
++  echo "V3 PROBE BUILD FAILED — see above"; rc=1; board_end "$MODE"; exit 1
+ fi
+-"$OUT/probe_v3"; rc=$?
++MR_BOARD_UI_RECORDS="$OUT/canvas_v3.rec" "$OUT/probe_v3"; rc=$?
+ echo "V3 probe exit=$rc"
++import_records canvas/v3 "$OUT/canvas_v3.rec"
+ 
+ echo
+ echo "== shared Heltec board-canvas probe: V4 traits =="
+ if ! build V4_DEFS "$CANVAS/board_ui.cpp" "$OUT/probe_v4"; then
+-  echo "V4 PROBE BUILD FAILED — see above"; exit 1
++  echo "V4 PROBE BUILD FAILED — see above"; rc=1; board_end "$MODE"; exit 1
+ fi
+-"$OUT/probe_v4"; v4_rc=$?
++MR_BOARD_UI_RECORDS="$OUT/canvas_v4.rec" "$OUT/probe_v4"; v4_rc=$?
+ echo "V4 probe exit=$v4_rc"
++import_records canvas/v4 "$OUT/canvas_v4.rec"
+ [ "$v4_rc" -eq 0 ] || rc=1
+ 
+ # Trait controls mutate the compile-time board table, not the canvas source. Every wrong value must still compile and
+@@ -86,22 +251,23 @@ trait_control() {   # label, defs-array, exact old token, replacement token, opt
+   local label=$1 base_name=$2 old=$3 new=$4 extra=${5:-}
+   local -n base=$base_name
+   local defs=("${base[@]}")
+-  local hits=0 i
++  local hits=0 i brc=- prc=- outcome
+   for i in "${!defs[@]}"; do
+     if [ "${defs[$i]}" = "$old" ]; then defs[$i]=$new; hits=$((hits+1)); fi
+   done
+-  if [ "$hits" -ne 1 ]; then
+-    trait_fail=$((trait_fail+1)); echo "  FAIL $label — mutation matched $hits tokens, expected 1"; return
+-  fi
+-  [ -z "$extra" ] || defs+=("$extra")
+-  local tag="trait_$((trait_pass+trait_fail))"
+-  if ! build defs "$CANVAS/board_ui.cpp" "$OUT/$tag" >"$OUT/$tag.build" 2>&1; then
+-    trait_fail=$((trait_fail+1)); echo "  FAIL $label — wrong trait did not compile, so behavior was not tested"; return
+-  fi
+-  if "$OUT/$tag" >"$OUT/$tag.run" 2>&1; then
+-    trait_fail=$((trait_fail+1)); echo "  FAIL $label — probe stayed GREEN"; return
++  if [ "$hits" -eq 1 ]; then
++    [ -z "$extra" ] || defs+=("$extra")
++    local tag="trait_$((trait_pass+trait_fail))"
++    build defs "$CANVAS/board_ui.cpp" "$OUT/$tag" >"$OUT/$tag.build" 2>&1; brc=$?
++    if [ "$brc" -eq 0 ]; then "$OUT/$tag" >"$OUT/$tag.run" 2>&1; prc=$?; fi
+   fi
+-  trait_pass=$((trait_pass+1))
++  outcome=$(trait_outcome "$hits" "$brc" "$prc"); rec "trait/${label%% *}" "$outcome"   # [[B459]]
++  case $outcome in
++    red)          trait_pass=$((trait_pass+1)) ;;
++    anchor_miss)  trait_fail=$((trait_fail+1)); echo "  FAIL $label — mutation matched $hits tokens, expected 1" ;;
++    no_compile)   trait_fail=$((trait_fail+1)); echo "  FAIL $label — wrong trait did not compile, so behavior was not tested" ;;
++    *)            trait_fail=$((trait_fail+1)); echo "  FAIL $label — probe stayed GREEN" ;;
++  esac
+ }
+ 
+ echo
+@@ -127,21 +293,22 @@ echo "traits:      $trait_pass passed / $trait_fail failed / $((trait_pass+trait
+ # named #error in board_ui_traits.h, not merely because probe_main later happened to use an undefined token.
+ missing_pass=0; missing_fail=0
+ missing_trait_control() {   # macro name
+-  local name=$1 defs=() hit=0 token
++  local name=$1 defs=() hit=0 token brc=- named=- outcome
+   for token in "${V3_DEFS[@]}"; do
+     if [[ "$token" == "-D${name}="* ]]; then hit=$((hit+1)); else defs+=("$token"); fi
+   done
+   local tag="missing_$name"
+-  if [ "$hit" -ne 1 ]; then
+-    missing_fail=$((missing_fail+1)); echo "  FAIL $name — removal matched $hit tokens, expected 1"; return
+-  fi
+-  if build defs "$CANVAS/board_ui.cpp" "$OUT/$tag" >"$OUT/$tag.build" 2>&1; then
+-    missing_fail=$((missing_fail+1)); echo "  FAIL $name — missing trait compiled"; return
+-  fi
+-  if ! grep -q "#error.*$name" "$OUT/$tag.build"; then
+-    missing_fail=$((missing_fail+1)); echo "  FAIL $name — compile failed without its named fail-loud diagnostic"; return
++  if [ "$hit" -eq 1 ]; then
++    build defs "$CANVAS/board_ui.cpp" "$OUT/$tag" >"$OUT/$tag.build" 2>&1; brc=$?
++    if [ "$brc" -ne 0 ]; then named=0; grep -q "#error.*$name" "$OUT/$tag.build" && named=1; fi
+   fi
+-  missing_pass=$((missing_pass+1))
++  outcome=$(missing_outcome "$hit" "$brc" "$named"); rec "missing/$name" "$outcome"   # [[B459]]
++  case $outcome in
++    named_compile_error) missing_pass=$((missing_pass+1)) ;;
++    anchor_miss)         missing_fail=$((missing_fail+1)); echo "  FAIL $name — removal matched $hit tokens, expected 1" ;;
++    compiled)            missing_fail=$((missing_fail+1)); echo "  FAIL $name — missing trait compiled" ;;
++    *)                   missing_fail=$((missing_fail+1)); echo "  FAIL $name — compile failed without its named fail-loud diagnostic" ;;
++  esac
+ }
+ 
+ echo
+@@ -162,9 +329,9 @@ echo "missing:     $missing_pass passed / $missing_fail failed / $((missing_pass
+ FW_UI="$ROOT/src/firmware_ui.cpp"
+ BOARD_H="$CANVAS/board_ui.h"
+ s_pass=0; s_fail=0
+-schk() {  # schk(label, expr-as-command)
+-  if eval "$2" >/dev/null 2>&1; then s_pass=$((s_pass+1))
+-  else s_fail=$((s_fail+1)); echo "  FAIL $1"; fi
++schk() {  # schk(identity, label, expr-as-command) — [[B459]] the identity is STABLE; the label may carry measurements
++  if eval "$3" >/dev/null 2>&1; then s_pass=$((s_pass+1)); rec "struct/$1" pass
++  else s_fail=$((s_fail+1)); rec "struct/$1" fail; echo "  FAIL $2"; fi
+ }
+ echo
+ echo "== §UI-6 structural checks (source/symbol level — weaker than the probe, deliberately) =="
+@@ -179,18 +346,18 @@ echo "== §UI-6 structural checks (source/symbol level — weaker than the probe
+    -c "$CANVAS/board_ui.cpp" -o "$OUT/board_ui.o" 2>/dev/null
+ if [ -f "$OUT/board_ui.o" ]; then
+   defined=$(nm --defined-only "$OUT/board_ui.o" 2>/dev/null | grep -c 'mr_ui_')
+-  schk "S1 board_ui.o defines NO mr_ui_* symbol (got $defined)" "[ '$defined' -eq 0 ]"
++  schk "S1" "S1 board_ui.o defines NO mr_ui_* symbol (got $defined)" "[ '$defined' -eq 0 ]"
+ else
+-  s_fail=$((s_fail+1)); echo "  FAIL S1 could not compile board_ui.cpp to an object"
++  s_fail=$((s_fail+1)); rec struct/S1 fail; echo "  FAIL S1 could not compile board_ui.cpp to an object"
+ fi
+ # S2 ...and the feature layer defines all three, so fw_main's unconditional calls still link.
+ for h in mr_ui_init mr_ui_tick mr_ui_on_push; do
+-  schk "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
++  schk "S2/$h" "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
+ done
+ # S2b §B197's FIFTH hook. Separate from the loop above because it is the only one that RETURNS something — and the
+ #     return is the whole seam: `bool`, not `void`. A `void` here would not link against `lib/hal/mr_ui.h`'s
+ #     declaration at all, which is a stronger backstop than this grep; the grep is what says WHICH TU owns it.
+-schk "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui_allows_sleep\\(' '$FW_UI'"
++schk "S2b" "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui_allows_sleep\\(' '$FW_UI'"
+ # S3 THE ONCE-PER-PAGE REDRAW, caller half. U8g2 CLIPS each page rather than accumulating, so drawing once at frame
+ #    start and then only advancing pages leaves 7 of 8 pages blank (spec §5).
+ # ★ RE-EXPRESSED 2026-08-05 by §B107, and the property got STRONGER, not weaker. It used to check for >=2 `draw_frame`
+@@ -198,8 +365,12 @@ schk "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui
+ #   `open` and `next_page` arms now SHARE a single tail, so "drawn on every page" is structural: there is exactly ONE
+ #   draw site and it is unconditional once the switch has run. ⇒ check for exactly one of each of the three, which is
+ #   what makes a re-branching of the tail visible.
+-for pat in 'draw_frame(s_frame_state' 'mrui::begin_frame()' 's_gate.on_page(mrui::next_page(), s_model, s_counters)'; do
+-  schk "S3 exactly one '$pat' in the tick (got $(grep -cF "$pat" "$FW_UI"))" \
++# ⓘ [[B459]] each word is `<stable identity>|<pattern>`: the identity is what the accounting records, the pattern what
++#   the check reads — unchanged.
++for s3 in 'draw_frame|draw_frame(s_frame_state' 'begin_frame|mrui::begin_frame()' \
++          'on_page|s_gate.on_page(mrui::next_page(), s_model, s_counters)'; do
++  pat=${s3#*|}
++  schk "S3/${s3%%|*}" "S3 exactly one '$pat' in the tick (got $(grep -cF "$pat" "$FW_UI"))" \
+        "[ \"\$(grep -cF '$pat' '$FW_UI')\" -eq 1 ]"
+ done
+ # S4 THE HARD BOUNDARY, both directions. board_ui.h must not include the model; firmware_ui.cpp must not name the driver.
+@@ -208,12 +379,12 @@ done
+ #    documentation as a violation. ⇒ strip `//` comments first (`code_of`), then grep CODE. Same class as the anchor
+ #    table that matched the sentence prescribing the anchor.
+ code_of() { sed 's://.*::' "$1"; }
+-schk "S4a board_ui.h #includes no firmware_ui_model.h" \
++schk "S4a" "S4a board_ui.h #includes no firmware_ui_model.h" \
+      "! code_of '$BOARD_H' | grep -qE '^[[:space:]]*#[[:space:]]*include.*firmware_ui_model'"
+-schk "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
++schk "S4b" "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
+      "! code_of '$FW_UI' | grep -qE 'U8g2|U8G2|\\bWire\\b|pinMode\\(|digitalRead\\(|analogRead\\('"
+ # S5 §B91's report channel actually exists on the caller side (the probe cannot see it).
+-schk "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
++schk "S5" "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
+ 
+ # S6 ★★ §UI-9 — THE PROBE'S -D SET IS ASSERTED AGAINST THE ENV IT CLAIMS TO MIRROR, instead of a comment asking the
+ #    next reader to keep them in step. The header of `build()` has carried that request since UI-5 and its line
+@@ -232,7 +403,7 @@ for nm in MR_UI_OLED_RST MR_UI_OLED_SCL MR_UI_OLED_SDA MR_UI_OLED_ADDR \
+   n_env=$(env_defs | grep -cE "^-D${nm}=")
+   v_env=$(env_defs | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
+   v_prb=$(printf '%s\n' "${V3_DEFS[@]}" | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
+-  schk "S6 -D${nm} mirrors [env:heltec_v3] (env x$n_env='${v_env:-<none>}' probe='${v_prb:-<none>}')" \
++  schk "S6/$nm" "S6 -D${nm} mirrors [env:heltec_v3] (env x$n_env='${v_env:-<none>}' probe='${v_prb:-<none>}')" \
+        "[ '$n_env' -eq 1 ] && [ -n '$v_prb' ] && [ '$v_env' = '$v_prb' ]"
+ done
+ 
+@@ -260,18 +431,32 @@ w_pass=0; w_fail=0; w_ctl=0
+ #   implementation of "PASS live, FAIL on every revert" (U1 — a second copy is how two harnesses drift).
+ wchk_in() {  # wchk_in(file, label, predicate-fn, sed-script-that-reverts-the-property [, further sed scripts ...])
+   local file=$1 label=$2 pred=$3; shift 3
+-  if ! "$pred" "$file"; then w_fail=$((w_fail+1)); echo "  FAIL $label (not wired in $(basename "$file"))"; return; fi
+-  local n=0 revert
++  # ★ [[B459]] one observation for the check and one per control, keyed by the label's first token and the control's
++  #   ordinal. ⛔ A predicate exit other than 0 or 1 is a HARNESS ERROR on either path (127 = an undefined function,
++  #   2 = a grep error) — never "false as expected"; a failed sed is a rejected control, never a mutant.
++  local id="wiring/${label%% *}" st outcome
++  "$pred" "$file"; st=$?
++  outcome=$(wiring_outcome "$st"); rec "$id" "$outcome" "pred_exit=$st"
++  case $outcome in
++    pass) ;;
++    fail) w_fail=$((w_fail+1)); echo "  FAIL $label (not wired in $(basename "$file"))"; return ;;
++    *)    w_fail=$((w_fail+1)); echo "  FAIL $label — its predicate ERRED (exit $st), which is no verdict"; return ;;
++  esac
++  local n=0 revert sst dif pst
+   for revert in "$@"; do
+-    n=$((n+1))
+-    sed "$revert" "$file" > "$OUT/fw_ui_revert.cpp"
+-    if cmp -s "$file" "$OUT/fw_ui_revert.cpp"; then
+-      w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the revert changed NOTHING, so the check is vacuous"; return
+-    fi
+-    if "$pred" "$OUT/fw_ui_revert.cpp"; then
+-      w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the check still passes against the reverted copy"; return
++    n=$((n+1)); sst=0; dif=0; pst=-
++    sed "$revert" "$file" > "$OUT/fw_ui_revert.cpp" || sst=$?
++    if [ "$sst" -eq 0 ] && ! cmp -s "$file" "$OUT/fw_ui_revert.cpp"; then
++      dif=1; "$pred" "$OUT/fw_ui_revert.cpp"; pst=$?
+     fi
+-    w_ctl=$((w_ctl+1))
++    outcome=$(wiring_control_outcome "$sst" "$dif" "$pst"); rec "$id/control/$n" "$outcome" "pred_exit=$pst"
++    case $outcome in
++      red)        w_ctl=$((w_ctl+1)) ;;
++      vacuous)    w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the revert changed NOTHING, so the check is vacuous"; return ;;
++      still_true) w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the check still passes against the reverted copy"; return ;;
++      sed_failed) w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the sed script FAILED (exit $sst), so no mutant exists"; return ;;
++      *)          w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — its predicate ERRED on the mutant (exit $pst), which is no verdict"; return ;;
++    esac
+   done
+   w_pass=$((w_pass+1))
+ }
+@@ -1288,7 +1473,7 @@ wchk_in "$CMD_CPP" "W49 the ONE dispatch() reaches handle_ui with the line+2/len
+ #     while `/mrui` holds the wearer's phrases, and ⛔ neither ruled diagnostic line is ever printed — a corrupt
+ #     record becomes silent, which is the exact collapse the four storage states exist to prevent. Every native case
+ #     and every battery entry stays green, because none of them boots anything.
+-# ★ Control (c) is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves
++# ★ Control 2 is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves
+ #   the catalog correct and the WARNING gone — half the property, which is why a deletion-only control is not enough.
+ # ⚠⚠ **CONSIDERED FOR RE-ANCHORING BY [[B255]] AND DELIBERATELY LEFT ALONE, WHICH IS ITSELF THE FINDING.** The
+ #    B255 gate compiles the boot restore out on a panel-less profile, and the first cut of that slice put an
+@@ -1460,15 +1645,21 @@ if [ "${1:-}" != "--no-neg" ]; then
+   echo "== negative controls (each MUST fail) =="
+   [ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
+   # ★ Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.
+-  python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
++  MR_BOARD_UI_NEGCTL_RECORDS="$OUT/negctl_v3.rec" python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
+      -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
+      "${V3_DEFS[@]}" \
+      -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" || rc=1
++  import_records negctl/v3 "$OUT/negctl_v3.rec"
+   echo
+   echo "== V4 fixed-ADC source controls (each MUST fail) =="
+-  MR_BOARD_UI_NEGCTL_ARM=v4 python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
++  MR_BOARD_UI_NEGCTL_RECORDS="$OUT/negctl_v4.rec" MR_BOARD_UI_NEGCTL_ARM=v4 \
++  python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
+      -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
+      "${V4_DEFS[@]}" \
+      -I"$HERE/fakes" -I"$CANVAS" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" || rc=1
++  import_records negctl/v4 "$OUT/negctl_v4.rec"
+ fi
++# ★★★★ [[B459]] THE FINAL ACCOUNTING — the SAME call the selftest mode makes (`board_final`), for both run modes.
++board_final "$MODE" "$MANIFEST"
++board_end "$MODE"
+ exit $rc

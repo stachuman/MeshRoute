@@ -1,0 +1,20 @@
+{
+  "path": "docs/2026-07-30-open-bug-register.md",
+  "before": "e94c810638be644b3980f10fcc20d906e375e84d6de8f045fe2cb7ce1842419d",
+  "after": "97ffbe68c849537db7d77c70f6224615ef1859fd432c504076833144faac6922",
+  "added": [
+    "B462",
+    "B463",
+    "B464",
+    "B465",
+    "B466",
+    "B467",
+    "B468",
+    "B469",
+    "B470",
+    "B471",
+    "B472"
+  ],
+  "next_free": "B473",
+  "scope": "New findings and free-ID marker only; existing dispatch and statuses unchanged."
+}

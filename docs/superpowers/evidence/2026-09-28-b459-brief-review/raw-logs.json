@@ -1,0 +1,18 @@
+{
+  "artifacts/2026-09-28-b459-brief-review/b456-tests.log": {
+    "sha256": "bb3db85001c7dc1bfa3c13c60deb591957244d857071240d891c331b0ff1accb",
+    "bytes": 2560
+  },
+  "artifacts/2026-09-28-b459-brief-review/predicate-exits.log": {
+    "sha256": "46481f22beaae620ffe833a1a4cac72c4e336fcd614f2706ceaca0d582e6eb07",
+    "bytes": 1588
+  },
+  "artifacts/2026-09-28-b459-brief-review/v3-preprocessed.cpp": {
+    "sha256": "ab55990129204a78e1a0cef9ce1c804494fc9f5ae8abe71f063bf969a75d6e10",
+    "bytes": 80614
+  },
+  "artifacts/2026-09-28-b459-brief-review/v4-preprocessed.cpp": {
+    "sha256": "661603d3c2f78d24343d99ee3ec69f3a9d3977846a3239f659b4bb87b33665f1",
+    "bytes": 76362
+  }
+}

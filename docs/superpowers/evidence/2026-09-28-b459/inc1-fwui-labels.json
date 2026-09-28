@@ -1,0 +1,12 @@
+{
+ "declared_calls": 238,
+ "declared_labels": 238,
+ "distinct_declared": 238,
+ "verdict_lines": 238,
+ "distinct_seen": 238,
+ "missing": [],
+ "unknown": [],
+ "duplicates": [],
+ "fail_lines": 0,
+ "verdict": "PASS"
+}

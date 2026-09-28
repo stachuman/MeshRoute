@@ -1,0 +1,39 @@
+{
+  "scope": "Synthetic feasibility only; coder must implement and prove its own frozen control",
+  "source_sha256": "3eea954914b6b3d788dbe9c672972578da15144bd8f6944ae65d3367ef13893f",
+  "stock_runner_sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c",
+  "sed_recipe": ":a\nN\n$!ba\ns/\\(static void handle_teststatus(Print& out) {\\n\\)\\(.*\\)\\(#if MR_FEAT_OLED   \\/\\/ \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm\\n    if ((len == 2 || (len > 2 && line\\[2\\] == ' ')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\\n#endif   \\/\\/ MR_FEAT_OLED\\n\\)/\\1\\3\\2/\n",
+  "stock_w49_current_signature": "fn_body() { awk -v sig=\"$2\" 'index($0, sig)==1 {inside=1} inside {print} inside && /^}$/ {exit}' \"$1\"; }\nfn_flat() { fn_body \"$1\" \"$2\" | sed 's://.*::' | tr '\\n' ' ' | tr -s ' '; }   # \u00a7B77: comments stripped FIRST\nw49() {\n  [ \"$(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' \"$1\")\" = 1 ] || return 1\n  fn_flat \"$1\" \"$DISPATCH_SIG\" | grep -qF \"$UI_ARM_GUARDED\"\n}\nUI_ARM=\"if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, \\\"ui\\\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\"\nUI_ARM_GUARDED=\"#if MR_FEAT_OLED $UI_ARM #endif\"\n\nDISPATCH_SIG='bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {'\nw49 \"$1\"\n",
+  "cases": [
+    {
+      "case": "both_anchors_present",
+      "baseline_w49_exit": 0,
+      "destination_matches": 1,
+      "source_block_matches": 1,
+      "output_identical": false,
+      "arm_count_file": 1,
+      "arm_count_dispatch": 0,
+      "output_w49_exit": 1
+    },
+    {
+      "case": "destination_missing",
+      "baseline_w49_exit": 0,
+      "destination_matches": 0,
+      "source_block_matches": 1,
+      "output_identical": true,
+      "arm_count_file": 1,
+      "arm_count_dispatch": 1,
+      "output_w49_exit": 0
+    },
+    {
+      "case": "source_marker_changed",
+      "baseline_w49_exit": 0,
+      "destination_matches": 1,
+      "source_block_matches": 0,
+      "output_identical": true,
+      "arm_count_file": 1,
+      "arm_count_dispatch": 1,
+      "output_w49_exit": 0
+    }
+  ]
+}

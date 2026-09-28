@@ -1,0 +1,70 @@
+{
+  "inventory_paths": {
+    "meshroute": 1843,
+    "simulator": 285
+  },
+  "reconciliation": {
+    "meshroute": {
+      "changed_since_W2_gate_entry": [
+        "MEMORY.md",
+        "docs/2026-07-30-open-bug-register.md",
+        "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+        "tracker.md"
+      ],
+      "explained_W2_QA_additions": [
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/accounting_audit.py",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/b461-comment-drift.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/documentation-landing.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/final-preservation.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/gate-inputs-preserved.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/inputs.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/landing-links.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W49-1.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W49-2.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W49-3.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W49-4.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W49-5.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W49-6.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W51-1.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W51-2.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W51-3.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W51-4.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W54-1.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W54-2.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W54-3.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W54-4.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/mutants/W54-help-1.diff",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/ordinal-map.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/ordinal-map.tsv",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/raw-logs.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/reader_audit.py",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/static_proofs.py",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step1-preflight.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step2-comments.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step3-m103.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step4-board-exit.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step4-independent-accounting.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step4-per-control.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step4-reconciliation.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step4-reconciliation.tsv",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step5-console-exit.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step5-console-replay.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step6-model-exit.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step6-model-summary.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step7-discovery-exit.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step7-discovery-summary.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step8-inventory.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step9-reader-audit.json",
+        "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/step9-reader-audit.txt"
+      ]
+    },
+    "simulator": {
+      "changed_since_W2_gate_entry": [],
+      "explained_W2_QA_additions": []
+    }
+  },
+  "W2_QA_checksums_verified": 45,
+  "W2_report_sha256": "ef41ae0db9e80913d0140e1f53aea62105c2cce6878585800d66d5b6fb32dded"
+}

@@ -1,0 +1,1188 @@
+{
+  "scope": "Q10 requested static census; no other runner is folded into B459",
+  "runners": [
+    {
+      "finding": "B462",
+      "runner": "probe_inbox_verbs",
+      "classification": "count pins",
+      "file": "tools/probe_inbox_verbs/run.sh",
+      "sha256": "06d49b25e3126970ac30e9e279d844a433f3b2f1fd1c994ebad762f43fcf76c4",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Checks 1400/483 and controls 63/71 are pinned. An isolated lost increment fails. Within one arm, missing one ordinary control and duplicating another with the same accepted outcome preserves every final count; no identity-set comparison.",
+      "excerpts": [
+        {
+          "start": 244,
+          "end": 272,
+          "text": "244: PIN_CHECKS_ACCEPT=1400\n245: # 8ac: 47 executed real-router/local-delivery and selected-key wipe checks.\n246: # 8b adds ten observer/transport checks and eight real-Node binding-veto checks.\n247: # W1c: the same six shared X21..X26 rows: 477 + 6 = 483.\n248: PIN_CHECKS_CLIENT=483\n249: PIN_CHECKS=$([ \"$MR_PROBE_ARM\" = client ] && echo \"$PIN_CHECKS_CLIENT\" || echo \"$PIN_CHECKS_ACCEPT\")\n250: # \u26a0 RE-PINNED 2026-09-06 BY \u00a7RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own \u2014 C22 the\n251: #   dispatch arm deleted \u00b7 C23 \u2605 the seed binding stops drawing from the platform \u00b7 C24 the store binding stops\n252: #   reading its record \u00b7 C25 the Print adapter re-chooses `mrcon` ([[B279]]'s shape) \u00b7 C26 the read-only boot\n253: #   report starts writing. \u26d4 Every prior control is preserved and still RED.\n254: # \u26a0 27 -> 30: three more on the TYPED WRAPPERS, which `--target=devicenv` cannot reach at all \u2014 C27 `load_acl`\n255: #   stops asking for SlotIo (a dead store reads as a fresh device) \u00b7 C28 `save_acl` writes the WRONG slot (an ACL\n256: #   update lands on the administration root) \u00b7 C29 `load_admin_id` reads the wrong slot. The native suite is blind\n257: #   to all three because the host arm has NO NV backend; here they run against the REAL ESP32 sequence.\n258: # \u2605\u2605 PER ARM as well: the slice-3 controls (C22..C29) mutate bindings a CLIENT build does not compile, and the\n259: #   slice-4 ones (C30..C40) mutate bindings an ACCEPT build does not compile. A control that cannot bite on an arm\n260: #   is `passes` \u2014 i.e. UNUSABLE \u2014 so each arm runs the 22 shared ones plus its own eight/eleven.\n261: #   ACCEPT 30 = 22 shared + C22..C29 (8).   CLIENT 33 = 22 shared + C30..C40 (11).\n262: # 7b-2: 50 + five service/open links and five exact status-value controls.\n263: # Slice 10: +A10-C1 config wrong-slot read, on both arms; every prior control retained.\n264: # W1c: +2 shared router controls on both arms, W1c-C1 (a made-up default restored) and W1c-C2 (the empty\n265: # name field dropped), each RED on X21/X22 only: 61 + 2 = 63.\n266: PIN_CONTROLS_ACCEPT=63\n267: # 8ac adds eleven real firmware decision controls to the previous 45.\n268: # 8b adds debt status, carrier write binding, disconnect-drop and real Node lookup controls.\n269: # W1c: the same two shared router controls: 69 + 2 = 71.\n270: PIN_CONTROLS_CLIENT=71\n271: PIN_CONTROLS=$([ \"$MR_PROBE_ARM\" = client ] && echo \"$PIN_CONTROLS_CLIENT\" || echo \"$PIN_CONTROLS_ACCEPT\")\n272: "
+        },
+        {
+          "start": 849,
+          "end": 873,
+          "text": "849: #     report PASS while its own clean probe failed or while checks/controls had been silently deleted. Each line\n850: #     below therefore NAMES the term it is failing on, so a red gate says WHICH property broke.\n851: # ================================================================================================================\n852: echo \"probe: $n_checks checks against the REAL dispatch()+handle_clear_inbox, $n_probe_fail failed (pin $PIN_CHECKS)\"\n853: [ \"$probe_rc\" -eq 0 ]            || { echo \"  !! the clean probe EXITED $probe_rc\"; rc=1; }\n854: [ \"$n_probe_fail\" -eq 0 ]        || { echo \"  !! the clean probe reported $n_probe_fail failed check(s)\"; rc=1; }\n855: [ \"$n_checks\" -eq \"$PIN_CHECKS\" ] || {\n856:   echo \"  !! CHECK COUNT MOVED: $n_checks, pinned $PIN_CHECKS \u2014 a check was added or deleted.\"\n857:   echo \"     If deliberate, update PIN_CHECKS at the top of this file WITH its derivation.\"; rc=1; }\n858: \n859: if [ \"${1:-}\" != \"--no-neg\" ]; then\n860:   echo \"controls: $n_ctl verified / $n_bad unusable (pin $PIN_CONTROLS)\"\n861:   [ \"$n_bad\" -eq 0 ]                    || rc=1\n862:   [ \"$n_ctl\" -eq \"$PIN_CONTROLS\" ]      || {\n863:     echo \"  !! CONTROL COUNT MOVED: $n_ctl, pinned $PIN_CONTROLS \u2014 a negative control was added or deleted.\"\n864:     echo \"     If deliberate, update PIN_CONTROLS at the top of this file.\"; rc=1; }\n865:   [ \"$rc\" -eq 0 ] && echo \"PASS\" || echo \"FAIL\"\n866: else\n867:   # \u26d4 `--no-neg` MUST NEVER PRINT AN ORDINARY `PASS`. Without the controls this run cannot say the checks CAN\n868:   #    fail, which is the sibling probe's documented trap: controls described as \"not optional\" while the standard\n869:   #    command skipped them, so the reported gate never included them. A distinct verdict word is the fix.\n870:   if [ \"$rc\" -eq 0 ]; then echo \"PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)\"\n871:   else                     echo \"FAIL\"; fi\n872: fi\n873: exit $rc"
+        }
+      ]
+    },
+    {
+      "finding": "B463",
+      "runner": "probe_console_sink",
+      "classification": "count pins and domain-specific coverage",
+      "file": "tools/probe_console_sink/run.sh",
+      "sha256": "f543dbf1829bd09d2e672bdca1f32456b358cb0b5addc507a96f920061588b73",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Profiles, checks, structural, BLE, ownership and control counts plus name-comparison file count are pinned. These are useful coverage checks, not an executed-label bijection. Replace one ordinary control by a duplicate in the same class: counts and finalizer inputs are unchanged.",
+      "excerpts": [
+        {
+          "start": 191,
+          "end": 223,
+          "text": "191: PIN_PROFILES=6\n192: CHECKS_PER_PROFILE=120\n193: PIN_CHECKS=$((CHECKS_PER_PROFILE * PIN_PROFILES))\n194: # Slice 6: S53..S62 add ten controlled entry/context/policy bindings.\n195: # Slice 7a: S63..S76, 14 additive wiring rows.\n196: # 7b-1: +6 scope, main-loop ownership, semantic inbox and mutator rows.\n197: # 7b-2: +S83 scalar-only, ACCEPT-only ordered status snapshot.\n198: # Slice 10: +S84 schema boot call/result/sink/order; all 83 prior rows retained.\n199: PIN_STRUCTURAL=84\n200: PIN_BLE_GUARD=905\n201: PIN_OWNERSHIP=6\n202: PIN_OWN_CTL=3\n203: # Slice 6: S6-C1..S6-C13; all prior 101 controls retained.\n204: # Slice 7a: 22 additive activation structural controls.\n205: # 7b-1: +10 controlled source regressions; all earlier controls retained.\n206: # 7b-2: +3 status label, secret-state and guard controls.\n207: # Slice 10: +3 schema report removal/duplication/sink controls; all 149 retained.\n208: PIN_CONTROLS=152\n209: \n210: pin_fail=0\n211: pin_cmp() {   # pin_cmp <term> <observed> <expected> \u2014 a missing, non-numeric, zero or differing count is a FAILURE\n212:   case \"${2:-}\" in\n213:     '')        echo \"   !! PIN $1: MISSING \u2014 this run printed no value for it\"; pin_fail=1; return 0 ;;\n214:     *[!0-9]*)  echo \"   !! PIN $1: NON-NUMERIC observed value '$2'\";            pin_fail=1; return 0 ;;\n215:   esac\n216:   if [ \"$2\" -eq 0 ] && [ \"$3\" -ne 0 ]; then\n217:     echo \"   !! PIN $1: ZERO \u2014 nothing was measured (expected $3)\"; pin_fail=1; return 0\n218:   fi\n219:   if [ \"$2\" -ne \"$3\" ]; then\n220:     echo \"   !! PIN $1: observed $2, expected $3\"; pin_fail=1\n221:   fi\n222: }\n223: "
+        },
+        {
+          "start": 389,
+          "end": 457,
+          "text": "389: if [ \"${1:-}\" = \"--no-neg\" ]; then\n390:   # \u26a0 VISIBLY PROBE-ONLY, AND IT NEVER PRINTS PASS. A previous probe documented its controls as \"not optional\" while\n391:   #   the standard command skipped them, so the reported gate never included them (QA, 2026-08-04).\n392:   echo\n393:   echo \"PROBE-ONLY (negative controls SKIPPED) \u2014 this is NOT a gate result. Re-run without --no-neg.\"\n394:   exit $rc\n395: fi\n396: \n397: echo\n398: echo \"== router/parser ownership controls (each MUST refuse) ==\"\n399: python3 \"$HERE/ownership.py\" --selftest > \"$OUT/ownctl.txt\" 2>&1 || rc=1\n400: sed 's/^/  /' \"$OUT/ownctl.txt\"\n401: \n402: echo\n403: echo \"== negative controls (each MUST fail) ==\"\n404: [ -f \"$HERE/negctl.py\" ] || { echo \"negctl.py missing\"; exit 1; }\n405: # \u2605 Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.\n406: python3 \"$HERE/negctl.py\" \"$OUT\" \"$CXX\" \"$SINK\" \"$ROOT/src/firmware_commands.cpp\" \"$ROOT/src/firmware_commands.h\" \\\n407:    \"$ROOT/src/fw_main.cpp\" \"$HELP\" -- \"${FLAGS[@]}\" \"${INCS[@]}\" > \"$OUT/neg.txt\" 2>&1 || rc=1\n408: cat \"$OUT/neg.txt\"\n409: \n410: # ---- DERIVED PINS. Counted from THIS run's own output, never typed. tools/test_probe_console_sink.py asserts them,\n411: #      which is what stops a silent reduction (a dropped profile, a deleted control) from still reporting PASS.\n412: chk_total=0\n413: for row in \"${PROFILES[@]}\"; do\n414:   prof=${row%%|*}\n415:   n=$(sed -n 's/.*probe: \\([0-9]*\\) passed \\/ \\([0-9]*\\) failed \\/ \\([0-9]*\\) total.*/\\3/p' \"$OUT/run_$prof.txt\")\n416:   chk_total=$((chk_total + ${n:-0}))\n417: done\n418: struct_total=$(python3 \"$HERE/structural.py\" \"$ROOT/src/firmware_commands.cpp\" \"$ROOT/src/firmware_commands.h\" \\\n419:    \"$ROOT/src/fw_main.cpp\" \"$HELP\" \"$ROOT/src/device_nv.h\" \"$ROOT/src/firmware_config.cpp\" \\\n420:    \"$ROOT/lib/console/console_json.cpp\" \"$ROOT/src/firmware_inbox.cpp\" \"$ROOT/src/firmware_command_context.h\" \\\n421:    | sed -n 's/.*structural: [0-9]* passed \\/ [0-9]* failed \\/ \\([0-9]*\\) total.*/\\1/p')\n422: ctl_total=$(sed -n 's/.*CONTROLS-TOTAL \\([0-9]*\\).*/\\1/p' \"$OUT/neg.txt\")\n423: # \u00a7RADMIN slice 3: TWO families now, so the total is their SUM. \u26d4 `sed -n \u2026p` prints one line per family and\n424: #   a bare assignment would have kept only the LAST \u2014 i.e. silently dropped the help family's 212 rows.\n425: # \u00a7RADMIN slice 4: THREE families. \u26a0 THE SUM IS ALSO A COVERAGE PIN: a family whose extraction REFUSED prints no\n426: #   count line at all, so the total FALLS and `pin_cmp` reddens \u2014 which is the whole reason this is a sum and not\n427: #   a per-family \"did it fail\" test.\n428: ble_checks=$( { sed -n 's/.*BLE-GUARD rows=[0-9]* checks=\\([0-9]*\\) failed=[0-9]*.*/\\1/p' \"$OUT/bleguard.txt\";\n429:                 sed -n 's/.*ADMIN-GUARD rows=[0-9]* checks=\\([0-9]*\\) failed=[0-9]*.*/\\1/p' \"$OUT/bleguard.txt\";\n430:                 sed -n 's/.*CLIENT-GUARD rows=[0-9]* checks=\\([0-9]*\\) failed=[0-9]*.*/\\1/p' \"$OUT/bleguard.txt\";\n431:               } | awk '{t+=$1} END {print t+0}')\n432: green=$(grep -c 'STAYED GREEN\\|INSTRUMENT FAILURE\\|CONTROL NOT APPLIED' \"$OUT/neg.txt\" || true)\n433: own_total=$(sed -n 's/.*ownership: [0-9]* passed \\/ [0-9]* failed \\/ \\([0-9]*\\) total.*/\\1/p' \"$OUT/ownership.txt\")\n434: own_ctl=$(grep -c '^  ok   C-' \"$OUT/ownctl.txt\" || true)\n435: echo\n436: echo \"PINS profiles=${n_profiles} checks=${chk_total} structural=${struct_total} ble_guard=${ble_checks} ownership=${own_total} ownership_controls=${own_ctl} controls=${ctl_total} unusable_controls=${green}\"\n437: # ---- [[B294]]: THE RUNNER'S OWN JUDGMENT, BEFORE PASS. Every term is compared; the differing one is NAMED. -------\n438: pin_cmp profiles    \"${n_profiles:-}\"  \"$PIN_PROFILES\"\n439: pin_cmp checks      \"${chk_total:-}\"   \"$PIN_CHECKS\"\n440: pin_cmp structural  \"${struct_total:-}\" \"$PIN_STRUCTURAL\"\n441: pin_cmp ble_guard   \"${ble_checks:-}\"  \"$PIN_BLE_GUARD\"\n442: pin_cmp ownership   \"${own_total:-}\"   \"$PIN_OWNERSHIP\"\n443: pin_cmp ownership_controls \"${own_ctl:-}\" \"$PIN_OWN_CTL\"\n444: pin_cmp controls    \"${ctl_total:-}\"   \"$PIN_CONTROLS\"\n445: if [ \"${green:-1}\" -ne 0 ]; then\n446:   echo \"   !! PIN unusable_controls: observed ${green:-?}, expected 0\"; pin_fail=1\n447: fi\n448: # ...and every profile must have actually produced a name comparison, so a silently skipped profile cannot pass.\n449: n_cmp=$(find \"$OUT\" -maxdepth 1 -name 'got_*.txt' | wc -l)\n450: pin_cmp name_comparisons \"$n_cmp\" \"$PIN_PROFILES\"\n451: [ \"$pin_fail\" -eq 0 ] || rc=1\n452: if [ \"$rc\" -eq 0 ]; then\n453:   echo \"PASS: probe + structural + controls all green\"\n454: else\n455:   echo \"FAILED \u2014 see above\"\n456: fi\n457: exit $rc"
+        }
+      ]
+    },
+    {
+      "finding": "B464",
+      "runner": "probe_custody_usb",
+      "classification": "count pins",
+      "file": "tools/probe_custody_usb/run.sh",
+      "sha256": "03b47b0f98d3db0482f1112205faedffb47741f37c84c1bbf9f9c885c1871151",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "27 positive checks, 10 controls and zero failures/unusable are pinned. Missing-plus-duplicate within the same outcome class leaves the finalizer unchanged; no executed-label set.",
+      "excerpts": [
+        {
+          "start": 83,
+          "end": 85,
+          "text": "83: PIN_CHECKS=27\n84: PIN_CONTROLS=10\n85: "
+        },
+        {
+          "start": 277,
+          "end": 296,
+          "text": "277: [ \"$probe_rc\" -eq 0 ]            || { echo \"  !! the clean probe EXITED $probe_rc\"; rc=1; }\n278: [ \"$n_probe_fail\" -eq 0 ]        || { echo \"  !! the clean probe reported $n_probe_fail failed check(s)\"; rc=1; }\n279: [ \"$n_checks\" -eq \"$PIN_CHECKS\" ] || {\n280:   echo \"  !! CHECK COUNT MOVED: $n_checks, pinned $PIN_CHECKS \u2014 a check was added or deleted.\"\n281:   echo \"     If deliberate, update PIN_CHECKS at the top of this file WITH its derivation.\"; rc=1; }\n282: \n283: if [ \"${1:-}\" != \"--no-neg\" ]; then\n284:   echo \"controls: $n_ctl verified / $n_bad unusable (pin $PIN_CONTROLS)\"\n285:   [ \"$n_bad\" -eq 0 ]               || rc=1\n286:   [ \"$n_ctl\" -eq \"$PIN_CONTROLS\" ] || {\n287:     echo \"  !! CONTROL COUNT MOVED: $n_ctl, pinned $PIN_CONTROLS \u2014 a negative control was added or deleted.\"\n288:     echo \"     If deliberate, update PIN_CONTROLS at the top of this file.\"; rc=1; }\n289:   [ \"$rc\" -eq 0 ] && echo \"PASS\" || echo \"FAIL\"\n290: else\n291:   # \u26d4 `--no-neg` MUST NEVER PRINT AN ORDINARY `PASS`. Without the controls this run cannot say the checks CAN\n292:   #    fail, which is the sibling probe's documented trap.\n293:   if [ \"$rc\" -eq 0 ]; then echo \"PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)\"\n294:   else                     echo \"FAIL\"; fi\n295: fi\n296: exit $rc"
+        }
+      ]
+    },
+    {
+      "finding": "B465",
+      "runner": "probe_ble_line",
+      "classification": "count pins",
+      "file": "tools/probe_ble_line/run.sh",
+      "sha256": "fb1a683312d381835528b3829806a2f26fe5ba837d2ebe0811ece9341a22b530",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "55 checks and 12 controls pinned; count-only finalization cannot distinguish an omitted check/control compensated by a duplicate.",
+      "excerpts": [
+        {
+          "start": 90,
+          "end": 92,
+          "text": "90: PIN_CHECKS=55\n91: PIN_CONTROLS=12\n92: "
+        },
+        {
+          "start": 297,
+          "end": 316,
+          "text": "297: [ \"$probe_rc\" -eq 0 ]             || { echo \"  !! the clean probe EXITED $probe_rc\"; rc=1; }\n298: [ \"$n_probe_fail\" -eq 0 ]         || { echo \"  !! the clean probe reported $n_probe_fail failed check(s)\"; rc=1; }\n299: [ \"$n_checks\" -eq \"$PIN_CHECKS\" ] || {\n300:   echo \"  !! CHECK COUNT MOVED: $n_checks, pinned $PIN_CHECKS \u2014 a check was added or deleted.\"\n301:   echo \"     If deliberate, update PIN_CHECKS at the top of this file WITH its derivation.\"; rc=1; }\n302: \n303: if [ \"${1:-}\" != \"--no-neg\" ]; then\n304:   echo \"controls: $n_ctl verified / $n_bad unusable (pin $PIN_CONTROLS)\"\n305:   [ \"$n_bad\" -eq 0 ]                 || rc=1\n306:   [ \"$n_ctl\" -eq \"$PIN_CONTROLS\" ]   || {\n307:     echo \"  !! CONTROL COUNT MOVED: $n_ctl, pinned $PIN_CONTROLS \u2014 a negative control was added or deleted.\"\n308:     echo \"     If deliberate, update PIN_CONTROLS at the top of this file.\"; rc=1; }\n309:   [ \"$rc\" -eq 0 ] && echo \"PASS\" || echo \"FAIL\"\n310: else\n311:   # \u26d4 `--no-neg` MUST NEVER PRINT AN ORDINARY `PASS`. Without the controls this run cannot say the checks CAN\n312:   #    fail, which is the sibling probes' documented trap.\n313:   if [ \"$rc\" -eq 0 ]; then echo \"PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)\"\n314:   else                     echo \"FAIL\"; fi\n315: fi\n316: exit $rc"
+        }
+      ]
+    },
+    {
+      "finding": "B466",
+      "runner": "probe_features",
+      "classification": "count pins and domain-specific sets",
+      "file": "tools/probe_features/run.sh",
+      "sha256": "2e68285e9a2d013f5294b5d5622145185849920f8ab05c102005f65ac4b8b2bc",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "9 cells, 112 binary checks and 58 controls are pinned. Ownership/envmap have real domain coverage checks; these do not reconcile all executed control identities. Same-class duplicate-plus-missing leaves the aggregate finalizer unchanged.",
+      "excerpts": [
+        {
+          "start": 100,
+          "end": 110,
+          "text": "100: #     (historical:)  PIN_CONTROLS = 44 = 4 + 6 + 5 + 4 + 19 + 6.  \u2713  (was 19 before slice 1b and 38 before \u00a7RADMIN slice 3 \u2014 every prior control\n101: #     is PRESERVED; the +6 are one per NEW owner boundary: the router arm's gate DELETED, the BLE refusal's gate\n102: #     DELETED, the boot call's gate legacy-WIDENED, the help names INVERTED onto the CLIENT capability, a\n103: #     DUPLICATE guard in the boot-wrapper header, and a PURE SERVICE HEADER acquiring a capability macro.)\n104: PIN_CELLS=9\n105: # 8ac: 122 - node_mac.cpp retired staging owner = 121; all 62 controls retained/retargeted.\n106: # Slice 9 removes nine legacy-column checks; O5 now rejects unconditional widening.\n107: PIN_CHECKS=112\n108: # Slice 9 retires A3/A4/C3/C4 with the agreement diagnostic; W/Y controls are retained.\n109: PIN_CONTROLS=58\n110: "
+        },
+        {
+          "start": 546,
+          "end": 570,
+          "text": "546: [ \"$matrix_rc\" -eq 0 ]            || { echo \"  !! a configuration cell failed to build or ran RED\"; rc=1; }\n547: [ \"$envmap_rc\" -eq 0 ]            || { echo \"  !! the environment-map derivation FAILED (exit $envmap_rc)\"; rc=1; }\n548: [ \"$own_rc\" -eq 0 ]               || { echo \"  !! the ownership contract FAILED or could not be evaluated (exit $own_rc)\"; rc=1; }\n549: [ \"$n_fail\" -eq 0 ]               || { echo \"  !! $n_fail check(s) failed\"; rc=1; }\n550: [ \"$n_cells\" -eq \"$PIN_CELLS\" ]   || {\n551:   echo \"  !! CELL COUNT MOVED: $n_cells, pinned $PIN_CELLS \u2014 a configuration was added or dropped.\"\n552:   echo \"     If deliberate, update PIN_CELLS at the top of this file WITH its derivation.\"; rc=1; }\n553: [ \"$n_checks\" -eq \"$PIN_CHECKS\" ] || {\n554:   echo \"  !! CHECK COUNT MOVED: $n_checks, pinned $PIN_CHECKS \u2014 a check was added or deleted.\"\n555:   echo \"     If deliberate, update PIN_CHECKS at the top of this file WITH its derivation.\"; rc=1; }\n556: \n557: if [ \"${1:-}\" != \"--no-neg\" ]; then\n558:   echo \"controls: $n_ctl verified / $n_bad unusable (pin $PIN_CONTROLS)\"\n559:   [ \"$n_bad\" -eq 0 ]               || rc=1\n560:   [ \"$n_ctl\" -eq \"$PIN_CONTROLS\" ] || {\n561:     echo \"  !! CONTROL COUNT MOVED: $n_ctl, pinned $PIN_CONTROLS \u2014 a control was added or dropped.\"\n562:     echo \"     If deliberate, update PIN_CONTROLS at the top of this file.\"; rc=1; }\n563:   [ \"$rc\" -eq 0 ] && echo \"PASS\" || echo \"FAIL\"\n564: else\n565:   # \u26d4 `--no-neg` MUST NEVER PRINT AN ORDINARY `PASS`. Without the controls this run cannot say the checks CAN\n566:   #    fail, which is the sibling probes' documented trap.\n567:   if [ \"$rc\" -eq 0 ]; then echo \"PROBE-ONLY \u2014 NOT A GATE (controls skipped; run without --no-neg to gate)\"\n568:   else                     echo \"FAIL\"; fi\n569: fi\n570: exit $rc"
+        }
+      ]
+    },
+    {
+      "finding": "B467",
+      "runner": "probe_device_radio",
+      "classification": "neither global executed set nor count pins",
+      "file": "tools/probe_device_radio/run.sh",
+      "sha256": "ae9fe0ea43c09dee9c0e5b2365b6097e9ce7cc7e5e5cf40d30f6d8b82ee83df8",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Shell checks subprocess statuses and input hashes only. Positive binary and structural counters count what executes; mutation summary uses list lengths and a failure counter. Skipping an otherwise healthy structural call/control can reduce coverage and still exit zero.",
+      "excerpts": [
+        {
+          "start": 37,
+          "end": 68,
+          "text": "37: \n38: echo \"== V4 production device-radio probe ==\"\n39: \"$CC\" -std=gnu17 -O0 -I\"$ROOT/lib/monocypher/src\" -c \"$ROOT/lib/monocypher/src/monocypher.c\" -o \"$OUT/monocypher.o\" || exit 1\n40: \"$CXX\" \"${COMMON[@]}\" -c \"$ROOT/lib/core/frame_codec.cpp\" -o \"$OUT/frame_codec.o\" || exit 1\n41: \"$CXX\" \"${COMMON[@]}\" -c \"$ROOT/lib/core/leaf_config.cpp\" -o \"$OUT/leaf_config.o\" || exit 1\n42: \"$CXX\" \"${COMMON[@]}\" \"$HERE/probe_main.cpp\" \"$OUT/frame_codec.o\" \"$OUT/leaf_config.o\" \"$OUT/monocypher.o\" \\\n43:        -o \"$OUT/probe\" || exit 1\n44: \"$OUT/probe\" || exit 1\n45: \n46: echo \"== V4 production Heltec board-RF probe ==\"\n47: BOARD_FLAGS=(-DMR_BOARD_RF_FRONTEND=1 -DMR_V4_FEM_LDO_PIN=7 -DMR_V4_FEM_CSD_PIN=2\n48:              -DMR_V4_GC_TX_EN_PIN=46 -DMR_V4_KCT_CTX_PIN=5 -DLORA_TX_POWER=10\n49:              -DMR_DEFAULT_OUTPUT_DBM=22 -DMR_RF_OUTPUT_MIN_DBM=22 -DMR_RF_OUTPUT_MAX_DBM=22\n50:              -DMR_RF_FREQ_MIN_MHZ=863.0 -DMR_RF_FREQ_MAX_MHZ=928.0 -DMR_RF_STRICT_ENVELOPE=1)\n51: \"$CXX\" \"${COMMON[@]}\" \"${BOARD_FLAGS[@]}\" -I\"$ROOT/variants/heltec_v4\" \\\n52:        \"$HERE/board_rf_probe.cpp\" \"$BOARD_RF\" -o \"$OUT/board-rf-probe\" || exit 1\n53: \"$OUT/board-rf-probe\" || exit 1\n54: \n55: echo \"== V4 production wiring/profile checks ==\"\n56: python3 \"$HERE/structural.py\" \"$DEVICE\" \"$FW_MAIN\" \"$FW_CONFIG\" \"$FW_COMMANDS\" \"$PIO_INI\" || exit 1\n57: \n58: if [ \"${1:-}\" != \"--no-neg\" ]; then\n59:   SUPPORT=\"$OUT/frame_codec.o,$OUT/leaf_config.o,$OUT/monocypher.o\"\n60:   python3 \"$HERE/mutations.py\" \"$ROOT\" \"$OUT\" \"$CXX\" \"$DEVICE\" \"$FW_MAIN\" \"$HERE/probe_main.cpp\" \"$SUPPORT\" || exit 1\n61: fi\n62: \n63: HASH_AFTER=$(source_hash)\n64: if [ \"$HASH_BEFORE\" != \"$HASH_AFTER\" ]; then\n65:   echo \"  FAIL the probe modified a real source or probe input\"\n66:   exit 1\n67: fi\n68: echo \"source hash unchanged: $HASH_AFTER\""
+        }
+      ]
+    },
+    {
+      "finding": "B468",
+      "runner": "probe_deferred_actions",
+      "classification": "mixed: live count pins; generated controls not reconciled",
+      "file": "tools/probe_deferred_actions/run.py",
+      "sha256": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Declaration lengths 19+21 are pinned before generating shell commands. Final live backend checks/transcripts have pins, but no comparison of completed CONTROL RED identities against those 40 declarations. A skipped generation iteration or missing generated control block leaves live baselines green; no terminal control-set check. Some source-check functions return literal counts.",
+      "excerpts": [
+        {
+          "start": 8,
+          "end": 31,
+          "text": "8: # Local checks: 12 confirmation refusals + 40 erase/order + 16 sleep + 24 prep\n9: # + 10 basic board calls + 9 debug refusals + 2 OTA calls + 1 hang = 114.\n10: # ESP adds 3 toggle/failure checks. Typed support/effects add 36 / 37 / 41.\n11: PIN_ABSENT=150\n12: PIN_NRF=151\n13: PIN_ESP=158\n14: PIN_BASE=114\n15: PIN_BASE_ESP=117\n16: PIN_TRANSCRIPTS=39\n17: PIN_CONTROLS=19\n18: PIN_SOURCE_CONTROLS=4\n19: # Derived by complete four-variant runs: remote 336/438/454/384 + 80 ACL assertions each;\n20: # radio 2968/3293/3497/3503 + 192 ACL fixture checks each; every old P1 pin is unchanged.\n21: PIN_REMOTE_ABSENT=416\n22: PIN_REMOTE_NRF=518\n23: PIN_REMOTE_ESP=534\n24: PIN_REMOTE_NOPOWER=464\n25: PIN_RADIO_ABSENT=3160\n26: PIN_RADIO_NRF=3485\n27: PIN_RADIO_ESP=3689\n28: PIN_RADIO_NOPOWER=3695\n29: # Twenty remote effect/status controls plus the explicit configured-delay binding control.\n30: PIN_REMOTE_CONTROLS=21\n31: PIN_PLACEMENT=6"
+        },
+        {
+          "start": 128,
+          "end": 190,
+          "text": "128: def main():\n129:     ap=argparse.ArgumentParser();ap.add_argument('--no-neg',action='store_true');ap.add_argument('--baseline-source',type=Path);ap.add_argument('--backend',type=int,choices=[0,1,2]);ap.add_argument('--out',type=Path);args=ap.parse_args()\n130:     output=args.out or Path(tempfile.mkdtemp(prefix='mr-action-probe-'));output.mkdir(parents=True,exist_ok=True)\n131:     source=args.baseline_source or ROOT;baseline=bool(args.baseline_source)\n132:     assert len(CONTROLS)==PIN_CONTROLS and len(REMOTE_CONTROLS)==PIN_REMOTE_CONTROLS\n133:     source_controls=source_reader_controls();assert source_controls==PIN_SOURCE_CONTROLS\n134:     placement=0 if baseline else placement_checks((source/'src/fw_main.cpp').read_text())\n135:     placement_neg=0 if baseline or args.no_neg else placement_controls((source/'src/fw_main.cpp').read_text())\n136:     assert baseline or placement==PIN_PLACEMENT\n137:     assert baseline or args.no_neg or placement_neg==PIN_PLACEMENT\n138:     text=(HERE/'probe.cpp').read_text();assert text.count('// @ACTION_OWNERS@')==1\n139:     generated=text.replace('// @ACTION_OWNERS@',owners(source,baseline))\n140:     runner=(ROOT/'tools/probe_inbox_verbs/run.sh').read_text();boundary='rc=0\\nif ! build_support;';assert runner.count(boundary)==1\n141:     prefix=runner[:runner.index(boundary)]\n142:     # Reuse the standing builder and its exact dependencies/defines; no forked build recipe.\n143:     commands=['LDWRAP+=(-Wl,--wrap=_ZN9meshroute4Node19clear_learned_stateEv)', 'build_support || exit 2']\n144:     results=[]\n145:     for backend,power in ([(args.backend,1)] if args.backend is not None else [(0,1),(1,1),(2,1),(2,0)]):\n146:         name=f'b{backend}-p{power}';cpp=output/(name+'.cpp')\n147:         cpp.write_text(f'#define ACTION_BACKEND {backend}\\n#define ACTION_POWERSAVE {power}\\n'+('#define ACTION_BASELINE 1\\n' if baseline else '')+generated)\n148:         cmd=f'build_variant {shlex.quote(str(source/\"src/firmware_commands.cpp\"))} \"$FW_INBOX\" \"\" \"$OUT/{name}\" {shlex.quote(str(cpp))}'\n149:         commands += [cmd+f' || {{ cat \"$OUT/build.log\"; exit 2; }}',f'cp \"$OUT/build.log\" {shlex.quote(str(output/(name+\"-compile.log\")))}',f'\"$OUT/{name}\" > {shlex.quote(str(output/(name+\".log\")))} 2>&1 || {{ cat {shlex.quote(str(output/(name+\".log\")))}; exit 1; }}',f'cat {shlex.quote(str(output/(name+\".log\")))}']\n150:         results.append({'name':name,'cpp_sha256':hashlib.sha256(cpp.read_bytes()).hexdigest()})\n151:     controls=[]\n152:     if not args.no_neg and not baseline:\n153:         for label,path,old,new,backend,power in CONTROLS+REMOTE_CONTROLS:\n154:             original=(ROOT/path).read_text();assert original.count(old)==1,(label,original.count(old))\n155:             changed=original.replace(old,new);name=label.split()[0];directory=output/name;directory.mkdir(exist_ok=True)\n156:             changed_path=directory/Path(path).name;changed_path.write_text(changed)\n157:             body=text.replace('// @ACTION_OWNERS@',owners(ROOT,False,{path:changed}))\n158:             cpp=directory/'probe.cpp';cpp.write_text(f'#define ACTION_BACKEND {backend}\\n#define ACTION_POWERSAVE {power}\\n'+body)\n159:             router=changed_path if path=='src/firmware_commands.cpp' else ROOT/'src/firmware_commands.cpp'\n160:             actions=changed_path if path=='src/firmware_remote_actions.cpp' else ROOT/'src/firmware_remote_actions.cpp'\n161:             log=directory/'run.log'\n162:             commands += [f'build_variant {shlex.quote(str(router))} \"$FW_INBOX\" \"\" \"$OUT/{name}\" {shlex.quote(str(cpp))} {shlex.quote(str(actions))} || {{ cat \"$OUT/build.log\"; exit 2; }}',\n163:                          f'cp \"$OUT/build.log\" {shlex.quote(str(directory/\"compile.log\"))}',\n164:                          f'\"$OUT/{name}\" > {shlex.quote(str(log))} 2>&1; ctl_rc=$?; test \"$ctl_rc\" -eq 1 || {{ cat {shlex.quote(str(log))}; exit 3; }}',\n165:                          f'grep -Eq \"^  FAIL (action |remote action |R7-)\" {shlex.quote(str(log))} || exit 4',\n166:                          f'echo \"CONTROL RED {name}\"']\n167:             controls.append({'label':label,'path':path,'matches':1,'source_sha256':hashlib.sha256(original.encode()).hexdigest(),'mutant_sha256':hashlib.sha256(changed.encode()).hexdigest()})\n168:     watched=[ROOT/p for p in ('src/fw_main.cpp','src/firmware_commands.cpp','src/device_ota.cpp','src/device_ota.h','src/firmware_action_effects.h','tools/probe_inbox_verbs/probe_main.cpp','tools/probe_inbox_verbs/fakes/Preferences.h','tools/probe_deferred_actions/run.py','tools/probe_deferred_actions/run.sh','tools/probe_deferred_actions/probe.cpp','tools/probe_deferred_actions/controls.py','tools/probe_deferred_actions/remote_rows.h','src/firmware_remote_actions.cpp','src/firmware_remote_actions.h','tools/probe_inbox_verbs/remote_exec_rows.h')]\n169:     before={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in watched}\n170:     script=prefix+'\\n'+ '\\n'.join(commands)+'\\n'\n171:     (output/'build.sh').write_text(script)\n172:     p=subprocess.run(['bash','-c',script,str(ROOT/'tools/probe_inbox_verbs/run.sh')],env=dict(os.environ,MR_PROBE_ARM='accept'),stdout=subprocess.PIPE,stderr=subprocess.STDOUT)\n173:     (output/'build.log').write_bytes(p.stdout)\n174:     if p.returncode:print(p.stdout.decode()[-8000:]);raise SystemExit(p.returncode)\n175:     assert before=={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in watched}\n176:     for row in results:\n177:         s=(output/(row['name']+'.log')).read_text();m=re.search(r'ACTION CHECKS (\\d+) FAILED (\\d+)',s);assert m and m[2]=='0'\n178:         if not baseline:\n179:             remote=re.search(r'REMOTE ACTION CHECKS (\\d+) RADIO (\\d+) FAILED (\\d+)',s);assert remote and remote[3]=='0'\n180:             row['remote_checks']=int(remote[1]);row['radio_checks']=int(remote[2])\n181:             expected_remote={'b0-p1':(PIN_REMOTE_ABSENT,PIN_RADIO_ABSENT),'b1-p1':(PIN_REMOTE_NRF,PIN_RADIO_NRF),'b2-p1':(PIN_REMOTE_ESP,PIN_RADIO_ESP),'b2-p0':(PIN_REMOTE_NOPOWER,PIN_RADIO_NOPOWER)}[row['name']]\n182:             assert (row['remote_checks'],row['radio_checks'])==expected_remote,(row,expected_remote)\n183:         row['checks']=int(m[1]);row['transcripts']=len(re.findall(r'^TRANSCRIPT ',s,re.M))\n184:         expected=(PIN_BASE_ESP if row['name'].startswith('b2') else PIN_BASE) if baseline else {'b0-p1':PIN_ABSENT,'b1-p1':PIN_NRF,'b2-p1':PIN_ESP,'b2-p0':PIN_ESP}[row['name']]\n185:         assert row['checks']==expected and row['transcripts']==PIN_TRANSCRIPTS,(row,expected)\n186:         print(row['name'],row['checks'],'checks',row['transcripts'],'transcripts PASS')\n187:     (output/'results.json').write_text(json.dumps({'baseline':baseline,'source':str(source),'results':results,'controls':controls,'source_preservation':before,'source_reader_controls':source_controls,'placement_checks':placement,'placement_controls':placement_neg},indent=2)+'\\n')\n188:     if controls: print(str(len(controls))+' controls compile/assertion RED')\n189:     print('ACTION PROBE PASS; output='+str(output))\n190: if __name__=='__main__':main()"
+        }
+      ]
+    },
+    {
+      "finding": "B469",
+      "runner": "probe_prov_tx",
+      "classification": "neither executed set nor count pins",
+      "file": "tools/probe_prov_tx/probe.py",
+      "sha256": "b17fb52e10576c0be1073a7bfe370c014311fa899603943a396b577593ad5f5f",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "CHECKS and CONTROLS drive loops; rc accumulates only observed failures. The positive results dictionary is never reconciled. Skip a control iteration without editing its declaration: all remaining checks can stay green and final OK/zero remains.",
+      "excerpts": [
+        {
+          "start": 789,
+          "end": 825,
+          "text": "789: def main():\n790:     raw_svc = open(SVC, encoding='utf-8').read()\n791:     raw_cfg = open(CFG, encoding='utf-8').read()\n792:     rc = 0\n793: \n794:     print('== \u00a7PROV-TX structural checks (%s, %s)' % (os.path.relpath(SVC, ROOT), os.path.relpath(CFG, ROOT)))\n795:     nsvc, ncfg = neutral(raw_svc), neutral(raw_cfg)\n796:     results = {}\n797:     for i, (label, fn) in enumerate(CHECKS, 1):\n798:         cid = 'S%d' % i\n799:         ok, detail = fn(nsvc, ncfg, raw_svc, raw_cfg)\n800:         results[cid] = ok\n801:         print('   %-6s %-52s %s   [%s]' % (cid, label, 'PASS' if ok else 'FAIL', detail))\n802:         if not ok:\n803:             rc = 1\n804: \n805:     print('== negative controls (each must turn its check RED)')\n806:     for label, target, frm, to, cid in CONTROLS:\n807:         src_svc, src_cfg = raw_svc, raw_cfg\n808:         n = (src_svc if target == 'svc' else src_cfg).count(frm)\n809:         if n != 1:\n810:             print('   %-6s %-52s UNUSABLE  [match count=%d, expected 1]' % (cid, label, n))\n811:             rc = 1\n812:             continue\n813:         if target == 'svc':\n814:             src_svc = src_svc.replace(frm, to)\n815:         else:\n816:             src_cfg = src_cfg.replace(frm, to)\n817:         fn = dict((('S%d' % i), f) for i, (_l, f) in enumerate(CHECKS, 1))[cid]\n818:         ok, detail = fn(neutral(src_svc), neutral(src_cfg), src_svc, src_cfg)\n819:         red = not ok\n820:         print('   %-6s %-52s %s   [%s]' % (cid, label, 'RED' if red else 'GREEN=BAD', detail))\n821:         if not red:\n822:             rc = 1\n823: \n824:     print('== %s' % ('OK' if rc == 0 else 'FAILURES ABOVE'))\n825:     return rc"
+        }
+      ]
+    },
+    {
+      "finding": "B470",
+      "runner": "probe_board_abi",
+      "classification": "symbol-set validation plus control count pin",
+      "file": "tools/probe_board_abi.py",
+      "sha256": "4a5c0997fff20fb3c04cfd75c2527fd09f0b55edfb9b3f273c3afc99f0b2a579",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Missing/unknown ABI symbols are checked, targets are measured by keyed dictionaries, nine full-sweep controls are pinned. Control results themselves reduce to red/unusable/applicable counts, not identities: one skipped control compensated by a duplicate can satisfy 9/9. This is not a missing-symbol defect.",
+      "excerpts": [
+        {
+          "start": 633,
+          "end": 689,
+          "text": "633:                 f\"{completed.stderr.decode('utf-8', 'replace')[-1200:]}\")\n634:         require(obj.is_file(), f\"the compile for '{target}' produced no object\")\n635:         return read_sizes(binutil(data[\"cxx_path\"], \"nm\"), obj)\n636: \n637: \n638: # ---- the checks -------------------------------------------------------------------------------------------------\n639: def check_target(target: str, sizes: dict[str, int], entries: tuple[tuple[str, str], ...],\n640:                  pins: dict[str, dict[str, tuple[int, int, bool]]]) -> int:\n641:     \"\"\"size / alignof / feature-TU inclusion against the pins, plus BOTH coverage directions. `pins` is a\n642:     PARAMETER so a\n643:     control can mutate a COPY.\"\"\"\n644:     require(target in pins, f\"no pin block for target '{target}'\")\n645:     table = pins[target]\n646:     checks = 0\n647:     expected_symbols: set[str] = set()\n648:     for cpp_name, _included_if in (*entries, (FIXTURE_NAME, \"1\")):\n649:         require(cpp_name in table, f\"[{target}] {cpp_name} is probed but NOT PINNED \u2014 add it to PIN_TABLE\")\n650:         pin_size, pin_align, pin_included = table[cpp_name]\n651:         name = slug(cpp_name)\n652:         size_symbol, align_symbol = f\"{SYMBOL_PREFIX}size__{name}\", f\"{SYMBOL_PREFIX}align__{name}\"\n653:         included_symbol = f\"{SYMBOL_PREFIX}included__{name}\"\n654:         expected_symbols |= {size_symbol, align_symbol}\n655:         if pin_included:\n656:             expected_symbols.add(included_symbol)\n657:         # (a) COVERAGE LOSS IS LOUD: a struct that stopped being probed cannot pass by being absent.\n658:         require(size_symbol in sizes,\n659:                 f\"[{target}] {cpp_name} is PINNED but the probe TU emitted no size symbol \u2014 coverage lost\")\n660:         require(align_symbol in sizes,\n661:                 f\"[{target}] {cpp_name} is PINNED but the probe TU emitted no alignment symbol \u2014 coverage lost\")\n662:         # (b) the numbers.\n663:         require(sizes[size_symbol] == pin_size,\n664:                 f\"[{target}] sizeof({cpp_name}) = {sizes[size_symbol]}, pinned {pin_size} \"\n665:                 f\"(delta {sizes[size_symbol] - pin_size:+d})\")\n666:         require(sizes[align_symbol] == pin_align,\n667:                 f\"[{target}] alignof({cpp_name}) = {sizes[align_symbol]}, pinned {pin_align}\")\n668:         # (c) feature-TU inclusion, as the env's OWN flags decided it. \u26d4 NOT a residency/RAM claim.\n669:         measured_included = included_symbol in sizes\n670:         require(measured_included == pin_included,\n671:                 f\"[{target}] {cpp_name} feature-TU inclusion is {measured_included}, pinned {pin_included} \u2014 \"\n672:                 f\"this env no longer compiles the TU this type's feature lives in the way the pin says\")\n673:         checks += 3\n674:     # (d) THE OTHER COVERAGE DIRECTION: nothing measured that no pin governs.\n675:     unknown = sorted(set(sizes) - expected_symbols)\n676:     require(not unknown, f\"[{target}] the object carries unpinned probe symbols: {unknown}\")\n677:     return checks + 1\n678: \n679: \n680: def check_fixture_divergence(measured: dict[str, dict[str, int]]) -> int:\n681:     \"\"\"\u2605 THE PROBE MUST SEE ABI DIVERGENCE, and this is where it proves it rather than asserting it. The fixture\n682:     is the incident's shape; if the host and a board ABI ever measure it the SAME, the mechanism has stopped\n683:     distinguishing them and every green row above means nothing.\"\"\"\n684:     symbol = f\"{SYMBOL_PREFIX}size__{slug(FIXTURE_NAME)}\"\n685:     if \"native\" not in measured:\n686:         return 0            # a `--target`-filtered run has no host column; it is already declared NOT A GATE\n687:     host = measured[\"native\"][symbol]\n688:     checks = 0\n689:     for target in BOARD_TARGETS:"
+        },
+        {
+          "start": 960,
+          "end": 979,
+          "text": "960: def run_controls(measured, entries, targets, config) -> tuple[int, int, int]:\n961:     \"\"\"Returns (red, unusable, applicable). A control that RAISES ProbeFailure is RED; one that returns is a\n962:     probe that did not notice, and one that raises AssertionError could not be applied at all.\"\"\"\n963:     red = unusable = applicable = 0\n964:     for name, needs, run in control_specs(measured, entries, targets, config):\n965:         if needs is not True:\n966:             print(f\"  n/a (this run has no {needs}): {name}\")\n967:             continue\n968:         applicable += 1\n969:         try:\n970:             run()\n971:         except ProbeFailure as exc:\n972:             head = str(exc).splitlines()[0]\n973:             print(f\"  RED: {name}\\n       -> {head[:200]}\")\n974:             red += 1\n975:         except AssertionError as exc:\n976:             print(f\"  UNUSABLE ({exc}): {name}\")\n977:             unusable += 1\n978:         else:\n979:             print(f\"  \u26d4 GREEN (control did not fire): {name}\")"
+        },
+        {
+          "start": 1022,
+          "end": 1068,
+          "text": "1022:     entries = tuple(e for e in (*PINNED, *extra_entries) if not args.struct or e[0] in args.struct)\n1023:     targets = [t for t in TARGETS if not args.target or t in args.target]\n1024:     filtered = bool(args.struct or args.target or args.no_neg)\n1025: \n1026:     try:\n1027:         tu = generate_tu(entries)\n1028:         measured = {target: measure(target, tu) for target in targets}\n1029:         checks = sum(check_target(t, measured[t], entries, active_pins()) for t in targets)\n1030:         config = effective_config()\n1031:         environments = check_oled_feature_tu_derivation(config)\n1032:         checks += environments\n1033:         checks += check_fixture_divergence(measured)\n1034:         divergence_checks, diverging = check_production_divergence(measured, entries)\n1035:         checks += divergence_checks\n1036:     except ProbeFailure as exc:\n1037:         raise SystemExit(f\"FAIL: {exc}\")\n1038: \n1039:     print_table(measured, entries, targets)\n1040:     print(f\"  feature-TU derivation: {environments} effective environments agree on \"\n1041:           f\"{OLED_FLAG} <-> '{UI_TU}' in build_src_filter\")\n1042:     if diverging:\n1043:         print(f\"  host/board divergence in the PINNED set: {', '.join(diverging)}\")\n1044: \n1045:     if args.repin:\n1046:         print(\"\\n\" + repin_block(measured, entries, targets))\n1047: \n1048:     if args.no_neg:\n1049:         print(f\"PASS: board ABI ({checks} checks, CONTROLS SKIPPED -- NOT A GATE)\")\n1050:         return\n1051: \n1052:     print(\"negative controls:\")\n1053:     red, unusable, applicable = run_controls(measured, entries, targets, config)\n1054:     if unusable or red != applicable:\n1055:         raise SystemExit(f\"FAIL: controls {red}/{applicable} RED, {unusable} unusable\")\n1056:     # \u26d4 THE GATE'S CONTROL COUNT CANNOT SHRINK QUIETLY ([[B217]]): on the FULL sweep every control must have\n1057:     #   been applicable. If a future edit makes one inapplicable it becomes a visible failure, not a smaller pass.\n1058:     if not filtered and applicable != FULL_SWEEP_CONTROLS:\n1059:         raise SystemExit(f\"FAIL: the full sweep ran {applicable} controls, expected {FULL_SWEEP_CONTROLS} \u2014 \"\n1060:                          f\"the control set shrank; that is a disarmed gate, not a pass\")\n1061:     banner = (\"FILTERED RUN -- NOT A GATE: \"\n1062:               f\"structs={args.struct or 'all'} targets={args.target or 'all'}\"\n1063:               f\"{' controls SKIPPED' if args.no_neg else ''}\") if filtered else \"\"\n1064:     print(f\"PASS: board ABI ({checks} checks, {red}/{applicable} controls RED, 0 unusable)\"\n1065:           + (f\"\\n  !!  {banner}\" if banner else \"\"))\n1066: \n1067: \n1068: if __name__ == \"__main__\":"
+        }
+      ]
+    },
+    {
+      "finding": "B471",
+      "runner": "probe_b278_row_abi",
+      "classification": "target/field validation plus control count pin",
+      "file": "tools/probe_b278_row_abi.py",
+      "sha256": "fadf54f87744f5842c802a3a645af4db109e8afb80660c7ca1fae483bd52153c",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Full target sweep is explicit, mirror field reads required and six controls pinned. Terminal control count lacks identity reconciliation: same-count duplicate-plus-missing survives. Measurement count is calculated from mirror dimensions, not an assertion ledger.",
+      "excerpts": [
+        {
+          "start": 155,
+          "end": 177,
+          "text": "155:                 fields: tuple[tuple[str, str], ...]) -> dict[str, object]:\n156:     \"\"\"Turn the raw symbol table into {size, align, offsets{}} \u2014 fail loud on any missing symbol.\"\"\"\n157:     size_sym = f\"{SYMBOL_PREFIX}size__{name}\"\n158:     align_sym = f\"{SYMBOL_PREFIX}align__{name}\"\n159:     require(size_sym in sizes, f\"the probe TU emitted no size symbol for {name} \u2014 coverage lost, not 'zero'\")\n160:     require(align_sym in sizes, f\"the probe TU emitted no align symbol for {name} \u2014 coverage lost, not 'zero'\")\n161:     offsets: dict[str, int] = {}\n162:     for _ty, member in fields:\n163:         sym = f\"{SYMBOL_PREFIX}off__{name}__{member}\"\n164:         require(sym in sizes, f\"the probe TU emitted no offset symbol for {name}.{member} \u2014 the field is MISSING \"\n165:                               f\"from the measured layout, which is a FAILING verdict, not a smaller struct\")\n166:         offsets[member] = sizes[sym] - 1\n167:     return {\"size\": sizes[size_sym], \"align\": sizes[align_sym], \"offsets\": offsets}\n168: \n169: \n170: def measure_target(target: str, tu_text: str | None = None) -> dict[str, dict[str, object]]:\n171:     \"\"\"One target, the production-row mirror. Delegates the compile to `probe_board_abi.measure` (the flag authority).\n172: \n173:     \u26d4 A target whose real `Node::DelegAck` is not 32 B produces NO measurement here: node.h's own static_assert\n174:        fails inside this same TU and `abi.measure` raises. That refusal IS the production size pin.\n175:     \"\"\"\n176:     sizes = abi.measure(target, tu_text if tu_text is not None else generate_tu())\n177:     return {name: read_mirror(sizes, name, fields) for name, fields in MIRRORS}"
+        },
+        {
+          "start": 326,
+          "end": 363,
+          "text": "326: def require_full_sweep(targets: tuple[str, ...], filtered: bool) -> None:\n327:     \"\"\"A GATE run must carry every target in `abi.TARGETS`. `--target` sets `filtered` and is banner-marked.\"\"\"\n328:     if filtered:\n329:         return\n330:     missing = [t for t in abi.TARGETS if t not in targets]\n331:     if missing:\n332:         raise ProbeRefusal(f\"a full sweep must measure every target; missing {missing} \u2014 a host-only or \"\n333:                            f\"board-partial answer is exactly the [[B246]] blindness this probe exists to end\")\n334: \n335: \n336: def run_controls(measured: dict[str, dict[str, dict[str, object]]],\n337:                  targets: tuple[str, ...]) -> tuple[int, int]:\n338:     specs = [\n339:         (\"(1) a field is dropped from the mirror\", lambda: control_field_missing(targets)),\n340:         (\"(2) alignment-sensitive fields are reordered\", lambda: control_fields_reordered(targets)),\n341:         (\"(3) the production 32-byte pin is moved by 8\", lambda: control_size_pin_mutated(measured, targets)),\n342:         (\"(4) the probe TU does not compile -- must be FAILING, never measured\",\n343:          lambda: control_tu_uncompilable(targets)),\n344:         (\"(5) a target/toolchain is silently omitted from the sweep\",\n345:          lambda: control_target_silently_omitted(targets)),\n346:         (\"(6) the node.h bridge is dropped, so no production static_assert would be compiled\",\n347:          lambda: control_bridge_header_dropped(targets)),\n348:     ]\n349:     red = 0\n350:     print(\"negative controls:\")\n351:     for label, run in specs:\n352:         detail = run()\n353:         if detail:\n354:             red += 1\n355:             print(f\"  RED: {label}\")\n356:             print(f\"       -> {detail.splitlines()[0][:180]}\")\n357:         else:\n358:             print(f\"  \u26d4 NOT RED (the instrument is blind here): {label}\")\n359:     return red, len(specs)\n360: \n361: \n362: def main() -> None:\n363:     parser = argparse.ArgumentParser(description=\"B278 delegated-flight correlation-row ABI mirror (production mode).\")"
+        },
+        {
+          "start": 401,
+          "end": 429,
+          "text": "401:         print(f\"  PROBLEM: {line}\")\n402: \n403:     red = controls = 0\n404:     if not args.no_neg:\n405:         print()\n406:         try:\n407:             red, controls = run_controls(measured, targets)\n408:         except (ProbeFailure, ProbeRefusal) as exc:\n409:             print(f\"FAIL: a negative control raised out of band: {exc}\", file=sys.stderr)\n410:             sys.exit(1)\n411: \n412:     if args.json:\n413:         print(\"\\nJSON \" + json.dumps(measured, sort_keys=True))\n414: \n415:     gate = (not args.no_neg) and (not filtered)\n416:     banner = \"\" if gate else \"  \u26d4 THIS RUN IS NOT A GATE (filtered targets and/or --no-neg).\\n\"\n417:     if problems:\n418:         print(f\"\\n{banner}FAIL: {len(problems)} problem(s); {red}/{controls} controls RED\")\n419:         sys.exit(1)\n420:     if gate and (red != controls or controls != FULL_SWEEP_CONTROLS):\n421:         print(f\"\\nFAIL: a full sweep must run {FULL_SWEEP_CONTROLS} controls and turn every one RED; \"\n422:               f\"got {red}/{controls}\")\n423:         sys.exit(1)\n424:     n_checks = sum(2 + len(fields) for _n, fields in MIRRORS) * len(targets)\n425:     print(f\"\\n{banner}PASS: B278 production correlation-row ABI mirror ({n_checks} measurements, {red}/{controls} controls RED)\")\n426: \n427: \n428: if __name__ == \"__main__\":\n429:     main()"
+        }
+      ]
+    },
+    {
+      "finding": "B472",
+      "runner": "probe_build_identity",
+      "classification": "relative list counts, no execution identities",
+      "file": "tools/probe_build_identity.py",
+      "sha256": "599dd653a0c662521e294e390f547fe5dbc20a4d22991859594226c8f3c31235",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "red is compared to len(CONTROLS)+coverage-list length(+optional ELF); ordinary omissions in the unchanged list are caught, but duplicate-plus-missing is not. Source check count is a returned constant, not observed execution. No external source-control floor.",
+      "excerpts": [
+        {
+          "start": 77,
+          "end": 122,
+          "text": "77: def check_source(root: Path = ROOT) -> int:\n78:     \"\"\"The 13 structural checks. `root` is a parameter so a control can run them against a mutated COPY.\"\"\"\n79:     src_paths = source_files(root, \"src\")\n80:     lib_paths = source_files(root, \"lib\")\n81:     commands_cpp = (root / \"src/firmware_commands.cpp\").read_text(encoding=\"utf-8\")\n82:     commands_h = (root / \"src/firmware_commands.h\").read_text(encoding=\"utf-8\")\n83:     fw_main = (root / \"src/fw_main.cpp\").read_text(encoding=\"utf-8\")\n84: \n85:     # (1-4) production `src/` expands each compile-time clock macro in exactly ONE file, exactly ONCE.\n86:     for token in (\"__DATE__\", \"__TIME__\"):\n87:         sites = macro_sites(src_paths, token)\n88:         require(sites == [root / \"src/firmware_commands.cpp\"],\n89:                 f\"{token} must occur only in src/firmware_commands.cpp; got {[p.relative_to(root) for p in sites]}\")\n90:         require(commands_cpp.count(token) == 1, f\"{token} must occur exactly once in its authority TU\")\n91: \n92:     # (5-8) exactly one GIT_REV consumer file, one fallback guard, one fallback value, one literal fed by it.\n93:     git_sites = macro_sites(src_paths, \"GIT_REV\")\n94:     require(git_sites == [root / \"src/firmware_commands.cpp\"],\n95:             f\"GIT_REV must occur only in src/firmware_commands.cpp; got {[p.relative_to(root) for p in git_sites]}\")\n96:     require(commands_cpp.count(\"#ifndef GIT_REV\") == 1, \"one GIT_REV fallback guard is required\")\n97:     require(commands_cpp.count('#define GIT_REV \"nogit\"') == 1, \"one nogit fallback is required\")\n98:     require(commands_cpp.count(\"const char kGitRevision[] = GIT_REV;\") == 1,\n99:             \"the Git macro must feed exactly one read-only literal authority\")\n100: \n101:     # (9) the protocol engine never carries build identity \u2014 pinned so it stays true.\n102:     for token in (\"__DATE__\", \"__TIME__\", \"GIT_REV\"):\n103:         sites = macro_sites(lib_paths, token)\n104:         require(not sites, f\"{token} is forbidden under lib/; got {[p.relative_to(root) for p in sites]}\")\n105: \n106:     # (10-11) the authority is exported read-only, (12-13) and BOTH output paths bind to it rather than to a\n107:     #         re-expanded macro or a hand-written literal.\n108:     require(commands_h.count(\"extern const char kBuildStamp[];\") == 1,\n109:             \"firmware_commands.h must expose one read-only build stamp\")\n110:     require(commands_h.count(\"extern const char kGitRevision[];\") == 1,\n111:             \"firmware_commands.h must expose one read-only Git revision\")\n112:     require(commands_cpp.count('const char kBuildStamp[]  = __DATE__ \" \" __TIME__;') == 1,\n113:             \"firmware_commands.cpp must define the one build-stamp literal\")\n114:     require(re.search(r\"format_version_banner\\([^;]*kBuildStamp,\\s*kGitRevision,\\s*board_name\\(\\)\\)\",\n115:                       commands_cpp, re.DOTALL) is not None,\n116:             \"the USB/banner formatter must consume the shared authority\")\n117:     require(re.search(r'\"built\\\\\\\":\\\\\\\"%s.*?mrfw::kBuildStamp,\\s*mrfw::kGitRevision,\\s*board_name\\(\\)',\n118:                       fw_main, re.DOTALL) is not None,\n119:             \"the BLE version formatter must consume the shared authority\")\n120:     return 13\n121: \n122: "
+        },
+        {
+          "start": 180,
+          "end": 213,
+          "text": "180: def coverage_controls(config: list) -> list[tuple[str, list]]:\n181:     \"\"\"The four \u00a73.4 mutations, each applied to the DERIVED configuration.\"\"\"\n182:     board = next(name for name in sorted(environment_scripts(config)) if name not in NON_BOARD_ENVIRONMENTS)\n183:     future = copy.deepcopy(config)\n184:     future.append([\"env:future_board\", [[\"platform\", \"espressif32\"], [\"board\", \"synthetic\"]]])\n185:     return [\n186:         (f\"the hook is removed from the parsed env:{board}\",\n187:          _with_scripts(config, board, lambda entries: [e for e in entries if e != GIT_REV_HOOK])),\n188:         (\"a synthetic future board environment carries no hook\", future),\n189:         (\"the hook is added to env:native\",\n190:          _with_scripts(config, \"native\", lambda entries: [*entries, GIT_REV_HOOK])),\n191:         (f\"the hook is duplicated in env:{board}\",\n192:          _with_scripts(config, board, lambda entries: [*entries, GIT_REV_HOOK])),\n193:     ]\n194: \n195: \n196: def run_coverage_controls(config: list) -> tuple[int, int]:\n197:     red = 0\n198:     controls = coverage_controls(config)\n199:     for name, mutated in controls:\n200:         if mutated == config:\n201:             print(f\"  UNUSABLE (mutation did not change the configuration): {name}\")\n202:             continue\n203:         try:\n204:             check_environment_coverage(mutated)\n205:         except ProbeFailure as exc:\n206:             print(f\"  RED: {name}\\n       -> {exc}\")\n207:             red += 1\n208:         else:\n209:             print(f\"  \u26d4 GREEN (control did not fire): {name}\")\n210:     return red, len(controls)\n211: \n212: \n213: # A build stamp as GCC spells it: `MMM D YYYY HH:MM:SS`, with __DATE__'s two spaces before a single-digit day."
+        },
+        {
+          "start": 262,
+          "end": 291,
+          "text": "262: def run_controls() -> tuple[int, int]:\n263:     \"\"\"Returns (red, unusable). Every mutation lands in a throwaway COPY; the real tree is never written.\"\"\"\n264:     red = unusable = 0\n265:     with tempfile.TemporaryDirectory(prefix=\"probe_build_identity_\") as tmp:\n266:         base = Path(tmp) / \"tree\"\n267:         base.mkdir()\n268:         for directory in (\"src\", \"lib\"):\n269:             shutil.copytree(ROOT / directory, base / directory, symlinks=True)\n270:         for name, rel, old, new in CONTROLS:\n271:             target = base / rel\n272:             pristine = target.read_text(encoding=\"utf-8\")\n273:             occurrences = pristine.count(old)\n274:             if occurrences != 1:\n275:                 print(f\"  UNUSABLE ({occurrences} matches, need 1): {name}\")\n276:                 unusable += 1\n277:                 continue\n278:             target.write_text(pristine.replace(old, new, 1), encoding=\"utf-8\")\n279:             try:\n280:                 check_source(base)\n281:             except ProbeFailure as exc:\n282:                 print(f\"  RED: {name}\\n       -> {exc}\")\n283:                 red += 1\n284:             else:\n285:                 print(f\"  \u26d4 GREEN (control did not fire): {name}\")\n286:             finally:\n287:                 target.write_text(pristine, encoding=\"utf-8\")\n288:     return red, unusable\n289: \n290: \n291: def run_elf_control(path: Path) -> bool:"
+        },
+        {
+          "start": 306,
+          "end": 346,
+          "text": "306: def main() -> None:\n307:     parser = argparse.ArgumentParser(description=__doc__)\n308:     parser.add_argument(\"--elf\", type=Path, help=\"also require exactly one build timestamp in this ELF\")\n309:     parser.add_argument(\"--no-neg\", action=\"store_true\",\n310:                         help=\"skip the negative controls -- NOT a gate, use only while iterating\")\n311:     args = parser.parse_args()\n312: \n313:     try:\n314:         checks = check_source()\n315:         config = effective_config()\n316:         environments = check_environment_coverage(config)\n317:         checks += environments\n318:         print(f\"  hook coverage: {environments} effective environments \"\n319:               f\"({environments - len(NON_BOARD_ENVIRONMENTS)} board x1, {len(NON_BOARD_ENVIRONMENTS)} exempt x0)\")\n320:         if args.elf is not None:\n321:             checks += check_elf(args.elf.resolve())\n322:     except ProbeFailure as exc:\n323:         raise SystemExit(f\"FAIL: {exc}\")\n324: \n325:     if args.no_neg:\n326:         print(f\"PASS: build identity ({checks} checks, CONTROLS SKIPPED -- not a gate)\")\n327:         return\n328: \n329:     print(f\"negative controls ({len(CONTROLS)} source + 4 coverage\"\n330:           + (\" + 1 ELF\" if args.elf is not None else \"\") + \"):\")\n331:     red, unusable = run_controls()\n332:     expected = len(CONTROLS)\n333:     coverage_red, coverage_expected = run_coverage_controls(config)\n334:     red += coverage_red\n335:     expected += coverage_expected\n336:     elf_red = run_elf_control(args.elf.resolve()) if args.elf is not None else None\n337:     if elf_red is not None:\n338:         red += int(elf_red)\n339:         expected += 1\n340:     if unusable or red != expected:\n341:         raise SystemExit(f\"FAIL: controls {red}/{expected} RED, {unusable} unusable\")\n342:     print(f\"PASS: build identity ({checks} checks, {red}/{expected} controls RED, 0 unusable)\")\n343: \n344: \n345: if __name__ == \"__main__\":\n346:     main()"
+        }
+      ]
+    },
+    {
+      "finding": null,
+      "runner": "probe_ui_model_mutations",
+      "classification": "selected-index/label reconciliation",
+      "file": "tools/probe_ui_model_mutations.py",
+      "sha256": "81842cc53d806f1ed4dbce5bb7699a945e50dc6381f8258cf3c60eec73e2781a",
+      "basis": "STATIC SOURCE ANALYSIS; not a full runner execution or runtime fault reproduction",
+      "conclusion": "Default parent reconciles selected indices and labels, detects missing and duplicate results, invalid index/label, non-verdict worker exits and restoration/integrity failures. Non-RED selected verdicts fail. No B459-class finding in the requested default merge census; no mutation battery run here. Stale native cross-check pin is deliberately warning-only and separate from this completeness question.",
+      "excerpts": [
+        {
+          "start": 12380,
+          "end": 12428,
+          "text": "12380:     run_s = time.time() - t_run\n12381: \n12382:     # ===== THE MERGE, AND ITS ONE RULE: EVERY INDEX HANDED OUT COMES BACK NAMED ====================================\n12383:     print(\"\", flush=True)\n12384:     print(\"=\" * 118, flush=True)\n12385:     print(f\"-- MERGED REPORT \u2014 target {_TARGET}: {Path(H).resolve()}\", flush=True)\n12386: \n12387:     integrity = []                          # \u26d4 anything in here means the run cannot be read as a verdict at all\n12388:     verdicts, bases = {}, []\n12389:     for w, r in enumerate(results):\n12390:         if not r:\n12391:             continue\n12392:         try:\n12393:             with open(r[\"path\"]) as f:\n12394:                 r[\"json\"] = json.load(f)\n12395:         except (OSError, ValueError) as e:\n12396:             r[\"json\"] = None\n12397:             integrity.append(f\"worker {w} left no readable result file ({e}); it exited {r['rc']}\")\n12398:             continue\n12399:         j = r[\"json\"]\n12400:         if j.get(\"base\"):\n12401:             bases.append((w, tuple(j[\"base\"])))\n12402:         for ent in j.get(\"entries\", []):\n12403:             i = ent[\"idx\"]\n12404:             if not (0 <= i < len(MUTS)) or MUTS[i][0] != ent[\"label\"]:\n12405:                 here = repr(MUTS[i][0]) if 0 <= i < len(MUTS) else \"(index out of range)\"\n12406:                 integrity.append(f\"worker {w} reported index {i} as {ent['label']!r}, this table has {here}\")\n12407:                 continue\n12408:             if i in verdicts:\n12409:                 integrity.append(f\"index {i} ({MUTS[i][0]}) was reported twice\")\n12410:             verdicts[i] = ent\n12411:         # \u26d4 0 = every entry RED, 1 = at least one worthless entry. ANY other code is an abort (2..8) or a death, and\n12412:         #   both mean this shard's entries were not all judged \u2014 see the missing-index sweep below, which is what\n12413:         #   actually names them. This line exists so the reader is told WHY they are missing.\n12414:         if r[\"rc\"] not in (0, 1):\n12415:             integrity.append(f\"worker {w} exited {r['rc']} \u2014 not a verdict code (0 = all RED, 1 = something \"\n12416:                              f\"worthless); its shard was not completed\")\n12417:         if not j.get(\"restored\"):\n12418:             integrity.append(f\"worker {w} did not report its source restored\")\n12419: \n12420:     missing = [i for i in _SEL_IDX if i not in verdicts]\n12421: \n12422:     if bases:\n12423:         agreed = {b for _, b in bases}\n12424:         if len(agreed) != 1:\n12425:             integrity.append(\"the workers derived DIFFERENT clean baselines from copies of one tree: \"\n12426:                              + \"; \".join(f\"w{w} {b[0]} / {b[1]} / {b[2]}\" for w, b in bases))\n12427:         b0 = bases[0][1]\n12428:         print(f\"  ok   clean baseline {b0[0]} / {b0[1]} / {b0[2]}   (DERIVED per worker tree; \""
+        },
+        {
+          "start": 12450,
+          "end": 12467,
+          "text": "12450:     ok = bad = 0\n12451:     for i in _SEL_IDX:\n12452:         ent = verdicts.get(i)\n12453:         if ent is None:\n12454:             # \u26d4\u26d4 THE [[B227]]/[[B237]] LINE. A shard that died mid-entry loses THIS entry and no other, and the one\n12455:             #    thing that must never happen is for it to be absent from the report and therefore read as fine.\n12456:             print(f\"  MISSING {MUTS[i][0]} \u2014 NO VERDICT (its worker did not report it)\", flush=True)\n12457:             bad += 1\n12458:             continue\n12459:         print(ent[\"line\"], flush=True)\n12460:         if ent[\"verdict\"] == \"UNUSABLE\":\n12461:             ent[\"extra\"].append(retain_unusable(_TARGET, ent[\"label\"], ent[\"capture\"]))\n12462:         for x in ent.get(\"extra\", []):\n12463:             print(x, flush=True)\n12464:         if ent[\"verdict\"] == \"RED\":\n12465:             ok += 1\n12466:         else:\n12467:             bad += 1"
+        },
+        {
+          "start": 12520,
+          "end": 12536,
+          "text": "12520:     # \u26d4 9 OUTRANKS 1: \"some entry is worthless\" and \"this run cannot be trusted\" are different answers, and folding\n12521:     #   the second into the first is the laundering [[B237]] closed on the sibling harness.\n12522:     # \u2605 BUT AN ABORT EVERY WORKER AGREED ON KEEPS ITS OWN CODE. A RED clean tree (2), a held lock (3), a foreign edit\n12523:     #   (5) \u2014 these are the serial runner's documented answers, and they describe the TREE, which every worker copied\n12524:     #   from the same place. Reporting them as a generic 9 would tell a reader \"the harness broke\" about a condition\n12525:     #   the harness diagnosed correctly. \u24d8 Only when they ALL agree: a mixed set really is a harness problem.\n12526:     codes = {r[\"rc\"] for r in results if r}\n12527:     if len(codes) == 1 and codes <= {2, 3, 4, 5}:\n12528:         sys.exit(codes.pop())\n12529:     if integrity:\n12530:         sys.exit(9)\n12531:     sys.exit(0 if bad == 0 else 1)\n12532: \n12533: \n12534: if not _IS_WORKER:\n12535:     try:\n12536:         orchestrate()"
+        }
+      ]
+    }
+  ],
+  "child_layers": {
+    "tools/probe_device_radio/structural.py": {
+      "sha256": "c7b43b08a4fa8fe2979dde770e059370f020546eb03af34d383838a8d55cd6d2",
+      "relevant_lines": [
+        {
+          "line": 8,
+          "text": "def main() -> int:"
+        },
+        {
+          "line": 18,
+          "text": "    passed = 0"
+        },
+        {
+          "line": 19,
+          "text": "    failed = 0"
+        },
+        {
+          "line": 21,
+          "text": "    def check(label: str, condition: bool) -> None:"
+        },
+        {
+          "line": 22,
+          "text": "        nonlocal passed, failed"
+        },
+        {
+          "line": 24,
+          "text": "            passed += 1"
+        },
+        {
+          "line": 26,
+          "text": "            failed += 1"
+        },
+        {
+          "line": 133,
+          "text": "    print(f\"{passed} structural checks passed, {failed} failed\")"
+        },
+        {
+          "line": 134,
+          "text": "    return 1 if failed else 0"
+        }
+      ]
+    },
+    "tools/probe_device_radio/mutations.py": {
+      "sha256": "9678c6c91ccce1d9b8adc0bc1915d55a2c7c0ad8211bde9eeb7a6023680fa108",
+      "relevant_lines": [
+        {
+          "line": 88,
+          "text": "def main() -> int:"
+        },
+        {
+          "line": 129,
+          "text": "                  \"        ++_rx_arm_failures;\\n\""
+        },
+        {
+          "line": 133,
+          "text": "                   \"        if (_radio.startReceive() != RADIOLIB_ERR_NONE) { ++_rx_arm_failures; return false; }\\n\""
+        },
+        {
+          "line": 138,
+          "text": "                   \"        ++_rx_arm_failures;\\n\""
+        },
+        {
+          "line": 141,
+          "text": "    failed_tx_mode = (\"        if (!rf_tx_mode()) {\\n\""
+        },
+        {
+          "line": 142,
+          "text": "                      \"            arm_rx();                                                              // restore FEM RX + continuous RX after the failed transition\\n\""
+        },
+        {
+          "line": 145,
+          "text": "    failed_tx_mode_no_recovery = (\"        if (!rf_tx_mode()) {\\n\""
+        },
+        {
+          "line": 165,
+          "text": "        Mutation(\"D9b delete failed-tx_mode RX recovery\", replace_once("
+        },
+        {
+          "line": 166,
+          "text": "            failed_tx_mode, failed_tx_mode_no_recovery)),"
+        },
+        {
+          "line": 168,
+          "text": "        Mutation(\"D11 delete failed-startTransmit RX recovery\", after_marker("
+        },
+        {
+          "line": 195,
+          "text": "            \"bool apply_frequency\", \"            ++_rf_band_failures;\", \"            (void)0;\")),"
+        },
+        {
+          "line": 203,
+          "text": "        Mutation(\"D26 delete RX recovery after failed setFrequency\", after_marker("
+        },
+        {
+          "line": 294,
+          "text": "        (\"S3 discard config validation when hardware is failed\", \"config\", replace_once("
+        },
+        {
+          "line": 331,
+          "text": "    failures = 0"
+        },
+        {
+          "line": 338,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 342,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 358,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 363,
+          "text": "            print(f\"  RED  {mutation.label} ({fail_count} failed checks)\")"
+        },
+        {
+          "line": 365,
+          "text": "            print(f\"  UNUSABLE {mutation.label}: exit={ran.returncode}, failed-check-lines={ran.stdout.count('  FAIL ')}\")"
+        },
+        {
+          "line": 366,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 382,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 396,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 400,
+          "text": "            print(f\"  RED  {mutation.label} ({ran.stdout.count('  FAIL ')} failed checks)\")"
+        },
+        {
+          "line": 402,
+          "text": "            print(f\"  UNUSABLE {mutation.label}: exit={ran.returncode}, failed-check-lines={ran.stdout.count('  FAIL ')}\")"
+        },
+        {
+          "line": 403,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 411,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 421,
+          "text": "            print(f\"  RED  {mutation.label} ({ran.stdout.count('  FAIL ')} failed checks)\")"
+        },
+        {
+          "line": 423,
+          "text": "            print(f\"  UNUSABLE {mutation.label}: exit={ran.returncode}, failed-check-lines={ran.stdout.count('  FAIL ')}\")"
+        },
+        {
+          "line": 424,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 432,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 448,
+          "text": "            print(f\"  RED  {label} ({ran.stdout.count('  FAIL ')} failed checks)\")"
+        },
+        {
+          "line": 450,
+          "text": "            print(f\"  UNUSABLE {label}: exit={ran.returncode}, failed-check-lines={ran.stdout.count('  FAIL ')}\")"
+        },
+        {
+          "line": 451,
+          "text": "            failures += 1"
+        },
+        {
+          "line": 455,
+          "text": "    print(f\"{total} controls checked, {failures} unusable\")"
+        },
+        {
+          "line": 456,
+          "text": "    return 1 if failures else 0"
+        }
+      ]
+    },
+    "tools/probe_device_radio/probe_main.cpp": {
+      "sha256": "dd5abd42a2c8512d6b480b4501dbce530e0a449b9a5ff1407ae693d795978a81",
+      "relevant_lines": [
+        {
+          "line": 22,
+          "text": "#define CHK(label, expr) do {                                                               \\"
+        },
+        {
+          "line": 66,
+          "text": "    CHK(\"N1 BoardRfKind::none name\", std::string(meshroute::board_rf_kind_name(BoardRfKind::none)) == \"none\");"
+        },
+        {
+          "line": 67,
+          "text": "    CHK(\"N2 BoardRfKind::gc1109 name\", std::string(meshroute::board_rf_kind_name(BoardRfKind::gc1109)) == \"gc1109\");"
+        },
+        {
+          "line": 68,
+          "text": "    CHK(\"N3 BoardRfKind::kct8103l name\", std::string(meshroute::board_rf_kind_name(BoardRfKind::kct8103l)) == \"kct8103l\");"
+        },
+        {
+          "line": 69,
+          "text": "    CHK(\"N4 BoardRfKind::unknown name\", std::string(meshroute::board_rf_kind_name(BoardRfKind::unknown)) == \"unknown\");"
+        },
+        {
+          "line": 70,
+          "text": "    CHK(\"N5 LNA n/a name\", std::string(meshroute::board_rf_lna_state_name(BoardRfLnaState::not_applicable)) == \"n/a\");"
+        },
+        {
+          "line": 71,
+          "text": "    CHK(\"N6 LNA on name\", std::string(meshroute::board_rf_lna_state_name(BoardRfLnaState::on)) == \"on\");"
+        },
+        {
+          "line": 72,
+          "text": "    CHK(\"N7 LNA bypass name\", std::string(meshroute::board_rf_lna_state_name(BoardRfLnaState::bypass)) == \"bypass\");"
+        },
+        {
+          "line": 80,
+          "text": "    CHK(\"B1 FEM begin + initial arm succeeds\", radio.begin());"
+        },
+        {
+          "line": 81,
+          "text": "    CHK(\"B2 FEM begin precedes rx_mode and sole startReceive\","
+        },
+        {
+          "line": 83,
+          "text": "    CHK(\"B3 begin exposes detected FEM kind\", radio.board_rf_kind() == BoardRfKind::gc1109);"
+        },
+        {
+          "line": 84,
+          "text": "    CHK(\"B4 begin exposes LNA state\", radio.board_rf_lna_state() == BoardRfLnaState::on);"
+        },
+        {
+          "line": 85,
+          "text": "    CHK(\"B5 successful begin counts no transition failure\", radio.rf_mode_failures() == 0);"
+        },
+        {
+          "line": 87,
+          "text": "    CustomSX1262 begin_fail_chip;"
+        },
+        {
+          "line": 88,
+          "text": "    CountingRf begin_fail_rf(begin_fail_chip.events);"
+        },
+        {
+          "line": 89,
+          "text": "    begin_fail_rf.begin_result = false;"
+        },
+        {
+          "line": 90,
+          "text": "    Sx1262Radio begin_fail(begin_fail_chip, &begin_fail_rf);"
+        },
+        {
+          "line": 91,
+          "text": "    CHK(\"B6 failed FEM begin makes begin false\", !begin_fail.begin());"
+        },
+        {
+          "line": 92,
+          "text": "    CHK(\"B7 failed FEM begin emits no rx_mode/startReceive\","
+        },
+        {
+          "line": 93,
+          "text": "        exact(begin_fail_chip.events, {\"radio.set_action\", \"fem.begin\"}));"
+        },
+        {
+          "line": 94,
+          "text": "    CHK(\"B8 failed FEM begin is counted\", begin_fail.rf_mode_failures() == 1);"
+        },
+        {
+          "line": 100,
+          "text": "    CHK(\"B9 failed initial rx_mode makes begin false\", !rx_fail.begin());"
+        },
+        {
+          "line": 101,
+          "text": "    CHK(\"B10 failed initial rx_mode emits no startReceive\","
+        },
+        {
+          "line": 103,
+          "text": "    CHK(\"B11 failed initial rx_mode is counted\", rx_fail.rf_mode_failures() == 1);"
+        },
+        {
+          "line": 109,
+          "text": "    CHK(\"B12 failed initial RadioLib arm makes begin false\", !arm_fail.begin());"
+        },
+        {
+          "line": 110,
+          "text": "    CHK(\"B13 RadioLib arm failure follows successful FEM RX\","
+        },
+        {
+          "line": 112,
+          "text": "    CHK(\"B14 RadioLib arm failure preserves its existing counter\", arm_fail.rx_arm_failures() == 1);"
+        },
+        {
+          "line": 120,
+          "text": "    CHK(\"T-1 boot carrier applies before begin\", radio.apply_frequency(869.4625, /*rearm=*/false));"
+        },
+        {
+          "line": 121,
+          "text": "    CHK(\"T0 setup begin succeeds\", radio.begin());"
+        },
+        {
+          "line": 124,
+          "text": "    CHK(\"T1 translated FEM transmit arms\", radio.start_transmit(frame, sizeof frame, 10, 125000, 5, 22, 16) == TxResult::ok);"
+        },
+        {
+          "line": 125,
+          "text": "    CHK(\"T2 translation is the first TX preflight operation\", !chip.events.empty() && chip.events.front() == \"fem.drive:22\");"
+        },
+        {
+          "line": 126,
+          "text": "    CHK(\"T3 translated chip drive, then tx_mode, then sole startTransmit\","
+        },
+        {
+          "line": 129,
+          "text": "    CHK(\"T4 requested 22 dBm never reaches setOutputPower directly\", chip.last_power == 10);"
+        },
+        {
+          "line": 130,
+          "text": "    CHK(\"T5 successful arm is in flight\", radio.tx_busy());"
+        },
+        {
+          "line": 134,
+          "text": "    CHK(\"C1 TxDone completes exactly once\", radio.poll_tx_done());"
+        },
+        {
+          "line": 135,
+          "text": "    CHK(\"C2 completion finishes TX then restores FEM RX + RadioLib RX\","
+        },
+        {
+          "line": 137,
+          "text": "    CHK(\"C3 completed TX is no longer busy\", !radio.tx_busy());"
+        },
+        {
+          "line": 138,
+          "text": "    CHK(\"C4 completion is drained exactly once\", !radio.poll_tx_done());"
+        },
+        {
+          "line": 142,
+          "text": "    CHK(\"T6 invalid translation is refused\", radio.start_transmit(frame, sizeof frame, 8, 125000, 5, 22, 16) == TxResult::radio_error);"
+        },
+        {
+          "line": 143,
+          "text": "    CHK(\"T7 invalid translation leaves the SX1262/RX untouched\", exact(chip.events, {\"fem.drive:22\"}));"
+        },
+        {
+          "line": 148,
+          "text": "    CHK(\"T8 failed tx_mode is refused\", radio.start_transmit(frame, sizeof frame, 8, 125000, 5, 22, 16) == TxResult::radio_error);"
+        },
+        {
+          "line": 149,
+          "text": "    CHK(\"T9 failed tx_mode emits no startTransmit and restores RX\","
+        },
+        {
+          "line": 152,
+          "text": "    CHK(\"T10 failed tx_mode is counted\", radio.rf_mode_failures() == 1);"
+        },
+        {
+          "line": 157,
+          "text": "    CHK(\"T11 failed RadioLib startTransmit is refused\", radio.start_transmit(frame, sizeof frame, 8, 125000, 5, 22, 16) == TxResult::radio_error);"
+        },
+        {
+          "line": 158,
+          "text": "    CHK(\"T12 failed startTransmit restores FEM RX + RadioLib RX\","
+        },
+        {
+          "line": 160,
+          "text": "    CHK(\"T13 a failed arm is not in flight\", !radio.tx_busy());"
+        },
+        {
+          "line": 164,
+          "text": "    CHK(\"A1 abort setup transmit arms\", radio.start_transmit(frame, sizeof frame, 9, 125000, 5, 22, 16) == TxResult::ok);"
+        },
+        {
+          "line": 167,
+          "text": "    CHK(\"A2 abort stops TX then restores FEM RX + RadioLib RX\","
+        },
+        {
+          "line": 169,
+          "text": "    CHK(\"A3 abort clears in-flight state\", !radio.tx_busy());"
+        },
+        {
+          "line": 176,
+          "text": "    CHK(\"R0 setup begin succeeds\", radio.begin());"
+        },
+        {
+          "line": 180,
+          "text": "    CHK(\"R1 SF retune restores FEM RX before RadioLib RX\","
+        },
+        {
+          "line": 185,
+          "text": "    CHK(\"R2 frequency retune restores FEM RX before RadioLib RX\","
+        },
+        {
+          "line": 190,
+          "text": "    CHK(\"R3 bandwidth retune restores FEM RX before RadioLib RX\","
+        },
+        {
+          "line": 195,
+          "text": "    CHK(\"R4 coding-rate retune restores FEM RX before RadioLib RX\","
+        },
+        {
+          "line": 204,
+          "text": "    CHK(\"R5 packet drain succeeds\", radio.poll_rx(buf, sizeof buf, out_len, snr, rssi));"
+        },
+        {
+          "line": 205,
+          "text": "    CHK(\"R6 packet drain restores FEM RX before RadioLib RX\", ends_with(chip.events, {\"fem.rx\", \"radio.start_rx\"}));"
+        },
+        {
+          "line": 206,
+          "text": "    CHK(\"R7 packet drain preserves decoded length\", out_len == 3);"
+        },
+        {
+          "line": 215,
+          "text": "    CHK(\"F1 external-FEM carrier starts invalid\", !radio.frequency_valid());"
+        },
+        {
+          "line": 216,
+          "text": "    CHK(\"F2 hardware begin is independent of an invalid config latch\", radio.begin());"
+        },
+        {
+          "line": 217,
+          "text": "    CHK(\"F3 valid output alone cannot make rfcfg true\", !radio.rf_config_valid(22));"
+        },
+        {
+          "line": 220,
+          "text": "    CHK(\"F4 lower boundary is accepted\", radio.apply_frequency(863.0, /*rearm=*/false));"
+        },
+        {
+          "line": 221,
+          "text": "    CHK(\"F5 accepted carrier uses standby then the sole setFrequency\", exact(chip.events, {\"radio.standby\", \"radio.freq\"}));"
+        },
+        {
+          "line": 222,
+          "text": "    CHK(\"F6 lower boundary becomes current\", chip.last_frequency == 863.0f && radio.frequency_valid());"
+        },
+        {
+          "line": 224,
+          "text": "    CHK(\"F7 upper boundary is accepted\", radio.apply_frequency(928.0, /*rearm=*/false));"
+        },
+        {
+          "line": 225,
+          "text": "    CHK(\"F8 upper boundary becomes current\", chip.last_frequency == 928.0f && radio.frequency_valid());"
+        },
+        {
+          "line": 228,
+          "text": "    CHK(\"F9 below-band carrier is refused\", !radio.apply_frequency(862.999, /*rearm=*/false));"
+        },
+        {
+          "line": 229,
+          "text": "    CHK(\"F10 invalid validation precedes standby and leaves RX untouched\", chip.events.empty());"
+        },
+        {
+          "line": 230,
+          "text": "    CHK(\"F11 below-band refusal marks config invalid and counts once\","
+        },
+        {
+          "line": 231,
+          "text": "        !radio.frequency_valid() && radio.rf_band_failures() == 1);"
+        },
+        {
+          "line": 232,
+          "text": "    CHK(\"F12 TX is refused before FEM/radio work while carrier is invalid\","
+        },
+        {
+          "line": 236,
+          "text": "    CHK(\"F13 later valid carrier clears the latch without reboot\", radio.apply_frequency(869.4625, /*rearm=*/false));"
+        },
+        {
+          "line": 238,
+          "text": "    CHK(\"F14 singleton nominal output maps to chip drive 10\","
+        },
+        {
+          "line": 240,
+          "text": "    CHK(\"F15 other requested output is unsupported\", !radio.output_supported(21));"
+        },
+        {
+          "line": 241,
+          "text": "    CHK(\"F16 valid carrier plus 22 dBm makes rfcfg true\", radio.rf_config_valid(22));"
+        },
+        {
+          "line": 242,
+          "text": "    CHK(\"F17 invalid output makes rfcfg false without changing carrier\", !radio.rf_config_valid(21) && radio.frequency_valid());"
+        },
+        {
+          "line": 249,
+          "text": "    CHK(\"F18 precondition latches one preamble window\","
+        },
+        {
+          "line": 255,
+          "text": "    CHK(\"F19a RadioLib frequency failure is surfaced\", !radio.apply_frequency(870.0, /*rearm=*/true));"
+        },
+        {
+          "line": 256,
+          "text": "    CHK(\"F19b failed live apply restores FEM RX and continuous RX\","
+        },
+        {
+          "line": 258,
+          "text": "    CHK(\"F19c failed live apply clears the stale DIO1 edge\", !meshroute::g_dio1_fired);"
+        },
+        {
+          "line": 260,
+          "text": "    CHK(\"F19d stale DIO1 cannot drain a phantom packet\","
+        },
+        {
+          "line": 262,
+          "text": "    CHK(\"F19e phantom-packet check never reaches readData\","
+        },
+        {
+          "line": 264,
+          "text": "    CHK(\"F19f failed live apply starts a fresh preamble window\", radio.take_preamble());"
+        },
+        {
+          "line": 265,
+          "text": "    CHK(\"F20 RadioLib frequency failure invalidates config and increments the same counter\","
+        },
+        {
+          "line": 266,
+          "text": "        !radio.frequency_valid() && radio.rf_band_failures() == 2);"
+        },
+        {
+          "line": 271,
+          "text": "    CHK(\"F21 successful frequency apply surfaces a failed RX rearm\","
+        },
+        {
+          "line": 273,
+          "text": "    CHK(\"F22 failed RX rearm still follows the FEM/RX sequence\","
+        },
+        {
+          "line": 277,
+          "text": "    CHK(\"F23 failed RX rearm also starts a fresh preamble window\","
+        },
+        {
+          "line": 281,
+          "text": "    CHK(\"F24 valid correction after the failed rearm recovers immediately\","
+        },
+        {
+          "line": 283,
+          "text": "    CHK(\"F25 valid live correction re-arms FEM then RadioLib RX\","
+        },
+        {
+          "line": 286,
+          "text": "    CustomSX1262 failed_chip;"
+        },
+        {
+          "line": 287,
+          "text": "    CountingRf failed_rf(failed_chip.events);"
+        },
+        {
+          "line": 288,
+          "text": "    failed_rf.begin_result = false;"
+        },
+        {
+          "line": 289,
+          "text": "    Sx1262Radio failed_hw(failed_chip, &failed_rf);"
+        },
+        {
+          "line": 290,
+          "text": "    CHK(\"F26 valid config can be established before failed hardware begin\","
+        },
+        {
+          "line": 291,
+          "text": "        failed_hw.apply_frequency(869.4625, /*rearm=*/false) && failed_hw.rf_config_valid(22));"
+        },
+        {
+          "line": 292,
+          "text": "    CHK(\"F27 failed hardware begin does not erase independent rfcfg truth\", !failed_hw.begin() && failed_hw.rf_config_valid(22));"
+        },
+        {
+          "line": 296,
+          "text": "    CHK(\"F28 gateway/adopted out-of-band retune has the same no-standby refusal\", chip.events.empty());"
+        },
+        {
+          "line": 297,
+          "text": "    CHK(\"F29 gateway/adopted refusal also blocks TX\", !radio.frequency_valid());"
+        },
+        {
+          "line": 300,
+          "text": "    CHK(\"F30 valid gateway retune clears the latch and restores RX\","
+        },
+        {
+          "line": 309,
+          "text": "    CHK(\"Z1 null-FEM begin succeeds\", radio.begin());"
+        },
+        {
+          "line": 310,
+          "text": "    CHK(\"Z2 null-FEM begin is the direct existing-board order\","
+        },
+        {
+          "line": 312,
+          "text": "    CHK(\"Z3 null-FEM kind is none\", radio.board_rf_kind() == BoardRfKind::none);"
+        },
+        {
+          "line": 313,
+          "text": "    CHK(\"Z4 null-FEM LNA is n/a\", radio.board_rf_lna_state() == BoardRfLnaState::not_applicable);"
+        },
+        {
+          "line": 314,
+          "text": "    CHK(\"Z5 null-FEM transition count stays zero\", radio.rf_mode_failures() == 0);"
+        },
+        {
+          "line": 317,
+          "text": "    CHK(\"Z6 null-FEM transmit preserves return behavior\","
+        },
+        {
+          "line": 319,
+          "text": "    CHK(\"Z7 null-FEM power mapping is identity\", chip.last_power == 7);"
+        },
+        {
+          "line": 320,
+          "text": "    CHK(\"Z8 null-FEM path emits no FEM calls\","
+        },
+        {
+          "line": 328,
+          "text": "    CHK(\"Z9 null-FEM failed startTransmit preserves radio_error\","
+        },
+        {
+          "line": 330,
+          "text": "    CHK(\"Z10 null-FEM failed startTransmit restores direct continuous RX\","
+        },
+        {
+          "line": 343,
+          "text": "    std::printf(\"%d passed, %d failed\\n\", g_pass, g_fail);"
+        }
+      ]
+    },
+    "tools/probe_device_radio/board_rf_probe.cpp": {
+      "sha256": "d9014ee9d0e97a9d550fb88e54852e201394514b18e56ded89f5ccd5fdecb4e4",
+      "relevant_lines": [
+        {
+          "line": 20,
+          "text": "#define CHK(label, expr) do {                                                               \\"
+        },
+        {
+          "line": 40,
+          "text": "    CHK(\"K1 four stable LOW samples classify GC1109\","
+        },
+        {
+          "line": 42,
+          "text": "    CHK(\"K2 four stable HIGH samples classify KCT8103L\","
+        },
+        {
+          "line": 44,
+          "text": "    CHK(\"K3 floating pull-following input is unknown\","
+        },
+        {
+          "line": 46,
+          "text": "    CHK(\"K4 unstable pull-up samples are unknown\","
+        },
+        {
+          "line": 48,
+          "text": "    CHK(\"K5 unstable pull-down samples are unknown\","
+        },
+        {
+          "line": 50,
+          "text": "    CHK(\"K6 stable but disagreeing biases are unknown\","
+        },
+        {
+          "line": 56,
+          "text": "    CHK(\"G1 stable external pull-down initializes\", rf.begin());"
+        },
+        {
+          "line": 57,
+          "text": "    CHK(\"G2 runtime kind is GC1109\", rf.kind() == BoardRfKind::gc1109);"
+        },
+        {
+          "line": 58,
+          "text": "    CHK(\"G3 GC1109 has no configurable LNA state\", rf.lna_state() == BoardRfLnaState::not_applicable);"
+        },
+        {
+          "line": 59,
+          "text": "    CHK(\"G4 LDO is driven high before its hold is released\","
+        },
+        {
+          "line": 61,
+          "text": "    CHK(\"G5 RTC and digital stale holds use their matching APIs before sampling\","
+        },
+        {
+          "line": 66,
+          "text": "    CHK(\"G6 both pulls are sampled twice\","
+        },
+        {
+          "line": 68,
+          "text": "    CHK(\"G7 detected FEM is parked disabled until arm_rx\","
+        },
+        {
+          "line": 72,
+          "text": "    CHK(\"G8 GC1109 RX transition succeeds\", rf.rx_mode());"
+        },
+        {
+          "line": 73,
+          "text": "    CHK(\"G9 GC1109 RX table is LDO=1 EN=1 TX_EN=0\","
+        },
+        {
+          "line": 78,
+          "text": "    CHK(\"G10 GC1109 TX transition succeeds\", rf.tx_mode());"
+        },
+        {
+          "line": 79,
+          "text": "    CHK(\"G11 GC1109 TX table is LDO=1 EN=1 TX_EN=1\","
+        },
+        {
+          "line": 86,
+          "text": "    CHK(\"L1 stable external pull-up initializes\", rf.begin());"
+        },
+        {
+          "line": 87,
+          "text": "    CHK(\"L2 runtime kind is KCT8103L\", rf.kind() == BoardRfKind::kct8103l);"
+        },
+        {
+          "line": 88,
+          "text": "    CHK(\"L3 approved V4.3 LNA state is on\", rf.lna_state() == BoardRfLnaState::on);"
+        },
+        {
+          "line": 89,
+          "text": "    CHK(\"L4 detected KCT is parked disabled until arm_rx\","
+        },
+        {
+          "line": 93,
+          "text": "    CHK(\"L5 KCT8103L RX transition succeeds\", rf.rx_mode());"
+        },
+        {
+          "line": 94,
+          "text": "    CHK(\"L6 KCT8103L RX/LNA-on table is LDO=1 CSD=1 CTX=0\","
+        },
+        {
+          "line": 99,
+          "text": "    CHK(\"L7 KCT8103L TX transition succeeds\", rf.tx_mode());"
+        },
+        {
+          "line": 100,
+          "text": "    CHK(\"L8 KCT8103L TX table is LDO=1 CSD=1 CTX=1\","
+        },
+        {
+          "line": 107,
+          "text": "    CHK(\"U1 floating discriminator refuses initialization\", !rf.begin());"
+        },
+        {
+          "line": 108,
+          "text": "    CHK(\"U2 floating discriminator reports unknown\", rf.kind() == BoardRfKind::unknown);"
+        },
+        {
+          "line": 109,
+          "text": "    CHK(\"U3 unknown FEM is parked fail-closed\","
+        },
+        {
+          "line": 111,
+          "text": "    CHK(\"U4 unknown FEM refuses RX and TX\", !rf.rx_mode() && !rf.tx_mode());"
+        },
+        {
+          "line": 114,
+          "text": "    CHK(\"U5 unstable repeated samples refuse initialization\", !rf.begin() && rf.kind() == BoardRfKind::unknown);"
+        },
+        {
+          "line": 118,
+          "text": "    CHK(\"U6 stale-hold release failure refuses initialization\", !rf.begin() && rf.kind() == BoardRfKind::unknown);"
+        },
+        {
+          "line": 119,
+          "text": "    CHK(\"U7 one hold failure does not skip the remaining release attempts\","
+        },
+        {
+          "line": 125,
+          "text": "    CHK(\"U8 an RTC-domain stale-hold release failure also refuses initialization\","
+        },
+        {
+          "line": 135,
+          "text": "            CHK(\"P1 sole valid requested output maps to chip drive 10\", value == 22 && drive.chip_dbm == 10);"
+        },
+        {
+          "line": 138,
+          "text": "    CHK(\"P2 output capability is the singleton {22}\", valid_outputs == 1);"
+        },
+        {
+          "line": 139,
+          "text": "    CHK(\"P3 frequency lower boundary accepted\", rf.frequency_supported(863.0));"
+        },
+        {
+          "line": 140,
+          "text": "    CHK(\"P4 frequency upper boundary accepted\", rf.frequency_supported(928.0));"
+        },
+        {
+          "line": 141,
+          "text": "    CHK(\"P5 below-band frequency refused\", !rf.frequency_supported(862.999));"
+        },
+        {
+          "line": 142,
+          "text": "    CHK(\"P6 above-band frequency refused\", !rf.frequency_supported(928.001));"
+        },
+        {
+          "line": 143,
+          "text": "    CHK(\"P7 NaN is not inside the strict V4 envelope\","
+        },
+        {
+          "line": 151,
+          "text": "    CHK(\"S1 V4 provider supplies one concrete FEM instance\", rf != nullptr);"
+        },
+        {
+          "line": 158,
+          "text": "    std::printf(\"%d passed, %d failed\\n\", g_pass, g_fail);"
+        }
+      ]
+    },
+    "tools/probe_features/envmap.py": {
+      "sha256": "2bc34a8c5ebd7f25045a5e102e8e510ac3008994d2c36fd324ec5a11b86dd2e7",
+      "relevant_lines": [
+        {
+          "line": 45,
+          "text": "_n_fail = 0"
+        },
+        {
+          "line": 48,
+          "text": "def check(label: str, cond: bool, detail: str) -> None:"
+        },
+        {
+          "line": 49,
+          "text": "    global _n_ok, _n_fail"
+        },
+        {
+          "line": 54,
+          "text": "        _n_fail += 1"
+        },
+        {
+          "line": 138,
+          "text": "def main() -> int:"
+        },
+        {
+          "line": 193,
+          "text": "    check(\"E11\", not unmapped and set(BOARD_CELLS) <= covered and \"host_native\" in covered"
+        },
+        {
+          "line": 205,
+          "text": "    print(f\"envmap: {_n_ok + _n_fail} checks, {_n_fail} failed\")"
+        },
+        {
+          "line": 206,
+          "text": "    return 1 if _n_fail else 0"
+        }
+      ]
+    },
+    "tools/probe_features/ownership.py": {
+      "sha256": "9e717a74b2d5941f0bdb1ec5bd9e0b5d2d81e23e692786227b493f010478a3be",
+      "relevant_lines": [
+        {
+          "line": 12,
+          "text": "WHAT IS CHECKED, said plainly (each check reads the REAL production sources \u2014 there is no policy model here that"
+        },
+        {
+          "line": 145,
+          "text": "CHECK_SUFFIX = \"abcdefghijklmnopqrstuvwxyz\""
+        },
+        {
+          "line": 146,
+          "text": "assert len(APPROVED_FILES) <= len(CHECK_SUFFIX), \"ownership.py: more approved files than check-id letters\""
+        },
+        {
+          "line": 158,
+          "text": "    \"\"\"A malformed/unreadable source or a broken instrument. \u26d4 NEVER a passed check and never a passed control.\"\"\""
+        },
+        {
+          "line": 281,
+          "text": "def run_checks(root: Path) -> list[tuple[str, bool, str]]:"
+        },
+        {
+          "line": 320,
+          "text": "        # \u2605 THE CHECK ID IS DERIVED FROM THE FILE'S POSITION IN THE APPROVED LIST, \u26d4 no longer a hand-kept map of"
+        },
+        {
+          "line": 324,
+          "text": "        cid = \"O4\" + CHECK_SUFFIX[APPROVED_FILES.index(rel)]"
+        },
+        {
+          "line": 391,
+          "text": "        bad(\"O7a\", f\"the production decision call moved/was bypassed: {calls} != [{DECISION_CALL!r}]\")"
+        },
+        {
+          "line": 765,
+          "text": "        base = run_checks(work)"
+        },
+        {
+          "line": 779,
+          "text": "                got = sorted(c for c, okk, _ in run_checks(work) if not okk)"
+        },
+        {
+          "line": 801,
+          "text": "            got = sorted(c for c, okk, _ in run_checks(work) if not okk)"
+        },
+        {
+          "line": 830,
+          "text": "            run_checks(work)"
+        },
+        {
+          "line": 847,
+          "text": "    return 1 if n_bad else 0"
+        },
+        {
+          "line": 850,
+          "text": "def main() -> int:"
+        },
+        {
+          "line": 860,
+          "text": "        res = run_checks(root)"
+        },
+        {
+          "line": 869,
+          "text": "        return 1 if any(not okk for _, okk, _ in res) else 0"
+        }
+      ]
+    }
+  }
+}

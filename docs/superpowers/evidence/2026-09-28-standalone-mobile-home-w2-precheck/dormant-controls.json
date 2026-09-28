@@ -1,0 +1,128 @@
+[
+  {
+    "label": "W49-1",
+    "changed": true,
+    "sed": "/handle_ui(line + 2, len - 2, out); return true;/d",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "d0d526373ce2a6399f8c712cbd5cd401d654beed8965cd146cb344841c29e48a"
+  },
+  {
+    "label": "W49-2",
+    "changed": true,
+    "sed": "s@handle_ui(line + 2, len - 2, out)@handle_ui(line, len, out)@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "b7b68bc6953a43ee5f2dd6ae697d4d426146d756a208fd046c9ac9a82c49f1f1"
+  },
+  {
+    "label": "W49-3",
+    "changed": true,
+    "sed": "s@{ handle_ui(line + 2, len - 2, out); return true; }@{ return true; }@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "49c02db2b6d5052c98e564c79e88d0c51484c360f9f253288f88dc763d58bd8e"
+  },
+  {
+    "label": "W49-4",
+    "changed": true,
+    "sed": "s@ \\&\\& !strncmp(line, \"ui\", 2))@ \\&\\& !strncmp(line, \"ui\", 1))@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "5776a282e64ab632daa89dae0d9b76a42a2058eac57220e7e329f3c118c2d198"
+  },
+  {
+    "label": "W49-5",
+    "changed": true,
+    "sed": "/handle_ui(line + 2, len - 2, out); return true;/d; s@^static void dump_help(Print\\& out) {$@&\\n    if ((len == 2 || (len > 2 \\&\\& line[2] == ' ')) \\&\\& !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "d0d526373ce2a6399f8c712cbd5cd401d654beed8965cd146cb344841c29e48a"
+  },
+  {
+    "label": "W49-6",
+    "changed": true,
+    "sed": "s@^#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm$@//&@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "ea3e468e3dc5c441e345eade4b7efdbe6229a9cbb13d5a5563d8c5f4037b27c2"
+  },
+  {
+    "label": "W51-1",
+    "changed": false,
+    "sed": "s@^    if (e == ParseErr::unknown_verb) {$@    if (len > 2 \\&\\& !strncmp(line, \"ui\", 2)) { LineSink lu(ble_sink); handle_ui(line + 2, len - 2, lu); lu.flush(); return 0; }\\n&@",
+    "original_ui_arm_count": 0,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766"
+  },
+  {
+    "label": "W51-2",
+    "changed": false,
+    "sed": "s@^    if (e == ParseErr::unknown_verb) {$@    if (len > 2 \\&\\& !strncmp(line, \"ui\", 2)) return write_err(out, cap, \"ui\", \"console_only\");\\n&@",
+    "original_ui_arm_count": 0,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766"
+  },
+  {
+    "label": "W51-3",
+    "changed": false,
+    "sed": "s@        if (dispatch(line, len, ls)) { ls.flush(); return 0; }@        (void)ls;@",
+    "original_ui_arm_count": 0,
+    "mutant_ui_arm_count": 0,
+    "original_signature_count": 0,
+    "mutant_sha256": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766"
+  },
+  {
+    "label": "W54-1",
+    "changed": true,
+    "sed": "s@^#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the include@//&@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "4a65c3b8a23f3223786d77f5150472662a8b4eb577e2190ef63a9697d209475f"
+  },
+  {
+    "label": "W54-2",
+    "changed": true,
+    "sed": "s@^#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the catalog binding@//&@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "8d73f3d68d0f455257f052e0acd6a5ac21e89c794a4f4603f44a7a3362836114"
+  },
+  {
+    "label": "W54-3",
+    "changed": true,
+    "sed": "s@^#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the `status` surface$@//&@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "d949579b6b5b0f040d8789da92132e5696aa06216d5dfbee09063c495c0a430b"
+  },
+  {
+    "label": "W54-4",
+    "changed": false,
+    "sed": "s@^#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the `help` group$@//&@",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "3eea954914b6b3d788dbe9c672972578da15144bd8f6944ae65d3367ef13893f"
+  },
+  {
+    "label": "W54-5",
+    "changed": true,
+    "sed": "/    static mrfw::PresetCatalog cat(st, gate);/d",
+    "original_ui_arm_count": 1,
+    "mutant_ui_arm_count": 1,
+    "original_signature_count": 0,
+    "mutant_sha256": "ebdc84f03377a69f66107bdc89174503bb7dc94215e61afa759906e1dc261f15"
+  }
+]

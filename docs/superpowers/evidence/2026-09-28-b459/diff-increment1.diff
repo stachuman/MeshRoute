@@ -1,0 +1,102 @@
+diff --git a/tools/probe_firmware_ui/run.sh b/tools/probe_firmware_ui/run.sh
+index 7bd5e93..04dc7a6 100755
+--- a/tools/probe_firmware_ui/run.sh
++++ b/tools/probe_firmware_ui/run.sh
+@@ -57,6 +57,15 @@ FW_UI="$ROOT/src/firmware_ui.cpp"
+ CXX=${CXX:-g++}
+ OUT=$(mktemp -d)
+ trap 'rm -rf "$OUT"' EXIT
++# ★ [[B459]] THE SHARED COMPARATOR: the generic half of [[B456]]'s accounting below — the recorder, the guard ledger and
++#   the final set comparison — lives in `tools/probe_accounting.sh`, found by an absolute path from the repository
++#   root. ⛔ A missing library is fatal, with its own message and exit 2, so it can never be what lets a run (or the
++#   bypass regression) through.
++PA_LIB="$ROOT/tools/probe_accounting.sh"
++if [ ! -f "$PA_LIB" ]; then
++  echo "FATAL: the shared accounting library is missing: $PA_LIB — nothing can be accounted, so nothing runs"; exit 2
++fi
++. "$PA_LIB"
+ 
+ # ---------------------------------------------------------------------------------------------------------------
+ # ★★★★ [[B456]] — EVERY DECLARED CONTROL GETS EXACTLY ONE TERMINAL VERDICT, AND THE RUN PROVES IT
+@@ -79,14 +88,18 @@ trap 'rm -rf "$OUT"' EXIT
+ #   accounting call the real run makes (`controls_final`), without compiling anything; the discoverable
+ #   `tools/test_probe_firmware_ui.py` asserts its exit status per case, including that removing that ONE call lets a
+ #   missing control through (the guard is load-bearing, not decoration).
++# ★ [[B459]] (2026-09-28): the GENERIC half — `pa_record`, `pa_guard` and the comparison `pa_compare` — moved to the
++#   shared `tools/probe_accounting.sh`; what stays HERE is this runner's own: the `ctl` extractor and its call-count
++#   agreement, the `yes`/`no` → `red`/`build_fail_ok` mapping (C0's required build failure), the `--no-neg` policy,
++#   the selftest mode, the counters and every line of output. `account_controls` is kept as the adapter's name.
+ CTL_VERDICTS="$OUT/ctl_verdicts.tsv"; CTL_GUARDS="$OUT/ctl_guards.txt"
+ : > "$CTL_VERDICTS"; : > "$CTL_GUARDS"
+ record_verdict() {   # record_verdict <label> <outcome>  — THE one terminal-verdict path; ⓘ counters are derived here
+-  printf '%s\t%s\n' "$1" "$2" >> "$CTL_VERDICTS"
++  pa_record "$CTL_VERDICTS" "$1" "$2"
+   case "$2" in red|build_fail_ok) n_ctl=$((n_ctl+1)) ;; *) n_bad=$((n_bad+1)) ;; esac
+ }
+ record_guard_failure() {   # record_guard_failure <what failed> — a guard is not a label, so it has its own ledger
+-  printf '%s\n' "$1" >> "$CTL_GUARDS"
++  pa_guard "$CTL_GUARDS" "$1"
+   n_bad=$((n_bad+1))
+ }
+ expected_controls() {   # expected_controls <runner source> -> "label<TAB>yes|no", the label as the SHELL delivers it
+@@ -95,9 +108,7 @@ expected_controls() {   # expected_controls <runner source> -> "label<TAB>yes|no
+ account_controls() {   # account_controls <expected.tsv> <declared-call-count> <verdicts.tsv> <guards> <gate|no-neg>
+   local expected=$1 calls=$2 verdicts=$3 guards=$4 mode=$5 n_exp
+   n_exp=$(grep -c '' "$expected")
+-  if [ "$n_exp" -eq 0 ]; then
+-    echo "  FAIL [[B456]] no control is declared — the extractor read nothing, so completeness proves nothing"; return 1
+-  fi
++  pa_nonempty "$expected" '[[B456]]' control || return 1
+   if [ "$n_exp" != "$calls" ]; then
+     echo "  FAIL [[B456]] the extractor read $n_exp of $calls declared ctl calls — the expected set is incomplete"
+     return 1
+@@ -109,23 +120,9 @@ account_controls() {   # account_controls <expected.tsv> <declared-call-count> <
+     echo "controls: NOT RUN (--no-neg) — $n_exp declared control(s) were deliberately skipped; this is NOT a gate"
+     return 0
+   fi
+-  awk -F'\t' -v guards="$guards" '
+-    FILENAME == ARGV[1] { if ($1 in want) dupdecl[$1] = 1; want[$1] = ($2 == "no") ? "build_fail_ok" : "red"
+-                          order[++n] = $1; next }
+-    { seen[$1]++; got[$1] = $2; if (!($1 in want)) unknown[$1] = 1 }
+-    END {
+-      bad = 0
+-      for (l in dupdecl) { printf "  FAIL [[B456]] label DECLARED twice — its verdicts cannot be told apart: %s\n", l; bad++ }
+-      for (i = 1; i <= n; i++) { l = order[i]
+-        if (!(l in seen))      { printf "  FAIL [[B456]] MISSING verdict — the control never reached ctl: %s\n", l; bad++ }
+-        else if (seen[l] > 1)  { printf "  FAIL [[B456]] DUPLICATE verdict (%d) for: %s\n", seen[l], l; bad++ }
+-        else if (got[l] != want[l]) { printf "  FAIL [[B456]] outcome %s is not the accepted %s for: %s\n", got[l], want[l], l; bad++ }
+-        else okn++ }
+-      for (l in unknown)     { printf "  FAIL [[B456]] UNKNOWN label — no such control is declared: %s\n", l; bad++ }
+-      g = 0; while ((getline line < guards) > 0) { printf "  FAIL [[B456]] a control guard failed: %s\n", line; g++ }
+-      printf "controls accounted: %d declared, %d exactly once with the accepted outcome, %d guard failure(s)\n", n, okn, g
+-      exit (bad + g) ? 1 : 0
+-    }' "$expected" "$verdicts"
++  # THIS runner's accepted outcome per declaration: must_build=no is C0's required build failure, everything else RED.
++  awk -F'\t' '{ print $1 "\t" (($2 == "no") ? "build_fail_ok" : "red") }' "$expected" > "$OUT/ctl_accepted.tsv"
++  pa_compare "$OUT/ctl_accepted.tsv" "$verdicts" "$guards" '[[B456]]' control ctl 'controls accounted'
+ }
+ controls_final() {   # controls_final <expected.tsv> <declared-call-count> <gate|no-neg> — ONE call site for both modes
+   account_controls "$1" "$2" "$CTL_VERDICTS" "$CTL_GUARDS" "$3" || rc=1
+diff --git a/tools/test_probe_firmware_ui.py b/tools/test_probe_firmware_ui.py
+index b760d8b..4ba5b01 100644
+--- a/tools/test_probe_firmware_ui.py
++++ b/tools/test_probe_firmware_ui.py
+@@ -28,6 +28,7 @@ import unittest
+ from pathlib import Path
+ 
+ RUNNER = Path(__file__).resolve().parent / "probe_firmware_ui" / "run.sh"
++LIBRARY = Path(__file__).resolve().parent / "probe_accounting.sh"   # [[B459]] the shared comparator the runner sources
+ ACCOUNTING_STATEMENT = 'account_controls "$1" "$2" "$CTL_VERDICTS" "$CTL_GUARDS" "$3" || rc=1'
+ 
+ # Five synthetic controls, C-labels in the runner's own shape; `no` is C0's must_build=no build-failure control.
+@@ -156,7 +157,9 @@ class AccountingSelftest(unittest.TestCase):
+         stock_rc, stock_out = self.run_case(ev)
+         self.assertEqual(stock_rc, 1, stock_out)
+         with tempfile.TemporaryDirectory(prefix="b456-bypass-") as d:
+-            copy_dir = Path(d) / "probe_firmware_ui"; copy_dir.mkdir()
++            copy_dir = Path(d) / "tools" / "probe_firmware_ui"; copy_dir.mkdir(parents=True)
++            # [[B459]] the copy's `$ROOT/tools/probe_accounting.sh` is the REAL shared comparator, by an explicit link
++            (copy_dir.parent / "probe_accounting.sh").symlink_to(LIBRARY)
+             bypassed = copy_dir / "run.sh"
+             bypassed.write_text(src.replace(ACCOUNTING_STATEMENT, ": # [[B456]] bypassed by the regression"),
+                                 encoding="utf-8")

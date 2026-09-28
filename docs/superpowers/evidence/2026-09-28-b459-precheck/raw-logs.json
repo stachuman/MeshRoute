@@ -1,0 +1,54 @@
+{
+  "artifacts/2026-09-28-b459-precheck/b456-tests.log": {
+    "sha256": "11629611f86ae6ec0e99e26e9b03fb33ff320163ffdbea2c9b30dcf1dc83c220",
+    "bytes": 2560
+  },
+  "artifacts/2026-09-28-b459-precheck/board-default.log": {
+    "sha256": "74e1d04ff7cccdc184bdeb9c1aaaa92b38dcef9dafa9c4b50fcc76ca0262af8b",
+    "bytes": 17891
+  },
+  "artifacts/2026-09-28-b459-precheck/board-no-neg.log": {
+    "sha256": "46481f22beaae620ffe833a1a4cac72c4e336fcd614f2706ceaca0d582e6eb07",
+    "bytes": 1588
+  },
+  "artifacts/2026-09-28-b459-precheck/board-traced.log": {
+    "sha256": "2c7291302d69d5bda3915f46c289baa8f1d8c40d91b3f6d4601fdf00791a1280",
+    "bytes": 17955
+  },
+  "artifacts/2026-09-28-b459-precheck/board.trace": {
+    "sha256": "20e00613aca4cf9cbdf688aa6b1d4bf1353f0b73a7818b6b0f58c177c0a540c6",
+    "bytes": 1378608
+  },
+  "artifacts/2026-09-28-b459-precheck/discovery.log": {
+    "sha256": "f7110f4afa140f850632e0a57a555571248591d10f0cd48db32512b91b93c01b",
+    "bytes": 13224
+  },
+  "artifacts/2026-09-28-b459-precheck/early-return.log": {
+    "sha256": "a215fc5fad19f55ff6f95f7d6ac2fae8ea0a8a5fa87f082c3eb1433d5131d965",
+    "bytes": 1588
+  },
+  "artifacts/2026-09-28-b459-precheck/false-guard.log": {
+    "sha256": "a215fc5fad19f55ff6f95f7d6ac2fae8ea0a8a5fa87f082c3eb1433d5131d965",
+    "bytes": 1588
+  },
+  "artifacts/2026-09-28-b459-precheck/inventory.log": {
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+    "bytes": 176
+  },
+  "artifacts/2026-09-28-b459-precheck/reader-search-full.json": {
+    "sha256": "e81fb646489e3bb52825949a32e6533ee66c4001edd586a63ac20cfc8b189d1c",
+    "bytes": 1918367
+  },
+  "artifacts/2026-09-28-b459-precheck/removed-canvas-check.log": {
+    "sha256": "201ee2bd706daea02cd3bef269a32de58ab91a2de5eb422581c640b1b60771ee",
+    "bytes": 1588
+  },
+  "artifacts/2026-09-28-b459-precheck/shrunk-negctl.log": {
+    "sha256": "e3439bc131a6405d22ae23cdf5b71243b64c4b3ad1cc05c70bbffa4a1df969f7",
+    "bytes": 17420
+  },
+  "artifacts/2026-09-28-b459-precheck/undefined-guard.log": {
+    "sha256": "3c414509c5a584195fbcd00ed1bd9b12bd09e2bafbbbff1417b76810ecd054c2",
+    "bytes": 1686
+  }
+}

@@ -1,0 +1,22 @@
+   ok   S23 ble_dispatch_line is a ONE-CALL adapter: one seam call, its own sinks, exactly one seam flush   [seam_calls=1 residual={'dispatch': 0, 'parse_command': 0, 'on_command': 0} flush_after_seam=1 passes_linesink_and_reply=1]
+   ok   S24 the seam makes the router/parser fork exactly ONCE, ROUTER-FIRST, and executes per format arm   [{'dispatch': 1, 'parse_command': 1, 'on_command': 2} router_before_parser=True]
+   structural: 84 passed / 0 failed / 84 total
+X14 the BLE adapter keeps a residual direct dispatch() beside the seam call
+   -> structural S23 now FAIL
+X15 the BLE adapter drops the seam response flush
+   -> structural S23 now FAIL
+X16 the BLE adapter hands the seam its direct buffer where the stream belongs
+   -> structural S23 now FAIL
+X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)
+   -> structural S24 now FAIL
+real sources verified UNCHANGED; 8 sink + 35 source + 23 help + 5 BLE + 22 radmin3 + 21 radmin4 controls run + 22 activation controls + 16 executor ownership controls (CONTROLS-TOTAL 152)
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+PASS: probe + structural + controls all green
+exit=0 (step5-console-sink.exit)
+   ok   S54 the real panel executor validates with the local bound before parsing
+   ok   S67 one input binding uses active PHY, the real SF accessor, both slops and derived terminal
+== BLE help-refusal (EXECUTED: the real guard condition x the real router) + the §RADMIN-3 admin family ==
+== router/parser ownership (derived from the generated inventory, all six real profiles) ==
+H-C13 remove the real dispatch() help-router call
+real sources verified UNCHANGED; 8 sink + 35 source + 23 help + 5 BLE + 22 radmin3 + 21 radmin4 controls run + 22 activation controls + 16 executor ownership controls (CONTROLS-TOTAL 152)
+real	1m8.001s

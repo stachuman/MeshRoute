@@ -1,0 +1,144 @@
+{
+  "owner_head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+  "w4b_coder_freeze_pins": [
+    {
+      "path": "src/firmware_ui_model.h",
+      "sha256": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286",
+      "actual": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286"
+    },
+    {
+      "path": "src/firmware_ui.cpp",
+      "sha256": "3d32d7cb9c81f39b7188861c973b8213261783810dc6ca8428c0fe305b9e9fe9",
+      "actual": "3d32d7cb9c81f39b7188861c973b8213261783810dc6ca8428c0fe305b9e9fe9"
+    },
+    {
+      "path": "src/firmware_ui_chrome.h",
+      "sha256": "b4c1ff24451725a03d2e966fd1da3a8102c61815b74cc995f1fd8f2c0ee6a181",
+      "actual": "b4c1ff24451725a03d2e966fd1da3a8102c61815b74cc995f1fd8f2c0ee6a181"
+    },
+    {
+      "path": "src/firmware_ui_status.h",
+      "sha256": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd",
+      "actual": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd"
+    },
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "sha256": "3ac8c6f2457c4d784a0661a531ef467ace82ba55f675c156abf4180a130ff6c7",
+      "actual": "3ac8c6f2457c4d784a0661a531ef467ace82ba55f675c156abf4180a130ff6c7"
+    },
+    {
+      "path": "test/test_firmware_ui_chrome.cpp",
+      "sha256": "544875a89e6683d2cb50c33591f828d189925376369e60acc9d31f06b098641f",
+      "actual": "544875a89e6683d2cb50c33591f828d189925376369e60acc9d31f06b098641f"
+    },
+    {
+      "path": "test/test_firmware_ui_status.cpp",
+      "sha256": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8",
+      "actual": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8"
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "sha256": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8",
+      "actual": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8"
+    },
+    {
+      "path": "test/test_firmware_ui_send.cpp",
+      "sha256": "66527ed7c3d858fb8767e522a3fb19da86f225ce81e5c59ce2368ba68adba0dd",
+      "actual": "66527ed7c3d858fb8767e522a3fb19da86f225ce81e5c59ce2368ba68adba0dd"
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "sha256": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc",
+      "actual": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc"
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "sha256": "fb45d28e69b0e7ae280c77d91840df659ade5d9f4784837f6317d84793aff9d3",
+      "actual": "fb45d28e69b0e7ae280c77d91840df659ade5d9f4784837f6317d84793aff9d3"
+    },
+    {
+      "path": "tools/test_probe_firmware_ui.py",
+      "sha256": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16",
+      "actual": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16"
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "sha256": "71c860f9a1fd9a4807fa4789da58545f9fbd4c1d90befee5545ece418d15687e",
+      "actual": "71c860f9a1fd9a4807fa4789da58545f9fbd4c1d90befee5545ece418d15687e"
+    },
+    {
+      "path": "tools/probe_board_abi.py",
+      "sha256": "4a5c0997fff20fb3c04cfd75c2527fd09f0b55edfb9b3f273c3afc99f0b2a579",
+      "actual": "4a5c0997fff20fb3c04cfd75c2527fd09f0b55edfb9b3f273c3afc99f0b2a579"
+    },
+    {
+      "path": "tools/test_probe_board_abi.py",
+      "sha256": "c6630098421aed5fc2ad54ea29f512e624ed6ba1f9d19b188a0b1632707951c3",
+      "actual": "c6630098421aed5fc2ad54ea29f512e624ed6ba1f9d19b188a0b1632707951c3"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-27-standalone-mobile-home-w4b-home-navigation.md",
+      "sha256": "a89c075e6dab5184d68c06a31b9fd262c3bab5656bc140146a879e2608d8ca5a",
+      "actual": "a89c075e6dab5184d68c06a31b9fd262c3bab5656bc140146a879e2608d8ca5a"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "sha256": "80f7078419c9d70a2f3f03b52375f355c10e285fa397530a0c98210cba3ccae9",
+      "actual": "cd21925421b6c175859ab3e8890bafc792e6e7624040286be432ae8cb12c8528"
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "sha256": "1f54f9c3cc3bb9fc83b882bb77e2beb423a3e999b61fb16d82dfd452afdbbc0f",
+      "actual": "3dd8e2b325eea20e8451a2f06b4c2f3226bda7d7b4172b7e8779df4adb7492d4"
+    },
+    {
+      "path": "tracker.md",
+      "sha256": "bd1566b362047afe58be0668f74c1a2a0fedb1adf2a4b96aeb486e0ff3d399f2",
+      "actual": "f3c233e98b9add79899fd52fa4f4685ddad43cbd589ef00cef9b391caa18a97e"
+    },
+    {
+      "path": "MEMORY.md",
+      "sha256": "fb3826dc9254190fe66f15fa9edae81f646595601a8ac90c14bdf82d464d1092",
+      "actual": "364e331f6bf9c6f0e3e51bf55ee1c2f95cc7de37dbfcd7d390a49c74e38aa182"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-27-standalone-mobile-home-w4b-precheck.md",
+      "sha256": "38b699335991cf04ffc21c7eb9702f36f3f8a3ba640ad5ff0d9b5a51047294aa",
+      "actual": "38b699335991cf04ffc21c7eb9702f36f3f8a3ba640ad5ff0d9b5a51047294aa"
+    }
+  ],
+  "matched": 17,
+  "note": "Actual hashes are the clean 8079e54 entry inventory. Four preparation documents differ from coder freeze exactly as recorded by QA landing; all 15 implementation/test/tool pins and the brief/pre-check pins match.",
+  "qa_landings": [
+    {
+      "path": "MEMORY.md",
+      "qa_sha256": "364e331f6bf9c6f0e3e51bf55ee1c2f95cc7de37dbfcd7d390a49c74e38aa182",
+      "owner_commit_sha256": "364e331f6bf9c6f0e3e51bf55ee1c2f95cc7de37dbfcd7d390a49c74e38aa182",
+      "match": true
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "qa_sha256": "3dd8e2b325eea20e8451a2f06b4c2f3226bda7d7b4172b7e8779df4adb7492d4",
+      "owner_commit_sha256": "3dd8e2b325eea20e8451a2f06b4c2f3226bda7d7b4172b7e8779df4adb7492d4",
+      "match": true
+    },
+    {
+      "path": "docs/2026-09-20-metal-test-plan.md",
+      "qa_sha256": "b5fe604e0d1a657d03bd5becf182042af1b9756d88f82619fc352c7b971d41e7",
+      "owner_commit_sha256": "b5fe604e0d1a657d03bd5becf182042af1b9756d88f82619fc352c7b971d41e7",
+      "match": true
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "qa_sha256": "cd21925421b6c175859ab3e8890bafc792e6e7624040286be432ae8cb12c8528",
+      "owner_commit_sha256": "cd21925421b6c175859ab3e8890bafc792e6e7624040286be432ae8cb12c8528",
+      "match": true
+    },
+    {
+      "path": "tracker.md",
+      "qa_sha256": "f3c233e98b9add79899fd52fa4f4685ddad43cbd589ef00cef9b391caa18a97e",
+      "owner_commit_sha256": "f3c233e98b9add79899fd52fa4f4685ddad43cbd589ef00cef9b391caa18a97e",
+      "match": true
+    }
+  ]
+}

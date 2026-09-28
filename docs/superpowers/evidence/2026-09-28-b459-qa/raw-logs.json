@@ -1,0 +1,78 @@
+{
+  "artifacts/2026-09-28-b459-qa/reader-greps.txt": {
+    "sha256": "74f296bfe6cbdb5f1b92184b488efcc74ec645041ca1f6e6222fa76ce92f0752",
+    "bytes": 25487
+  },
+  "artifacts/2026-09-28-b459-qa/step10-reader-audit.log": {
+    "sha256": "0bfdb59793496094f0399063bb94003a10a973ec974f5336abe241fc8f1299f2",
+    "bytes": 124
+  },
+  "artifacts/2026-09-28-b459-qa/step2-probe_board_ui.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "artifacts/2026-09-28-b459-qa/step2-probe_firmware_ui.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "artifacts/2026-09-28-b459-qa/step2-shell.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "artifacts/2026-09-28-b459-qa/step3-board-tests.log": {
+    "sha256": "aedf769ca566d41894def8c60501a98dc22f792daf7de8be2342ba388b9ebcd1",
+    "bytes": 3883
+  },
+  "artifacts/2026-09-28-b459-qa/step4-board.log": {
+    "sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286",
+    "bytes": 18816
+  },
+  "artifacts/2026-09-28-b459-qa/step4.trace": {
+    "sha256": "4c9c9bffdc880d2cdc0deb9630a0396c3fa383af7c5b792f39100076ae795299",
+    "bytes": 1684229
+  },
+  "artifacts/2026-09-28-b459-qa/step5-board-noneg.log": {
+    "sha256": "ce8982e2f59e51ed4f6f39ea4dc9ec89da7e092225495c6ea22a64e875e696cf",
+    "bytes": 2527
+  },
+  "artifacts/2026-09-28-b459-qa/step6-reconcile.log": {
+    "sha256": "56e390021d38996c2625962c943607bef628b5c139013b4ca9b40b126219e3a7",
+    "bytes": 145
+  },
+  "artifacts/2026-09-28-b459-qa/step7-b456-tests.log": {
+    "sha256": "285e8bc4b24bcf394ac72a2f09416f4347fc82e3d93950224e23a9be1489dc9d",
+    "bytes": 2294
+  },
+  "artifacts/2026-09-28-b459-qa/step7-firmware-ui-matched-locale.log": {
+    "sha256": "44533a3d99bb86f7ebb326170b011f391a6ffc93c6b4e3a132da6cdf2f29c57c",
+    "bytes": 41557
+  },
+  "artifacts/2026-09-28-b459-qa/step7-firmware-ui.log": {
+    "sha256": "105cd69bf750cd0733859e007e0a75ae49ed87472fab74a4b81e32d1840ac865",
+    "bytes": 41557
+  },
+  "artifacts/2026-09-28-b459-qa/step8-discovery.log": {
+    "sha256": "e2b3decf6c71f8d68311fcb65cff4328ea1442e2820cb071405ad068ff96fc23",
+    "bytes": 13255
+  },
+  "artifacts/2026-09-28-b459-qa/step9-inventory.log": {
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+    "bytes": 176
+  },
+  "artifacts/2026-09-28-b459-qa/tools_probe_board_ui_accounting.py.pyc": {
+    "sha256": "9d31521de6ff64655b7a619b426df4007c412d89542d39d421bc45b38ad60ad7",
+    "bytes": 20270
+  },
+  "artifacts/2026-09-28-b459-qa/tools_probe_board_ui_negctl.py.pyc": {
+    "sha256": "a215cf196f530df8eaa5ea64603e21dbdb543cc4d045ba5817257065f6ddbb31",
+    "bytes": 20511
+  },
+  "artifacts/2026-09-28-b459-qa/tools_test_probe_board_ui.py.pyc": {
+    "sha256": "33751637dd4c1a642ac15689c6227550740de90a1bdfe7e84e7c4d5322150787",
+    "bytes": 55103
+  },
+  "artifacts/2026-09-28-b459-qa/tools_test_probe_firmware_ui.py.pyc": {
+    "sha256": "19a415739466840b35bb373e186ad57c192aa928cad044bf28c38252ea5d6885",
+    "bytes": 17617
+  }
+}

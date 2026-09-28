@@ -1,0 +1,11 @@
+--- real/firmware_commands.cpp
++++ mutant/W54-1
+@@ -49,7 +49,7 @@
+                                            //   + admin_client_ble_refuses / client_regen_* — PURE; this file binds
+                                            //   the two stores, the checked draw, the future-caller predicates, a
+                                            //   Print sink and the two dispatch arms, and ⛔ decides nothing
+-#if MR_FEAT_OLED   // ★ [[B255]] the include (see the gated binding block below; the header itself stays ungated)
++//#if MR_FEAT_OLED   // ★ [[B255]] the include (see the gated binding block below; the header itself stays ungated)
+ #include "firmware_ui_preset_verbs.h"  // §UI-10/11 P2: mrfw::preset_verb / preset_boot_restore / the three NDJSON
+                                        //   records — PURE; this file only binds the store, the gate and a Print
+ #endif   // MR_FEAT_OLED

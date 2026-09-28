@@ -1,0 +1,22 @@
+--- real/firmware_commands.cpp
++++ mutant/W49-5
+@@ -1532,6 +1532,9 @@
+ }
+ 
+ static void handle_teststatus(Print& out) {
++#if MR_FEAT_OLED   // ★ [[B255]] the `ui` dispatch arm
++    if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }
++#endif   // MR_FEAT_OLED
+     const uint32_t mnow = (uint32_t)g_hal.now();
+     const int32_t nx = g_sched.next_offset_ms(mnow);
+     const char* state = (g_sched.armed() == 0) ? "idle" : (g_sched.done() ? "done" : "running");
+@@ -1632,9 +1635,6 @@
+     //    `MR_N_LAYERS >= 2` build, and the `MR_FEAT_OLED=0` set is NOT that set — `xiao_sx1262`, `production`,
+     //    `xiao_mobile`, `xiao_esp32s3*` are ordinary normal-node builds with no panel. Reusing that token here would
+     //    have been a false statement, and coining a new one was forbidden.
+-#if MR_FEAT_OLED   // ★ [[B255]] the `ui` dispatch arm
+-    if ((len == 2 || (len > 2 && line[2] == ' ')) && !strncmp(line, "ui", 2)) { handle_ui(line + 2, len - 2, out); return true; }
+-#endif   // MR_FEAT_OLED
+     // §RADMIN slice 3 — the two TARGET-STORE families, ACCEPT builds only (R-RA-8). ⓘ ONE arm each for the whole
+     // namespace, so a future sub-verb needs no second dispatch line; the sub-verb parse and the refusal for an
+     // unknown one are the pure unit's (`handle_ui`'s shape, U3). ⛔ Neither shadows anything: no other verb in this

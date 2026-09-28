@@ -1,0 +1,488 @@
+{
+ "live": {
+  "W49": {
+   "A_arm_line_once_in_file": "1",
+   "B_guarded_arm_inside_dispatch": "1",
+   "info_arm_lines_in_file": "1",
+   "info_guarded_arms_in_dispatch": "1",
+   "info_guarded_arms_in_handle_teststatus": "0"
+  },
+  "W51": {
+   "S_seam_call_once": "1",
+   "F_streamed_flush_once": "1",
+   "N_no_ui_token": "1",
+   "info_seam_calls": "1",
+   "info_flushes": "1",
+   "info_ui_tokens": "0"
+  },
+  "W54": {
+   "E_guarded_extraction_nonempty": "1",
+   "C1_once_in_file": "1",
+   "G1_inside_region": "1",
+   "C2_once_in_file": "1",
+   "G2_inside_region": "1",
+   "C3_once_in_file": "1",
+   "G3_inside_region": "1",
+   "C4_once_in_file": "1",
+   "G4_inside_region": "1",
+   "C5_once_in_file": "1",
+   "G5_inside_region": "1"
+  },
+  "W54-help": {
+   "C_ui_row_once_in_file": "1",
+   "G_ui_row_inside_region": "1"
+  }
+ },
+ "controls": [
+  {
+   "check": "W49",
+   "control": 1,
+   "script": "/handle_ui(line + 2, len - 2, out); return true;/d",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "A_arm_line_once_in_file": "0",
+    "B_guarded_arm_inside_dispatch": "0",
+    "info_arm_lines_in_file": "0",
+    "info_guarded_arms_in_dispatch": "0",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "must_fail": [
+    "A_arm_line_once_in_file"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": false,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W49",
+   "control": 2,
+   "script": "s@handle_ui(line + 2, len - 2, out)@handle_ui(line, len, out)@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "A_arm_line_once_in_file": "0",
+    "B_guarded_arm_inside_dispatch": "0",
+    "info_arm_lines_in_file": "0",
+    "info_guarded_arms_in_dispatch": "0",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "must_fail": [
+    "B_guarded_arm_inside_dispatch"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": false,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W49",
+   "control": 3,
+   "script": "s@{ handle_ui(line + 2, len - 2, out); return true; }@{ return true; }@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "A_arm_line_once_in_file": "0",
+    "B_guarded_arm_inside_dispatch": "0",
+    "info_arm_lines_in_file": "0",
+    "info_guarded_arms_in_dispatch": "0",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "must_fail": [
+    "A_arm_line_once_in_file"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": false,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W49",
+   "control": 4,
+   "script": "s@ \\&\\& !strncmp(line, \"ui\", 2))@ \\&\\& !strncmp(line, \"ui\", 1))@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "A_arm_line_once_in_file": "1",
+    "B_guarded_arm_inside_dispatch": "0",
+    "info_arm_lines_in_file": "1",
+    "info_guarded_arms_in_dispatch": "0",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "must_fail": [
+    "B_guarded_arm_inside_dispatch"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W49",
+   "control": 5,
+   "script": ":a;N;$!ba;s@\\n\\(static void handle_teststatus(Print& out) {\\n\\)\\(.*\\n\\)\\(#if MR_FEAT_OLED   // ★ \\[\\[B255\\]\\] the `ui` dispatch arm\\n    if ((len == 2 || (len > 2 && line\\[2\\] == ' ')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\\n#endif   // MR_FEAT_OLED\\n\\)@\\n\\1\\3\\2@",
+   "anchor_counts": [
+    1,
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 2,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "A_arm_line_once_in_file": "1",
+    "B_guarded_arm_inside_dispatch": "0",
+    "info_arm_lines_in_file": "1",
+    "info_guarded_arms_in_dispatch": "0",
+    "info_guarded_arms_in_handle_teststatus": "1"
+   },
+   "must_fail": [
+    "B_guarded_arm_inside_dispatch"
+   ],
+   "only": true,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W49",
+   "control": 6,
+   "script": "s@^#if MR_FEAT_OLED   // ★ \\[\\[B255\\]\\] the `ui` dispatch arm$@//&@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "A_arm_line_once_in_file": "1",
+    "B_guarded_arm_inside_dispatch": "0",
+    "info_arm_lines_in_file": "1",
+    "info_guarded_arms_in_dispatch": "0",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "must_fail": [
+    "B_guarded_arm_inside_dispatch"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W51",
+   "control": 1,
+   "script": "s@^    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);$@    if (len > 2 \\&\\& !strncmp(line, \"ui\", 2)) { LineSink lu(ble_sink); handle_ui(line + 2, len - 2, lu); lu.flush(); return 0; }\\n&@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "S_seam_call_once": "1",
+    "F_streamed_flush_once": "1",
+    "N_no_ui_token": "0",
+    "info_seam_calls": "1",
+    "info_flushes": "1",
+    "info_ui_tokens": "2"
+   },
+   "must_fail": [
+    "N_no_ui_token"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W51",
+   "control": 2,
+   "script": "s@^    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);$@    if (len > 2 \\&\\& !strncmp(line, \"ui\", 2)) return write_err(out, cap, \"ui\", \"console_only\");\\n&@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "S_seam_call_once": "1",
+    "F_streamed_flush_once": "1",
+    "N_no_ui_token": "0",
+    "info_seam_calls": "1",
+    "info_flushes": "1",
+    "info_ui_tokens": "2"
+   },
+   "must_fail": [
+    "N_no_ui_token"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W51",
+   "control": 3,
+   "script": "/^    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);$/d",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "S_seam_call_once": "0",
+    "F_streamed_flush_once": "1",
+    "N_no_ui_token": "1",
+    "info_seam_calls": "0",
+    "info_flushes": "1",
+    "info_ui_tokens": "0"
+   },
+   "must_fail": [
+    "S_seam_call_once"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W51",
+   "control": 4,
+   "script": "s@^    if (ex\\.state == mrfw::LineExec::State::streamed) { ls\\.flush(); return 0; }$@    if (ex.state == mrfw::LineExec::State::streamed) { return 0; }@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "S_seam_call_once": "1",
+    "F_streamed_flush_once": "0",
+    "N_no_ui_token": "1",
+    "info_seam_calls": "1",
+    "info_flushes": "0",
+    "info_ui_tokens": "0"
+   },
+   "must_fail": [
+    "F_streamed_flush_once"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W54",
+   "control": 1,
+   "script": "s@^#if MR_FEAT_OLED   // ★ \\[\\[B255\\]\\] the include@//&@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "E_guarded_extraction_nonempty": "1",
+    "C1_once_in_file": "1",
+    "G1_inside_region": "0",
+    "C2_once_in_file": "1",
+    "G2_inside_region": "1",
+    "C3_once_in_file": "1",
+    "G3_inside_region": "1",
+    "C4_once_in_file": "1",
+    "G4_inside_region": "1",
+    "C5_once_in_file": "1",
+    "G5_inside_region": "1"
+   },
+   "must_fail": [
+    "G1_inside_region"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W54",
+   "control": 2,
+   "script": "s@^#if MR_FEAT_OLED   // ★ \\[\\[B255\\]\\] the catalog binding@//&@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "E_guarded_extraction_nonempty": "1",
+    "C1_once_in_file": "1",
+    "G1_inside_region": "1",
+    "C2_once_in_file": "1",
+    "G2_inside_region": "0",
+    "C3_once_in_file": "1",
+    "G3_inside_region": "0",
+    "C4_once_in_file": "1",
+    "G4_inside_region": "0",
+    "C5_once_in_file": "1",
+    "G5_inside_region": "1"
+   },
+   "must_fail": [
+    "G2_inside_region"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": false,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W54",
+   "control": 3,
+   "script": "s@^#if MR_FEAT_OLED   // ★ \\[\\[B255\\]\\] the `status` surface$@//&@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "E_guarded_extraction_nonempty": "1",
+    "C1_once_in_file": "1",
+    "G1_inside_region": "1",
+    "C2_once_in_file": "1",
+    "G2_inside_region": "1",
+    "C3_once_in_file": "1",
+    "G3_inside_region": "1",
+    "C4_once_in_file": "1",
+    "G4_inside_region": "1",
+    "C5_once_in_file": "1",
+    "G5_inside_region": "0"
+   },
+   "must_fail": [
+    "G5_inside_region"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W54",
+   "control": 4,
+   "script": "/    static mrfw::PresetCatalog cat(st, gate);/d",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "E_guarded_extraction_nonempty": "1",
+    "C1_once_in_file": "1",
+    "G1_inside_region": "1",
+    "C2_once_in_file": "0",
+    "G2_inside_region": "0",
+    "C3_once_in_file": "1",
+    "G3_inside_region": "1",
+    "C4_once_in_file": "1",
+    "G4_inside_region": "1",
+    "C5_once_in_file": "1",
+    "G5_inside_region": "1"
+   },
+   "must_fail": [
+    "C2_once_in_file"
+   ],
+   "only": false,
+   "named_clause_fails": true,
+   "other_clauses_hold": false,
+   "verdict": "PASS"
+  },
+  {
+   "check": "W54-help",
+   "control": 1,
+   "script": ":a;N;$!ba;s@\\n#if MR_FEAT_OLED\\n\\(    out\\.println(F(\"ui\"));\\n\\)#endif   // MR_FEAT_OLED\\n@\\n\\1@",
+   "anchor_counts": [
+    1
+   ],
+   "mutant_differs": true,
+   "diff_hunks": 1,
+   "runner_predicate_red": true,
+   "clauses_on_mutant": {
+    "C_ui_row_once_in_file": "1",
+    "G_ui_row_inside_region": "0"
+   },
+   "must_fail": [
+    "G_ui_row_inside_region"
+   ],
+   "only": true,
+   "named_clause_fails": true,
+   "other_clauses_hold": true,
+   "verdict": "PASS"
+  }
+ ],
+ "relocation_missing_anchor": {
+  "destination-signature-renamed": {
+   "edit": [
+    "static void handle_teststatus(Print& out) {",
+    "static void handle_teststatus_RENAMED(Print& out) {"
+   ],
+   "control_output_equals_input": true,
+   "wchk_in_would_report": "CONTROL 5 — the revert changed NOTHING, so the check is vacuous",
+   "live_W49_green_on_copy": true,
+   "clauses_on_copy": {
+    "A_arm_line_once_in_file": "1",
+    "B_guarded_arm_inside_dispatch": "1",
+    "info_arm_lines_in_file": "1",
+    "info_guarded_arms_in_dispatch": "1",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "verdict": "PASS"
+  },
+  "source-marker-comment-changed": {
+   "edit": [
+    "#if MR_FEAT_OLED   // ★ [[B255]] the `ui` dispatch arm",
+    "#if MR_FEAT_OLED   // ★ [[B255]] the ui dispatch arm (marker changed, comment only)"
+   ],
+   "control_output_equals_input": true,
+   "wchk_in_would_report": "CONTROL 5 — the revert changed NOTHING, so the check is vacuous",
+   "live_W49_green_on_copy": true,
+   "clauses_on_copy": {
+    "A_arm_line_once_in_file": "1",
+    "B_guarded_arm_inside_dispatch": "1",
+    "info_arm_lines_in_file": "1",
+    "info_guarded_arms_in_dispatch": "1",
+    "info_guarded_arms_in_handle_teststatus": "0"
+   },
+   "verdict": "PASS"
+  }
+ },
+ "retired_W49_5_recipe_on_current_file": {
+  "script": "/handle_ui(line + 2, len - 2, out); return true;/d; s@^static void dump_help(Print\\& out) {$@&\\n    if ((len == 2 || (len > 2 \\&\\& line[2] == ' ')) \\&\\& !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }@",
+  "clauses_on_mutant": {
+   "A_arm_line_once_in_file": "0",
+   "B_guarded_arm_inside_dispatch": "0",
+   "info_arm_lines_in_file": "0",
+   "info_guarded_arms_in_dispatch": "0",
+   "info_guarded_arms_in_handle_teststatus": "0"
+  },
+  "note": "deletion-only on this base (dump_help is gone): the arm count falls to 0, so W49 fails on the presence clause, not placement"
+ },
+ "problems": [],
+ "verdict": "PASS"
+}

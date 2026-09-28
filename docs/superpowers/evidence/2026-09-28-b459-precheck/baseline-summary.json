@@ -1,0 +1,59 @@
+{
+  "board-default": {
+    "summaries": [
+      "Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total",
+      "Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total",
+      "traits:      14 passed / 0 failed / 14 controls verified RED",
+      "missing:     12 passed / 0 failed / 12 controls failed loud",
+      "structural: 23 passed / 0 failed / 23 total",
+      "wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED",
+      "real source verified UNCHANGED; 60 V3 controls run",
+      "real source verified UNCHANGED; 3 V4 controls run"
+    ],
+    "compile_failure_controls": 0,
+    "command_not_found": 0
+  },
+  "board-no-neg": {
+    "summaries": [
+      "Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total",
+      "Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total",
+      "traits:      14 passed / 0 failed / 14 controls verified RED",
+      "missing:     12 passed / 0 failed / 12 controls failed loud",
+      "structural: 23 passed / 0 failed / 23 total",
+      "wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED"
+    ],
+    "compile_failure_controls": 0,
+    "command_not_found": 0
+  },
+  "board-traced": {
+    "summaries": [
+      "Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total",
+      "Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total",
+      "traits:      14 passed / 0 failed / 14 controls verified RED",
+      "missing:     12 passed / 0 failed / 12 controls failed loud",
+      "structural: 23 passed / 0 failed / 23 total",
+      "wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED",
+      "real source verified UNCHANGED; 60 V3 controls run",
+      "real source verified UNCHANGED; 3 V4 controls run"
+    ],
+    "compile_failure_controls": 0,
+    "command_not_found": 0
+  },
+  "b456-tests": {
+    "tests": 19,
+    "seconds": 0.258,
+    "result": "OK",
+    "skipped": 0
+  },
+  "discovery": {
+    "tests": 375,
+    "seconds": 738.012,
+    "result": "OK",
+    "skipped": 0
+  },
+  "inventory": {
+    "result": "PASS",
+    "rows": 197,
+    "byte_identical": true
+  }
+}

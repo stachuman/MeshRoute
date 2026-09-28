@@ -1,0 +1,65 @@
+{
+ "v3": {
+  "real_identical": true,
+  "real_exit": 0,
+  "mutant_identical": true,
+  "mutant_exit": 1,
+  "mutant_fail_lines": 7,
+  "with_records_stdout_identical": true,
+  "records": 124,
+  "records_all_pass": true,
+  "records_unique": true,
+  "p4a_keys": [
+   "P4a/0",
+   "P4a/1",
+   "P4a/2",
+   "P4a/3",
+   "P4a/4",
+   "P4a/5",
+   "P4a/6",
+   "P4a/7",
+   "P4a/8",
+   "P4a/9"
+  ],
+  "tally": [
+   "Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total"
+  ]
+ },
+ "v4": {
+  "real_identical": true,
+  "real_exit": 0,
+  "mutant_identical": true,
+  "mutant_exit": 1,
+  "mutant_fail_lines": 6,
+  "with_records_stdout_identical": true,
+  "records": 110,
+  "records_all_pass": true,
+  "records_unique": true,
+  "p4a_keys": [
+   "P4a/0",
+   "P4a/1",
+   "P4a/2",
+   "P4a/3",
+   "P4a/4",
+   "P4a/5",
+   "P4a/6",
+   "P4a/7",
+   "P4a/8",
+   "P4a/9"
+  ],
+  "tally": [
+   "Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total"
+  ]
+ },
+ "b461": {
+  "removed": [
+   "-# \u2605 Control (c) is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves"
+  ],
+  "added": [
+   "+# \u2605 Control 2 is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves"
+  ],
+  "only_token_changed": true,
+  "is_comment": true
+ },
+ "verdict": "PASS"
+}

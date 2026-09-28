@@ -347,11 +347,29 @@ ARM = os.environ.get('MR_BOARD_UI_NEGCTL_ARM', 'v3')
 if ARM not in ('v3', 'v4'):
     sys.exit(f'unknown MR_BOARD_UI_NEGCTL_ARM={ARM!r}; expected v3 or v4')
 MUT = MUT_V4 if ARM == 'v4' else MUT_V3
+# ★ [[B459]] ONE TERMINAL RECORD PER CONTROL, and the final count is the COMPLETED records — never `len(MUT)`, which
+#   used to be printed as "controls run" even when the loop had skipped some. With MR_BOARD_UI_NEGCTL_RECORDS naming a
+#   file (the runner does), each record is also written there as `<id>\t<outcome>[\t<kind>]`: the accepted outcome is
+#   `red`, of kind `compile_fail` or `assert_red` (both accepted, as before, and kept apart); `stayed_green` and
+#   `not_applied` are rejected. ⛔ A mutant binary never inherits a canvas record file, so it cannot answer for the
+#   positive run's identities.
+RECORDS = os.environ.get('MR_BOARD_UI_NEGCTL_RECORDS')
+CHILD_ENV = {k: v for k, v in os.environ.items() if k not in ('MR_BOARD_UI_RECORDS', 'MR_BOARD_UI_NEGCTL_RECORDS')}
+if RECORDS:
+    open(RECORDS, 'w').close()
+done = []
+def record(label, outcome, kind=None):
+    line = label.split(' ', 1)[0] + '\t' + outcome + ('\t' + kind if kind else '')
+    done.append(line)
+    if RECORDS:
+        with open(RECORDS, 'a') as f:
+            f.write(line + '\n')
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):
     n = orig.count(find)
     if n != 1:
-        print(f'!! {label}: substitution matched {n} times, expected 1 -- CONTROL NOT APPLIED'); rc_all = 1; continue
+        print(f'!! {label}: substitution matched {n} times, expected 1 -- CONTROL NOT APPLIED'); rc_all = 1
+        record(label, 'not_applied'); continue
     mut_src = os.path.join(OUT, f'ctl{idx}_board_ui.cpp')
     open(mut_src, 'w').write(orig.replace(find, repl, 1))       # the COPY, under the caller's temp dir
     binary = os.path.join(OUT, f'ctl{idx}')
@@ -360,16 +378,19 @@ for idx, (label, find, repl) in enumerate(MUT):
     if b.returncode != 0:
         first = (b.stderr.strip().splitlines() or ['(no stderr)'])[0][:120]
         print(f'{label}\n   -> COMPILE FAILS (the strongest failing-first form): {first}')
+        record(label, 'red', 'compile_fail')
         continue
-    r = subprocess.run([binary], capture_output=True, text=True)
+    r = subprocess.run([binary], capture_output=True, text=True, env=CHILD_ENV)
     fails = [l.strip() for l in r.stdout.splitlines() if l.strip().startswith('FAIL')]
     if not fails:
         print(f'{label}\n   !! STAYED GREEN -- this control proves NOTHING'); rc_all = 1
+        record(label, 'stayed_green')
     else:
         print(f'{label}\n   -> {len(fails)} check(s) fail: ' + '; '.join(f[:70] for f in fails[:3]))
+        record(label, 'red', 'assert_red')
 
 # ★ The real source must be untouched, and we assert it rather than trusting that we never wrote it.
 assert hashlib.md5(open(SRC).read().encode()).hexdigest() == hashlib.md5(orig.encode()).hexdigest(), \
        'FATAL: the real board_ui.cpp changed -- controls must only ever mutate a copy'
-print(f'\nreal source verified UNCHANGED; {len(MUT)} {ARM.upper()} controls run')
+print(f'\nreal source verified UNCHANGED; {len(done)} {ARM.upper()} controls run')
 sys.exit(rc_all)

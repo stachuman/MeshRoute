@@ -1,0 +1,1531 @@
+{
+ "summary": {
+  "wiring": {
+   "declared_checks": 60,
+   "executed_checks": 60,
+   "passed": 60,
+   "declared_controls": 186,
+   "executed_controls": 186,
+   "controls_red": 186,
+   "trace_final_w_ctl": 186,
+   "trace_final_w_pass": 60
+  },
+  "structural": {
+   "declared": 23,
+   "executed": 23,
+   "s_pass": 23,
+   "s_fail": 0
+  },
+  "trait": {
+   "declared": 14,
+   "executed": 14
+  },
+  "missing": {
+   "declared": 12,
+   "executed": 12
+  },
+  "negctl_v3": {
+   "declared": 60,
+   "executed_red": 60
+  },
+  "negctl_v4": {
+   "declared": 3,
+   "executed_red": 3
+  },
+  "problems": [],
+  "verdict": "PASS"
+ },
+ "rows": [
+  {
+   "kind": "wiring",
+   "id": "W1",
+   "source_line": 469,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w1",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W2",
+   "source_line": 476,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w2",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W3",
+   "source_line": 482,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w3",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W4",
+   "source_line": 493,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w4",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W5",
+   "source_line": 499,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w5",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W6",
+   "source_line": 513,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w6",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W7",
+   "source_line": 536,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w7",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W8",
+   "source_line": 544,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w8",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W9",
+   "source_line": 575,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w9",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W10",
+   "source_line": 591,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w10",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W10b",
+   "source_line": 608,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w10b",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W11",
+   "source_line": 632,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w11",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W11b",
+   "source_line": 648,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w11w",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W12",
+   "source_line": 754,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w12",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W13",
+   "source_line": 764,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w13",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W14",
+   "source_line": 776,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w14",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W15",
+   "source_line": 793,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w15",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W16",
+   "source_line": 799,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w16",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W17",
+   "source_line": 819,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w17",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W18",
+   "source_line": 825,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w18",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W20",
+   "source_line": 852,
+   "declared_controls": 6,
+   "executed": 1,
+   "executed_controls": 6,
+   "controls_red": 6,
+   "scripts_identical": true,
+   "pred": "w20",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W21",
+   "source_line": 877,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w21",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W22",
+   "source_line": 896,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w22",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W23",
+   "source_line": 920,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w23",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W24",
+   "source_line": 929,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w24",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W25",
+   "source_line": 935,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w25",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W26",
+   "source_line": 944,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w26",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W26b",
+   "source_line": 955,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w26b",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W27",
+   "source_line": 976,
+   "declared_controls": 8,
+   "executed": 1,
+   "executed_controls": 8,
+   "controls_red": 8,
+   "scripts_identical": true,
+   "pred": "w27",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W27b",
+   "source_line": 993,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w27b",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W27c",
+   "source_line": 1000,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w27c",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W28",
+   "source_line": 1009,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w28",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W28b",
+   "source_line": 1011,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w28",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W29",
+   "source_line": 1030,
+   "declared_controls": 7,
+   "executed": 1,
+   "executed_controls": 7,
+   "controls_red": 7,
+   "scripts_identical": true,
+   "pred": "w29",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W30",
+   "source_line": 1043,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w30",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W31",
+   "source_line": 1060,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w31",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W32",
+   "source_line": 1077,
+   "declared_controls": 6,
+   "executed": 1,
+   "executed_controls": 6,
+   "controls_red": 6,
+   "scripts_identical": true,
+   "pred": "w32",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W33",
+   "source_line": 1099,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w33",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W34",
+   "source_line": 1121,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w34",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W35",
+   "source_line": 1142,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w35",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W36",
+   "source_line": 1146,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w35",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W37",
+   "source_line": 1158,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w37",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W38",
+   "source_line": 1179,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w38",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W39",
+   "source_line": 1192,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w39",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W40",
+   "source_line": 1208,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w40",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W41",
+   "source_line": 1231,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w41",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W42",
+   "source_line": 1245,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w42",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W43",
+   "source_line": 1258,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w43",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W44",
+   "source_line": 1310,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w44",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W45",
+   "source_line": 1325,
+   "declared_controls": 5,
+   "executed": 1,
+   "executed_controls": 5,
+   "controls_red": 5,
+   "scripts_identical": true,
+   "pred": "w45",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W46",
+   "source_line": 1343,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w46",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W47",
+   "source_line": 1377,
+   "declared_controls": 8,
+   "executed": 1,
+   "executed_controls": 8,
+   "controls_red": 8,
+   "scripts_identical": true,
+   "pred": "w47",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W48",
+   "source_line": 1398,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w48",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W49",
+   "source_line": 1464,
+   "declared_controls": 6,
+   "executed": 1,
+   "executed_controls": 6,
+   "controls_red": 6,
+   "scripts_identical": true,
+   "pred": "w49",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W50",
+   "source_line": 1489,
+   "declared_controls": 3,
+   "executed": 1,
+   "executed_controls": 3,
+   "controls_red": 3,
+   "scripts_identical": true,
+   "pred": "w50",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W51",
+   "source_line": 1525,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w51",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W52",
+   "source_line": 1554,
+   "declared_controls": 5,
+   "executed": 1,
+   "executed_controls": 5,
+   "controls_red": 5,
+   "scripts_identical": true,
+   "pred": "w52",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W53",
+   "source_line": 1569,
+   "declared_controls": 2,
+   "executed": 1,
+   "executed_controls": 2,
+   "controls_red": 2,
+   "scripts_identical": true,
+   "pred": "w53",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W54",
+   "source_line": 1618,
+   "declared_controls": 4,
+   "executed": 1,
+   "executed_controls": 4,
+   "controls_red": 4,
+   "scripts_identical": true,
+   "pred": "w54",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "wiring",
+   "id": "W54-help",
+   "source_line": 1635,
+   "declared_controls": 1,
+   "executed": 1,
+   "executed_controls": 1,
+   "controls_red": 1,
+   "scripts_identical": true,
+   "pred": "w54_help",
+   "check_passed": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S1",
+   "source_line": 349,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S2/mr_ui_init",
+   "source_line": 355,
+   "declared": 3,
+   "executed": 3,
+   "distinct_labels": 3,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S2b",
+   "source_line": 360,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S3/draw_frame",
+   "source_line": 373,
+   "declared": 3,
+   "executed": 3,
+   "distinct_labels": 3,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S4a",
+   "source_line": 382,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S4b",
+   "source_line": 384,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S5",
+   "source_line": 387,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "structural",
+   "id": "S6/MR_UI_OLED_RST",
+   "source_line": 406,
+   "declared": 12,
+   "executed": 12,
+   "distinct_labels": 12,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T1",
+   "source_line": 275,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T2",
+   "source_line": 276,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T3",
+   "source_line": 277,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T4",
+   "source_line": 278,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T5",
+   "source_line": 279,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T6",
+   "source_line": 280,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T7",
+   "source_line": 281,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T8",
+   "source_line": 282,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T9",
+   "source_line": 283,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T10",
+   "source_line": 284,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T11",
+   "source_line": 285,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T12",
+   "source_line": 286,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T13",
+   "source_line": 287,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "trait",
+   "id": "T14",
+   "source_line": 288,
+   "declared": 1,
+   "executed": 1,
+   "distinct_labels": 1,
+   "verdict": "OK"
+  },
+  {
+   "kind": "missing",
+   "id": "MR_UI_OLED_RST",
+   "source_line": 319,
+   "declared": 12,
+   "executed": 12,
+   "distinct_labels": 12,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C1",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C2",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C3",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C4",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C5",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C6",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7a",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7b",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7c",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7k",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7l",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7m",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7n",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7o",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7p",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7d",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7e",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7f",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7g",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7h",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7i",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C7j",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C8",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9a",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9b",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9c",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9c2",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9d",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9e",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9f",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9g",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9h",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9i",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9j",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9k",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9l",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9l2",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9m",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9n",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9r",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9s",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9t",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9u",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9v",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9o",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9p",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9w",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C9q",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10a",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10b",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10c",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10d",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10e",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10f",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10g",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10h",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10i",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10j",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10k",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v3",
+   "id": "C10l",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v4",
+   "id": "C11a",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v4",
+   "id": "C11b",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  },
+  {
+   "kind": "negctl-v4",
+   "id": "C11c",
+   "declared": 1,
+   "executed": 1,
+   "red": true,
+   "verdict": "OK"
+  }
+ ]
+}

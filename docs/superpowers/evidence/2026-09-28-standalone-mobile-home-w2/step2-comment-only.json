@@ -1,0 +1,70 @@
+{
+ "tools/probe_board_ui/fakes/Arduino.h": {
+  "hunks": [
+   {
+    "base_lines": [
+     90,
+     91
+    ],
+    "final_lines": [
+     90,
+     101
+    ]
+   }
+  ],
+  "removed": [
+   "    // ⓘ The base argument is ACCEPTED AND IGNORED for text purposes (HEX prints decimal here). Nothing this probe",
+   "    //   asserts reads a based number; a check that did would have to pin the digits itself rather than trust a shim."
+  ],
+  "added": [
+   "    // ⓘ FIDELITY LIMIT, KEPT EXPLICIT (corrected 2026-09-28 by W2, [[B451]]): the numeric overloads ACCEPT a base",
+   "    //   and IGNORE it, so `HEX` prints DECIMAL digits here. What that bounds, per consumer of this fake:",
+   "    //     · probe_board_ui — no assertion depends on a based numeral.",
+   "    //     · probe_firmware_ui — no console assertion reads based digits; the panel's hex comes from the UI",
+   "    //       formatters, not from this shim.",
+   "    //     · probe_inbox_verbs X21–X26, on the ACCEPT and the CLIENT arm (12 checks), compare exact `whoami` lines",
+   "    //       whose oracle (`hash=0x%lu`) deliberately FOLLOWS this shim: they prove equality with the shim, not the",
+   "    //       board's hex.",
+   "    //     · the inbox-verbs transcript comparator (`transcript_main.cpp`) shares the limitation.",
+   "    //   Radix witnesses: console-sink `structural.py` S27 pins the send handle's dh/lp `HEX` radix structurally.",
+   "    //   ⛔ NOTHING pins `whoami`'s radix ([[B460]]). A check that needs based digits must pin them itself, never",
+   "    //   trust this shim."
+  ],
+  "every_changed_line_is_a_comment": true,
+  "a_delta_reverted_byte_identical_to_HEAD": true,
+  "b_preprocessed_tokens": {
+   "base": 735,
+   "final": 735,
+   "equal": true
+  },
+  "verdict": "PASS"
+ },
+ "tools/probe_inbox_verbs/transcript_main.cpp": {
+  "hunks": [
+   {
+    "base_lines": [
+     33,
+     33
+    ],
+    "final_lines": [
+     33,
+     33
+    ]
+   }
+  ],
+  "removed": [
+   "//   structurally (`structural.py` S24). ⛔ The fake is NOT edited: three other probes share it."
+  ],
+  "added": [
+   "//   structurally (`structural.py` S27). ⛔ The fake is NOT edited: three other probes share it."
+  ],
+  "every_changed_line_is_a_comment": true,
+  "a_delta_reverted_byte_identical_to_HEAD": true,
+  "b_preprocessed_tokens": {
+   "base": 342,
+   "final": 342,
+   "equal": true
+  },
+  "verdict": "PASS"
+ }
+}

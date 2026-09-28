@@ -1,0 +1,5 @@
+{
+  "command": "bash tools/probe_console_sink/run.sh",
+  "exit": 0,
+  "seconds": 67.83
+}

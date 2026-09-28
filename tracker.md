@@ -32,7 +32,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Backlog — priority order
 
-- [Standalone mobile Home/editor design, revision 2.22](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) — package status and next dispatch live there and in [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18); latest [W4b QA receipt](docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w4b-qa.md), M103 disposition B458, and [metal UI-21](docs/2026-09-20-metal-test-plan.md#ui-21). The owner chooses the next package; commits do not block progress.
+- [Standalone mobile Home/editor design, revision 2.22](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) — package status and next dispatch live there and in [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18); current: [B459/B461 independent QA PASS](docs/superpowers/evidence/2026-09-28-b459-qa.md), both closed; the board-UI default gate now accounts for its full manifest, so the temporary manual reconciliation retires. W6's instrument dependency is cleared; next its QA pre-check and Author brief, or the owner's selected package. B460 and B462–B473 remain separate/open; commits are not progress gates.
 
 - [Heltec V4 L76K GNSS/location design](docs/superpowers/specs/2026-08-25-heltec-v4-mobile-l76k-gnss-and-automatic-location-design.md) — first-review draft; ready for final review and implementation planning.
 

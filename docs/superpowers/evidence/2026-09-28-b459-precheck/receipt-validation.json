@@ -1,0 +1,37 @@
+{
+  "local_links": [
+    {
+      "target": "2026-09-28-b459-precheck/",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/inputs.json",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/base-reconciliation.json",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/measure_board_accounting.py",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/board-fault-measurements.json",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/board-reconciliation.json",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/reader-search.json",
+      "exists": true
+    },
+    {
+      "target": "2026-09-28-b459-precheck/runner-census.json",
+      "exists": true
+    }
+  ],
+  "evidence_scripts_parse": true
+}

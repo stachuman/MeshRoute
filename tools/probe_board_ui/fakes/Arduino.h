@@ -87,8 +87,18 @@ public:
     //    be probed, which is the wrong thing for a fake to decide.
     // ⓘ ADDITIVE ONLY — no existing signature changed — so `probe_firmware_ui` / `probe_board_ui` cannot resolve any
     //   call differently than before (measured: both re-run at their published counts after this edit).
-    // ⓘ The base argument is ACCEPTED AND IGNORED for text purposes (HEX prints decimal here). Nothing this probe
-    //   asserts reads a based number; a check that did would have to pin the digits itself rather than trust a shim.
+    // ⓘ FIDELITY LIMIT, KEPT EXPLICIT (corrected 2026-09-28 by W2, [[B451]]): the numeric overloads ACCEPT a base
+    //   and IGNORE it, so `HEX` prints DECIMAL digits here. What that bounds, per consumer of this fake:
+    //     · probe_board_ui — no assertion depends on a based numeral.
+    //     · probe_firmware_ui — no console assertion reads based digits; the panel's hex comes from the UI
+    //       formatters, not from this shim.
+    //     · probe_inbox_verbs X21–X26, on the ACCEPT and the CLIENT arm (12 checks), compare exact `whoami` lines
+    //       whose oracle (`hash=0x%lu`) deliberately FOLLOWS this shim: they prove equality with the shim, not the
+    //       board's hex.
+    //     · the inbox-verbs transcript comparator (`transcript_main.cpp`) shares the limitation.
+    //   Radix witnesses: console-sink `structural.py` S27 pins the send handle's dh/lp `HEX` radix structurally.
+    //   ⛔ NOTHING pins `whoami`'s radix ([[B460]]). A check that needs based digits must pin them itself, never
+    //   trust this shim.
     size_t print(char c)                    { return write(uint8_t(c)); }
     size_t print(unsigned char v, int = 10) { return print_num_(static_cast<long long>(v)); }
     size_t print(int v, int = 10)           { return print_num_(v); }

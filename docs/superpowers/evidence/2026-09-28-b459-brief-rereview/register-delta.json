@@ -1,0 +1,8 @@
+{
+  "before": "86837517b071729925d5b9bbb67e68cce8f6eed64209ec8e74dc523b7de4d3ed",
+  "after": "ebed97ce326b3a0d2be664d76e756388a5d9756462a12b3dbb8703d78f19bab5",
+  "old_text": "brief revision 1 awaits QA review.",
+  "new_text": "brief revision 2 awaits QA's scoped re-review (revision 1 HOLD, B459R-1\u2013B459R-3).",
+  "matches": 1,
+  "reversed_delta_reproduces_old_hash": true
+}

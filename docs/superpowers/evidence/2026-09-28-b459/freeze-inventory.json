@@ -1,0 +1,108 @@
+{
+ "base_head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+ "brief": {
+  "sha256": "443b95ea697353d36ef595975a002c1c1b3335dcb21cbe46886aea500d57de5a",
+  "authorized": "443b95ea697353d36ef595975a002c1c1b3335dcb21cbe46886aea500d57de5a"
+ },
+ "increment_1_freeze": {
+  "tools/probe_accounting.sh": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+  "tools/probe_firmware_ui/run.sh": "107f243425bd7922241550d6fd47bc637ff02e913df0494965288de4c925fdcd",
+  "tools/test_probe_firmware_ui.py": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047"
+ },
+ "increment_1_files_equal_freeze_at_final": true,
+ "fence_base": {
+  "tools/probe_firmware_ui/run.sh": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc",
+  "tools/test_probe_firmware_ui.py": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16",
+  "tools/probe_board_ui/run.sh": "0ee0bc90df8d8a6e1d5adce73958f2dd32061388c0f3644f70d9e1f88ce56fe8",
+  "tools/probe_board_ui/probe_main.cpp": "6cffd422588280136e09b05a1bdf9b602420336c7fba76315953a13d23af07b8",
+  "tools/probe_board_ui/negctl.py": "067e1e1b2e9bc464a4e4677b63c0058038a83568a4f801dd48192ba95917f76f"
+ },
+ "fence_final": {
+  "tools/probe_accounting.sh": {
+   "sha256": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+   "lines": 61
+  },
+  "tools/probe_firmware_ui/run.sh": {
+   "sha256": "107f243425bd7922241550d6fd47bc637ff02e913df0494965288de4c925fdcd",
+   "lines": 2037
+  },
+  "tools/test_probe_firmware_ui.py": {
+   "sha256": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047",
+   "lines": 181
+  },
+  "tools/probe_board_ui/run.sh": {
+   "sha256": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf",
+   "lines": 1665
+  },
+  "tools/probe_board_ui/probe_main.cpp": {
+   "sha256": "a06c448fb7bb28e25cb2f86fa2fd18a12bd57aadfc0d2bed3ae157389e67b204",
+   "lines": 681
+  },
+  "tools/probe_board_ui/negctl.py": {
+   "sha256": "7634d66b9391b6fc90f293f51ef2b9376324c83da521fc8ba6abbcc0e1ff54c4",
+   "lines": 396
+  },
+  "tools/probe_board_ui/expected.tsv": {
+   "sha256": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196",
+   "lines": 598
+  },
+  "tools/probe_board_ui/accounting.py": {
+   "sha256": "2a23f7521805f38c6a48cd24008cd9eeeac1e8ad7b0b2aa8e3a85e38398f1e09",
+   "lines": 256
+  },
+  "tools/test_probe_board_ui.py": {
+   "sha256": "82a344994d963adc80b02d1758b9a3c81a73cb3af7834f5df06cf66fbf7c51e2",
+   "lines": 442
+  }
+ },
+ "simulator": {
+  "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "status": ""
+ },
+ "preparation_unchanged": {
+  "MEMORY.md": "a55e27aa416a7ed64a694a8ddbf222a34fcd3eb71188a04dc3ad947b536d278c",
+  "docs/2026-07-30-open-bug-register.md": "ebed97ce326b3a0d2be664d76e756388a5d9756462a12b3dbb8703d78f19bab5",
+  "docs/superpowers/evidence/2026-09-28-b459-precheck.md": "98d96dc538288145f4ea88b60a0271d02a53dfbeae8d0f8e01edc2c11734c710",
+  "docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS": "a0eebbdd65cb494e3bc77f8c8e9d9008e919f44c7412c03709db9bddcb26265f",
+  "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "dd64b400cab260cfc7b9edd07c7739a88e71665a1efb0ca8b485f99d83d137a4",
+  "tracker.md": "ef73543d1f749b529a81751bc391613a6222b9e80f7d584685fa848e5a788276"
+ },
+ "readonly": {
+  "AGENTS.md": "abbbce6592f4cfc09a295e54985978f88a9d954eeffcb5449fdc9da7d7e89340",
+  "docs/2026-09-02-agent-roles.md": "037d6bc5a3843f2df2520c17a6fb27b72709edde5b47f256e0ca6e130c5ef254",
+  "docs/CODE_GUIDELINES.md": "c356981674305605c3d4ef255e42ec3ec5bdb15c26350e83bdea94b0ac8dd839",
+  "tools/probe_board_ui/fakes/Arduino.h": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+  "tools/probe_inbox_verbs/transcript_main.cpp": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+  "tools/probe_ui_model_mutations.py": "81842cc53d806f1ed4dbce5bb7699a945e50dc6381f8258cf3c60eec73e2781a"
+ },
+ "inventory_check": {
+  "meshroute": {
+   "inventoried": 1843,
+   "git_visible_now": 1944,
+   "changed": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "tools/probe_board_ui/negctl.py",
+    "tools/probe_board_ui/probe_main.cpp",
+    "tools/probe_board_ui/run.sh",
+    "tools/probe_firmware_ui/run.sh",
+    "tools/test_probe_firmware_ui.py",
+    "tracker.md"
+   ],
+   "unexplained_changed": [],
+   "missing": [],
+   "unexplained_new": []
+  },
+  "simulator": {
+   "inventoried": 285,
+   "git_visible_now": 285,
+   "changed": [],
+   "unexplained_changed": [],
+   "missing": [],
+   "unexplained_new": []
+  }
+ },
+ "git_diff_check_exit": 0,
+ "staged": "",
+ "stability": "preflight.json (before the baselines) vs stability-end.json (after final step 10): preparation, read-only set and every inventoried input identical except the fenced edits; new paths are the four new fenced files and this evidence folder; simulator 6585649 clean throughout. The fence was hashed at the implementation freeze and re-checked before and after final discovery (identical)."
+}

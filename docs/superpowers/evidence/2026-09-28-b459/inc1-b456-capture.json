@@ -1,0 +1,163 @@
+{
+ "tests_run": 19,
+ "failures": 0,
+ "errors": 0,
+ "skipped": 0,
+ "ok": true,
+ "n_calls": 19,
+ "calls": [
+  {
+   "test": "test_build_control_accepts_its_build_failure",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 0,
+   "out": "controls accounted: 5 declared, 5 exactly once with the accepted outcome, 0 guard failure(s)\nPASS\n",
+   "call": 1
+  },
+  {
+   "test": "test_build_control_that_still_builds_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] outcome still_builds is not the accepted build_fail_ok for: S0  a synthetic build control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_bypassing_the_final_accounting_lets_a_missing_control_through",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] MISSING verdict — the control never reached ctl: S2 the middle synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_bypassing_the_final_accounting_lets_a_missing_control_through",
+   "runner": "copy",
+   "no_neg": false,
+   "rc": 0,
+   "out": "PASS\n",
+   "call": 2
+  },
+  {
+   "test": "test_complete_set_passes",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 0,
+   "out": "controls accounted: 5 declared, 5 exactly once with the accepted outcome, 0 guard failure(s)\nPASS\n",
+   "call": 1
+  },
+  {
+   "test": "test_duplicate_compensating_a_missing_label_at_equal_count_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] DUPLICATE verdict (2) for: S1 the first synthetic control\n  FAIL [[B456]] MISSING verdict — the control never reached ctl: S3 a synthetic \"quoted\" control\ncontrols accounted: 5 declared, 3 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_duplicate_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] DUPLICATE verdict (2) for: S1 the first synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_extraction_mismatch_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] the extractor read 5 of 6 declared ctl calls — the expected set is incomplete\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_guard_127_with_no_verdict_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] MISSING verdict — the control never reached ctl: S2 the middle synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_guard_nonzero_with_no_verdict_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] MISSING verdict — the control never reached ctl: S2 the middle synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_missing_first_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] MISSING verdict — the control never reached ctl: S0  a synthetic build control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_missing_last_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] MISSING verdict — the control never reached ctl: S4 the last synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_missing_middle_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] MISSING verdict — the control never reached ctl: S2 the middle synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_no_neg_says_it_is_not_a_gate_and_never_passes",
+   "runner": "stock",
+   "no_neg": true,
+   "rc": 0,
+   "out": "controls: NOT RUN (--no-neg) — 5 declared control(s) were deliberately skipped; this is NOT a gate\nNOT A GATE — accounting selftest (--no-neg)\n",
+   "call": 1
+  },
+  {
+   "test": "test_no_neg_with_recorded_verdicts_fails",
+   "runner": "stock",
+   "no_neg": true,
+   "rc": 1,
+   "out": "  FAIL [[B456]] --no-neg recorded control verdicts — a diagnostic run must not run controls\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_ordinary_control_that_does_not_compile_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] outcome no_compile is not the accepted red for: S1 the first synthetic control\ncontrols accounted: 5 declared, 4 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_recorded_guard_failure_fails_even_with_every_verdict",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] a control guard failed: once: an anchor that matched twice\ncontrols accounted: 5 declared, 5 exactly once with the accepted outcome, 1 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_unknown_label_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] UNKNOWN label — no such control is declared: S9 a control nobody declared\ncontrols accounted: 5 declared, 5 exactly once with the accepted outcome, 0 guard failure(s)\nFAIL\n",
+   "call": 1
+  },
+  {
+   "test": "test_zero_expected_fails",
+   "runner": "stock",
+   "no_neg": false,
+   "rc": 1,
+   "out": "  FAIL [[B456]] no control is declared — the extractor read nothing, so completeness proves nothing\nFAIL\n",
+   "call": 1
+  }
+ ],
+ "runner_log": "test_build_control_accepts_its_build_failure (b456tests.AccountingSelftest.test_build_control_accepts_its_build_failure) ... ok\ntest_build_control_that_still_builds_fails (b456tests.AccountingSelftest.test_build_control_that_still_builds_fails) ... ok\ntest_bypassing_the_final_accounting_lets_a_missing_control_through (b456tests.AccountingSelftest.test_bypassing_the_final_accounting_lets_a_missing_control_through) ... ok\ntest_complete_set_passes (b456tests.AccountingSelftest.test_complete_set_passes) ... ok\ntest_duplicate_compensating_a_missing_label_at_equal_count_fails (b456tests.AccountingSelftest.test_duplicate_compensating_a_missing_label_at_equal_count_fails) ... ok\ntest_duplicate_fails (b456tests.AccountingSelftest.test_duplicate_fails) ... ok\ntest_extraction_mismatch_fails (b456tests.AccountingSelftest.test_extraction_mismatch_fails) ... ok\ntest_guard_127_with_no_verdict_fails (b456tests.AccountingSelftest.test_guard_127_with_no_verdict_fails) ... ok\ntest_guard_nonzero_with_no_verdict_fails (b456tests.AccountingSelftest.test_guard_nonzero_with_no_verdict_fails) ... ok\ntest_missing_first_fails (b456tests.AccountingSelftest.test_missing_first_fails) ... ok\ntest_missing_last_fails (b456tests.AccountingSelftest.test_missing_last_fails) ... ok\ntest_missing_middle_fails (b456tests.AccountingSelftest.test_missing_middle_fails) ... ok\ntest_no_neg_says_it_is_not_a_gate_and_never_passes (b456tests.AccountingSelftest.test_no_neg_says_it_is_not_a_gate_and_never_passes) ... ok\ntest_no_neg_with_recorded_verdicts_fails (b456tests.AccountingSelftest.test_no_neg_with_recorded_verdicts_fails) ... ok\ntest_ordinary_control_that_does_not_compile_fails (b456tests.AccountingSelftest.test_ordinary_control_that_does_not_compile_fails) ... ok\ntest_real_extractor_reads_every_declared_call (b456tests.AccountingSelftest.test_real_extractor_reads_every_declared_call) ... ok\ntest_recorded_guard_failure_fails_even_with_every_verdict (b456tests.AccountingSelftest.test_recorded_guard_failure_fails_even_with_every_verdict) ... ok\ntest_unknown_label_fails (b456tests.AccountingSelftest.test_unknown_label_fails) ... ok\ntest_zero_expected_fails (b456tests.AccountingSelftest.test_zero_expected_fails) ... ok\n\n----------------------------------------------------------------------\nRan 19 tests in 0.364s\n\nOK\n"
+}

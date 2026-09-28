@@ -3509,11 +3509,16 @@ MUTS_MODEL = [
   "                break;",
   "                close_settings_menu();\n"
   "                break;"),
- # ⓘ M103 is the CLOSED view's own cursor: the single entry row is index 0, and a close that left the menu's index
- #   behind would put the highlight on a row that view does not draw — and `note_settings_cursor` would then read it.
- ("M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
-  "        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;",
-  "        _st.settings = Settings::closed;   _st.dirty = true;"),
+ # ⛔⛔ M103 RETIRED 2026-09-28 BY **W2** ([[B458]]), AND THE RECORD IS KEPT RATHER THAN THE ENTRY DELETED SILENTLY.
+ #     M103 ("leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index") removed BOTH
+ #     resets from `close_settings_menu` — `_st.cursor = 0` and `_cfg_sel_valid = false` — and expected RED. After W4b
+ #     it survives, and correctly: MENU calls `go_menu_home` straight after the close, which repeats both resets (its
+ #     own `_st.cursor = 0`, and `settings_follow_screen`'s `_cfg_sel_valid = false`); and [[B457]]'s closed menu-mode
+ #     preview neither renders the cursor nor reads the flag before leaving or re-entering Settings sets both again.
+ #     The selectable closed-entry view it protected no longer exists. Retirement authorized by W4b QA's disposition.
+ #     ⇒ THE LIVE PROPERTIES KEEP THEIR WITNESSES: M100 (open on arrival), M101 (the menu wraps), M102 (MENU lands in
+ #       menu mode on HOME) and M105 (no menu over an unavailable config) in `model`, and H25 (B457's normalization)
+ #       in `w4bhome`.
  ("M104 [[B232]] the entry row has no label (an entry nobody can read — C2)",
   'inline constexpr const char* kSettingsEnterText = "ENTER SETTINGS";',
   'inline constexpr const char* kSettingsEnterText = "";'),

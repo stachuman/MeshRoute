@@ -1,0 +1,73 @@
+{
+ "manifest": 592,
+ "prechange": 592,
+ "recorded": 592,
+ "manifest_equals_prechange": true,
+ "recorded_equals_manifest": true,
+ "missing_from_record": [],
+ "unknown_in_record": [],
+ "wrong_outcomes": [],
+ "exits": {
+  "live": {
+   "pred_exit=0": 60
+  },
+  "mutant": {
+   "pred_exit=1": 186
+  }
+ },
+ "layers": {
+  "wiring": {
+   "executed": 60,
+   "recorded": 60,
+   "same_set": true
+  },
+  "wiring/control": {
+   "executed": 186,
+   "recorded": 186,
+   "same_set": true
+  },
+  "trait": {
+   "executed": 14,
+   "recorded": 14,
+   "same_set": true
+  },
+  "missing": {
+   "executed": 12,
+   "recorded": 12,
+   "same_set": true
+  },
+  "struct": {
+   "executed": 23,
+   "recorded": 23,
+   "same_set": true
+  },
+  "negctl/v3": {
+   "executed": 60,
+   "recorded": 60,
+   "same_set": true
+  },
+  "negctl/v4": {
+   "executed": 3,
+   "recorded": 3,
+   "same_set": true
+  },
+  "canvas/v3": {
+   "tally_total": 124,
+   "tally_failed": 0,
+   "recorded": 124,
+   "same_count": true
+  },
+  "canvas/v4": {
+   "tally_total": 110,
+   "tally_failed": 0,
+   "recorded": 110,
+   "same_count": true
+  }
+ },
+ "negctl_kinds": {
+  "v3 assert_red": 60,
+  "v4 assert_red": 3
+ },
+ "problems": [],
+ "verdict": "PASS"
+}

@@ -1,0 +1,58 @@
+{
+ "manifest": 592,
+ "prechange": 592,
+ "equal_as_sets_with_outcomes": true,
+ "only_in_manifest": [],
+ "only_in_prechange": [],
+ "p4a": {
+  "v3": {
+   "base_label_executions": 10,
+   "manifest_keys": [
+    "canvas/v3/P4a/0",
+    "canvas/v3/P4a/1",
+    "canvas/v3/P4a/2",
+    "canvas/v3/P4a/3",
+    "canvas/v3/P4a/4",
+    "canvas/v3/P4a/5",
+    "canvas/v3/P4a/6",
+    "canvas/v3/P4a/7",
+    "canvas/v3/P4a/8",
+    "canvas/v3/P4a/9"
+   ]
+  },
+  "v4": {
+   "base_label_executions": 10,
+   "manifest_keys": [
+    "canvas/v4/P4a/0",
+    "canvas/v4/P4a/1",
+    "canvas/v4/P4a/2",
+    "canvas/v4/P4a/3",
+    "canvas/v4/P4a/4",
+    "canvas/v4/P4a/5",
+    "canvas/v4/P4a/6",
+    "canvas/v4/P4a/7",
+    "canvas/v4/P4a/8",
+    "canvas/v4/P4a/9"
+   ]
+  }
+ },
+ "folded_multisets_equal": true,
+ "counts": {
+  "canvas/v3": 124,
+  "canvas/v4": 110,
+  "trait": 14,
+  "missing": 12,
+  "struct": 23,
+  "wiring": 60,
+  "wiring/control": 186,
+  "negctl/v3": 60,
+  "negctl/v4": 3,
+  "total": 592
+ },
+ "s3_slug_table": {
+  "draw_frame(s_frame_state": "draw_frame",
+  "mrui::begin_frame()": "begin_frame",
+  "s_gate.on_page(mrui::next_page(), s_model, s_counters)": "on_page"
+ },
+ "verdict": "PASS"
+}

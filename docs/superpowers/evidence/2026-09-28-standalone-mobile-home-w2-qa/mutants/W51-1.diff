@@ -1,0 +1,10 @@
+--- real/fw_main.cpp
++++ mutant/W51-1
+@@ -678,6 +678,7 @@
+     LineSink ls(ble_sink);
+     const mrfw::CommandContext ctx{mrfw::CommandTransport::ble, mrfw::CommandAuthority::local,
+                                    false, 0, mrble::kLineStorageBytes - 1};
++    if (len > 2 && !strncmp(line, "ui", 2)) { LineSink lu(ble_sink); handle_ui(line + 2, len - 2, lu); lu.flush(); return 0; }
+     const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);
+     if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }
+     if (ex.state == mrfw::LineExec::State::buffered) return ex.n;

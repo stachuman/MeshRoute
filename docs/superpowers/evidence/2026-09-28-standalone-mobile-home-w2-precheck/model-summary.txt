@@ -1,0 +1,14 @@
+-- target model: /tmp/meshroute-w2-precheck-pp47nr1x/model-projection/src/firmware_ui_model.h (238 entries)
+-- selection: IN FULL (all 238 entries)
+  ok   clean baseline 3031 / 198613 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  worker 0: 30/30 entries, 30 RED / 0 worthless, wall 132.4s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w0
+  worker 1: 30/30 entries, 30 RED / 0 worthless, wall 133.9s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w1
+  worker 2: 30/30 entries, 30 RED / 0 worthless, wall 130.9s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w2
+  worker 3: 30/30 entries, 30 RED / 0 worthless, wall 135.7s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w3
+  worker 4: 30/30 entries, 30 RED / 0 worthless, wall 134.5s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w4
+  worker 5: 30/30 entries, 30 RED / 0 worthless, wall 136.3s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w5
+  worker 6: 29/29 entries, 29 RED / 0 worthless, wall 132.8s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w6
+  worker 7: 29/29 entries, 29 RED / 0 worthless, wall 127.1s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-bnl11rkk/w7
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /tmp/meshroute-w2-precheck-pp47nr1x/model-projection
+timing: copy 2.4s + battery 136.4s = 138.8s total, 238 entries over 8 worker(s)
+mutations: 238 RED / 0 unusable

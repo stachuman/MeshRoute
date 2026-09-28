@@ -1,0 +1,76 @@
+{
+  "baseline": {
+    "total": 84,
+    "failed": [],
+    "S23_S24": [
+      [
+        "S23",
+        "ble_dispatch_line is a ONE-CALL adapter: one seam call, its own sinks, exactly one seam flush",
+        true,
+        "seam_calls=1 residual={'dispatch': 0, 'parse_command': 0, 'on_command': 0} flush_after_seam=1 passes_linesink_and_reply=1"
+      ],
+      [
+        "S24",
+        "the seam makes the router/parser fork exactly ONCE, ROUTER-FIRST, and executes per format arm",
+        true,
+        "{'dispatch': 1, 'parse_command': 1, 'on_command': 2} router_before_parser=True"
+      ]
+    ]
+  },
+  "controls": [
+    {
+      "label": "X14 the BLE adapter keeps a residual direct dispatch() beside the seam call",
+      "source": "src/fw_main.cpp",
+      "matches": 1,
+      "required": [
+        "S23"
+      ],
+      "failed_rows": [
+        "S23"
+      ],
+      "old": "\n    const mrfw::LineExec ex = mrfw::exec_console_line(",
+      "new": "\n    if (mrfw::dispatch(line, len, ls)) { ls.flush(); return 0; }\n    const mrfw::LineExec ex = mrfw::exec_console_line("
+    },
+    {
+      "label": "X15 the BLE adapter drops the seam response flush",
+      "source": "src/fw_main.cpp",
+      "matches": 1,
+      "required": [
+        "S23"
+      ],
+      "failed_rows": [
+        "S23"
+      ],
+      "old": "    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }",
+      "new": "    if (ex.state == mrfw::LineExec::State::streamed) { return 0; }"
+    },
+    {
+      "label": "X16 the BLE adapter hands the seam its direct buffer where the stream belongs",
+      "source": "src/fw_main.cpp",
+      "matches": 1,
+      "required": [
+        "S23"
+      ],
+      "failed_rows": [
+        "S23"
+      ],
+      "old": "mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx)",
+      "new": "mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, nullptr, 0, ctx)"
+    },
+    {
+      "label": "X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)",
+      "source": "src/firmware_commands.cpp",
+      "matches": 1,
+      "required": [
+        "S24"
+      ],
+      "failed_rows": [
+        "S24",
+        "S53",
+        "S62"
+      ],
+      "old": "    if (dispatch(line, len, stream, ctx.transport)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }\n\n    // (2) the command parser.",
+      "new": "    // (2) the command parser."
+    }
+  ]
+}

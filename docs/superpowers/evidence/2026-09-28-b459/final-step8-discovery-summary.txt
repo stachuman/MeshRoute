@@ -1,0 +1,4 @@
+Ran 406 tests in 803.394s
+OK
+real	13m23.505s
+skips 0; import failures 0; 406 = 375 (baseline) + 31 (tools/test_probe_board_ui.py); exit=0

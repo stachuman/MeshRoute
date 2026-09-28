@@ -1,0 +1,12 @@
+--- real/firmware_help.h
++++ mutant/W54-help-1
+@@ -129,9 +129,7 @@
+     out.println(F("testclear"));
+     out.println(F("testsend"));
+     out.println(F("teststatus"));
+-#if MR_FEAT_OLED
+     out.println(F("ui"));
+-#endif   // MR_FEAT_OLED
+     out.println(F("version"));
+     out.println(F("whoami"));
+     manual_pointer(out);

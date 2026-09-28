@@ -1,0 +1,611 @@
+[
+  {
+    "pattern": "probe_board_ui/run.sh",
+    "files": [
+      "src/firmware_commands.h",
+      "src/firmware_ui.cpp",
+      "src/firmware_ui_chrome.h",
+      "src/firmware_ui_model.h",
+      "src/fw_main.cpp",
+      "test/test_firmware_team_keyring.cpp",
+      "test/test_firmware_ui_send.cpp",
+      "tools/probe_board_ui/run.sh",
+      "tools/probe_build_identity.py",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_build_identity.py:19:   is a control that never ran (`tools/probe_board_ui/run.sh`, QA 2026-08-04). Nothing under the real `src/` or",
+      "tools/probe_firmware_ui/run.sh:16:#    `tools/probe_board_ui/run.sh` states at the same spot: this project has already LOST a proven 33-assert scenario",
+      "tools/probe_firmware_ui/run.sh:608:  #     them compile this file. (`tools/probe_board_ui/run.sh` W2 pins the same wiring STRUCTURALLY; this measures it.)",
+      "src/firmware_commands.h:217:// `tools/probe_board_ui/run.sh` W24 enforces it file-wide as an executable check. \u21d2 the gate is HERE, in the",
+      "src/firmware_commands.h:232://    `tools/probe_board_ui/run.sh` W24). No such rule applies to an NV store, so the CLIENT arm carries \u26d4 no",
+      "test/test_firmware_team_keyring.cpp:781://      (that the real loop carries this and only this) is pinned by `tools/probe_board_ui/run.sh`'s **W47**.",
+      "test/test_firmware_team_keyring.cpp:784://   (`FW_MAIN` is declared in `probe_board_ui/run.sh` alone). A reader following the wrong pointer would find the",
+      "src/firmware_ui.cpp:24://             native suite, and `tools/probe_board_ui/run.sh`'s W1-W4 pin that this file still CALLS them.",
+      "src/fw_main.cpp:1063:    //   display dependency (`tools/probe_board_ui/run.sh` W24 pins that, file-wide, as an executable rule). \u21d2 off the",
+      "tools/probe_board_ui/run.sh:22:# USAGE:  tools/probe_board_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)",
+      "tools/probe_board_ui/run.sh:23:#         tools/probe_board_ui/run.sh --no-neg   # probe only -- NOT a gate, use only while iterating",
+      "src/firmware_ui_model.h:2438:// the exact text of the FIRST attempt. `firmware_ui.cpp` must CALL this; `tools/probe_board_ui/run.sh`'s W10 pins it.",
+      "src/firmware_ui_chrome.h:523://     `tools/probe_board_ui/run.sh`'s W3 independently forbids `firmware_ui.cpp` from naming `clear_dirty` at all.",
+      "test/test_firmware_ui_send.cpp:1065://   `tools/probe_board_ui/run.sh`'s W6 \u2014 which carries its own negative control."
+    ]
+  },
+  {
+    "pattern": "W49",
+    "files": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1217:# ================================================================================================ W49-W51",
+      "tools/probe_board_ui/run.sh:1245:# \u26d4 not merely \"somewhere in the file\". That distinction is the whole of W49's relocation control (its fifth) below:",
+      "tools/probe_board_ui/run.sh:1262:# \u2605\u2605\u2605 W49 \u2014 THE LIVE ARM, AND IT IS PINNED WITH ITS OFFSETS. A substring check would pass a mis-sliced call, so the",
+      "tools/probe_board_ui/run.sh:1268:#    matched nothing and the control became deletion-only, which W49 answers on the wrong clause. \u21d2 it now reads the",
+      "tools/probe_board_ui/run.sh:1274:echo \"  W49 counts: $(grep -cF 'handle_ui(line + 2, len - 2, out); return true;' \"$CMD_CPP\") arm line(s) in $(basename \"$CMD_CPP\") (required 1), $(fn_flat \"$CMD_CPP\" \"$DISPATCH_SIG\" | grep -cF \"$UI_ARM_GUARDED\") guarded arm(s) inside dispatch() (required 1)\"",
+      "tools/probe_board_ui/run.sh:1279:wchk_in \"$CMD_CPP\" \"W49 the ONE dispatch() reaches handle_ui with the line+2/len-2 slice, INSIDE the B255 gate\" \\",
+      "tools/probe_board_ui/run.sh:1403:# \u24d8 W49 pins the `ui` ARM's guard. W50 pins the boot call itself, which is UNCONDITIONAL \u2014 its gate is"
+    ]
+  },
+  {
+    "pattern": "W51",
+    "files": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1217:# ================================================================================================ W49-W51",
+      "tools/probe_board_ui/run.sh:1309:# \u2605\u2605\u2605\u2605 W51 \u2014 **THE NO-FORK FACT, AND IT IS NEGATIVE SPACE**, so it carries the [[B237]]-class care in both",
+      "tools/probe_board_ui/run.sh:1321:#   function; \u00a7RADMIN-0c replaced that fallback with the seam call, the old anchors matched nothing, and W51 read",
+      "tools/probe_board_ui/run.sh:1323:#   \u26d4 THE SEAM-TO-ROUTER LINK IS NOT PINNED HERE \u2014 W51 pins BLE's side only. Console-sink owns the rest:",
+      "tools/probe_board_ui/run.sh:1325:#   call), and S23, with X14\u2013X16, pins this adapter's one-call shape from the same side as W51.",
+      "tools/probe_board_ui/run.sh:1332:echo \"  W51 counts: $(fn_flat \"$FW_MAIN\" \"$BLE_SIG\" | grep -oF \"$BLE_SEAM\" | wc -l) seam call(s) in ble_dispatch_line (required 1), $(fn_flat \"$FW_MAIN\" \"$BLE_SIG\" | grep -oF \"$BLE_STREAMED\" | wc -l) streamed-arm flush(es) (required 1), $(fn_flat \"$FW_MAIN\" \"$BLE_SIG\" | grep -oE '\"ui|handle_ui|preset_' | wc -l) ui-shaped handler token(s) (required 0)\"",
+      "tools/probe_board_ui/run.sh:1340:wchk_in \"$FW_MAIN\" \"W51 ble_dispatch_line has NO ui arm of its own and keeps the ONE shared seam call\" \\"
+    ]
+  },
+  {
+    "pattern": "W54",
+    "files": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1388:# ================================================================================================ W54",
+      "tools/probe_board_ui/run.sh:1389:# \u2605\u2605\u2605\u2605 W54 \u2014 **[[B255]]'s GATE, PINNED WHERE IT LIVES.** The owner",
+      "tools/probe_board_ui/run.sh:1395:#   `src/firmware_help.h`, pinned by W54-help below \u2014 and console-sink's H3a (`ui` is listed iff the build compiles",
+      "tools/probe_board_ui/run.sh:1396:#   its arm) plus its inventory comparison see the rendered list on every product profile. W54 keeps the FIVE",
+      "tools/probe_board_ui/run.sh:1397:#   command-file sites; its old help token and `help`-group control moved to W54-help.",
+      "tools/probe_board_ui/run.sh:1406:#   constructed for `status`) cannot pass; the help row is W54-help.",
+      "tools/probe_board_ui/run.sh:1418:echo \"  W54 counts: $(oled_guarded \"$CMD_CPP\" | wc -l) line(s) of $(basename \"$CMD_CPP\") inside a MR_FEAT_OLED region (required > 0), $(grep -cF 'static mrfw::PresetCatalog cat(st, gate);' \"$CMD_CPP\") live catalog instance(s) (required 1)\"",
+      "tools/probe_board_ui/run.sh:1433:wchk_in \"$CMD_CPP\" \"W54 every /mrui site (include, the ONE instance, boot restore, handle_ui, status) is MR_FEAT_OLED-gated\" \\",
+      "tools/probe_board_ui/run.sh:1439:# \u2605\u2605\u2605 W54-help \u2014 THE `ui` HELP ROW IS GATED WITH ITS ARM. Added 2026-09-28 by W2 ([[B418]]): the row left the command",
+      "tools/probe_board_ui/run.sh:1440:#     file for `src/firmware_help.h`, so W54's help token matched nothing and its `help`-group control changed",
+      "tools/probe_board_ui/run.sh:1445:echo \"  W54-help counts: $(grep -cF 'out.println(F(\"ui\"));' \"$HELP_H\") ui help row(s) in $(basename \"$HELP_H\") (required 1), $(oled_guarded \"$HELP_H\" | grep -cF 'out.println(F(\"ui\"));') inside a MR_FEAT_OLED region (required 1)\"",
+      "tools/probe_board_ui/run.sh:1450:wchk_in \"$HELP_H\" \"W54-help the help index's ui row is MR_FEAT_OLED-gated\" \\"
+    ]
+  },
+  {
+    "pattern": "W54-help",
+    "files": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1395:#   `src/firmware_help.h`, pinned by W54-help below \u2014 and console-sink's H3a (`ui` is listed iff the build compiles",
+      "tools/probe_board_ui/run.sh:1397:#   command-file sites; its old help token and `help`-group control moved to W54-help.",
+      "tools/probe_board_ui/run.sh:1406:#   constructed for `status`) cannot pass; the help row is W54-help.",
+      "tools/probe_board_ui/run.sh:1439:# \u2605\u2605\u2605 W54-help \u2014 THE `ui` HELP ROW IS GATED WITH ITS ARM. Added 2026-09-28 by W2 ([[B418]]): the row left the command",
+      "tools/probe_board_ui/run.sh:1445:echo \"  W54-help counts: $(grep -cF 'out.println(F(\"ui\"));' \"$HELP_H\") ui help row(s) in $(basename \"$HELP_H\") (required 1), $(oled_guarded \"$HELP_H\" | grep -cF 'out.println(F(\"ui\"));') inside a MR_FEAT_OLED region (required 1)\"",
+      "tools/probe_board_ui/run.sh:1450:wchk_in \"$HELP_H\" \"W54-help the help index's ui row is MR_FEAT_OLED-gated\" \\"
+    ]
+  },
+  {
+    "pattern": "keeps the shared dispatch fallback",
+    "files": [],
+    "matches": []
+  },
+  {
+    "pattern": "keeps the ONE shared seam call",
+    "files": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1340:wchk_in \"$FW_MAIN\" \"W51 ble_dispatch_line has NO ui arm of its own and keeps the ONE shared seam call\" \\"
+    ]
+  },
+  {
+    "pattern": "bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {",
+    "files": [
+      "src/firmware_commands.cpp",
+      "tools/probe_board_ui/run.sh",
+      "tools/probe_console_sink/negctl.py"
+    ],
+    "matches": [
+      "src/firmware_commands.cpp:1548:bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {   // \u00a7command-sink-consolidation: the single line->handler verb map (was service_debug); every response goes to `out`",
+      "tools/probe_console_sink/negctl.py:211:bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {",
+      "tools/probe_console_sink/negctl.py:218:     'bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {', HL_OLD, ('S1', 'S2')),",
+      "tools/probe_board_ui/run.sh:1249:DISPATCH_SIG='bool dispatch(const char* line, size_t len, Print& out, CommandTransport transport) {'   # a PREFIX: fn_body matches index()==1"
+    ]
+  },
+  {
+    "pattern": "static void handle_teststatus(Print& out) {",
+    "files": [
+      "src/firmware_commands.cpp",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "src/firmware_commands.cpp:1534:static void handle_teststatus(Print& out) {",
+      "tools/probe_board_ui/run.sh:1284:         ':a;N;$!ba;s@\\n\\(static void handle_teststatus(Print& out) {\\n\\)\\(.*\\n\\)\\(#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm\\n    if ((len == 2 || (len > 2 && line\\[2\\] == '\"'\"' '\"'\"')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\\n#endif   // MR_FEAT_OLED\\n\\)@\\n\\1\\3\\2@' \\"
+    ]
+  },
+  {
+    "pattern": "the `ui` dispatch arm",
+    "files": [
+      "src/firmware_commands.cpp",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "src/firmware_commands.cpp:1635:#if MR_FEAT_OLED   // \u2605 [[B255]] the `ui` dispatch arm",
+      "tools/probe_board_ui/run.sh:1284:         ':a;N;$!ba;s@\\n\\(static void handle_teststatus(Print& out) {\\n\\)\\(.*\\n\\)\\(#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm\\n    if ((len == 2 || (len > 2 && line\\[2\\] == '\"'\"' '\"'\"')) && !strncmp(line, \"ui\", 2)) { handle_ui(line + 2, len - 2, out); return true; }\\n#endif   // MR_FEAT_OLED\\n\\)@\\n\\1\\3\\2@' \\",
+      "tools/probe_board_ui/run.sh:1285:         's@^#if MR_FEAT_OLED   // \u2605 \\[\\[B255\\]\\] the `ui` dispatch arm$@//&@'"
+    ]
+  },
+  {
+    "pattern": "const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);",
+    "files": [
+      "src/fw_main.cpp",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "src/fw_main.cpp:681:    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);",
+      "tools/probe_board_ui/run.sh:1330:BLE_SEAM='const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);'",
+      "tools/probe_board_ui/run.sh:1341:     w51 's@^    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);$@    if (len > 2 \\&\\& !strncmp(line, \"ui\", 2)) { LineSink lu(ble_sink); handle_ui(line + 2, len - 2, lu); lu.flush(); return 0; }\\n&@' \\",
+      "tools/probe_board_ui/run.sh:1342:         's@^    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);$@    if (len > 2 \\&\\& !strncmp(line, \"ui\", 2)) return write_err(out, cap, \"ui\", \"console_only\");\\n&@' \\",
+      "tools/probe_board_ui/run.sh:1343:         '/^    const mrfw::LineExec ex = mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx);$/d' \\"
+    ]
+  },
+  {
+    "pattern": "if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }",
+    "files": [
+      "src/fw_main.cpp",
+      "tools/probe_board_ui/run.sh",
+      "tools/probe_console_sink/negctl.py"
+    ],
+    "matches": [
+      "src/fw_main.cpp:682:    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }",
+      "tools/probe_console_sink/negctl.py:278:     '    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }',",
+      "tools/probe_console_sink/negctl.py:918:            ('    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }',",
+      "tools/probe_console_sink/negctl.py:919:             '    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }\\n' + ADMIN_GUARD_SRC),",
+      "tools/probe_console_sink/negctl.py:1101:            ('    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }',",
+      "tools/probe_console_sink/negctl.py:1102:             '    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }\\n' + CLIENT_GUARD_SRC),",
+      "tools/probe_board_ui/run.sh:1331:BLE_STREAMED='if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }'"
+    ]
+  },
+  {
+    "pattern": "out.println(F(\"ui\"));",
+    "files": [
+      "src/firmware_help.h",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1445:echo \"  W54-help counts: $(grep -cF 'out.println(F(\"ui\"));' \"$HELP_H\") ui help row(s) in $(basename \"$HELP_H\") (required 1), $(oled_guarded \"$HELP_H\" | grep -cF 'out.println(F(\"ui\"));') inside a MR_FEAT_OLED region (required 1)\"",
+      "tools/probe_board_ui/run.sh:1447:  [ \"$(grep -cF 'out.println(F(\"ui\"));' \"$1\")\" = 1 ] || return 1",
+      "tools/probe_board_ui/run.sh:1448:  oled_guarded \"$1\" | grep -qF 'out.println(F(\"ui\"));'",
+      "src/firmware_help.h:133:    out.println(F(\"ui\"));"
+    ]
+  },
+  {
+    "pattern": "firmware_help.h",
+    "files": [
+      "src/firmware_admin_identity.h",
+      "src/firmware_admin_keyring.h",
+      "src/firmware_commands.cpp",
+      "src/firmware_help.h",
+      "tools/gen_command_inventory.py",
+      "tools/probe_board_ui/run.sh",
+      "tools/probe_console_sink/ble_guard.py",
+      "tools/probe_console_sink/negctl.py",
+      "tools/probe_console_sink/ownership.py",
+      "tools/probe_console_sink/probe_main.cpp",
+      "tools/probe_console_sink/run.sh",
+      "tools/probe_console_sink/structural.py",
+      "tools/probe_features/ownership.py",
+      "tools/probe_features/run.sh",
+      "tools/test_gen_command_inventory.py",
+      "tools/test_probe_console_sink.py"
+    ],
+    "matches": [
+      "tools/test_gen_command_inventory.py:151:    G.Surface(\"src/firmware_help.h\", \"help_command\", \"top\", \"serial\",",
+      "tools/test_gen_command_inventory.py:160:    (\"src/firmware_help.h\", \"help_is_dash\"): \"a helper definition, not a command arm\",",
+      "tools/test_gen_command_inventory.py:167:    \"src/firmware_help.h\": FIX_HELP,",
+      "tools/test_gen_command_inventory.py:473:        with FixtureTree({\"src/firmware_help.h\": sub(",
+      "tools/test_gen_command_inventory.py:482:        with FixtureTree({\"src/firmware_help.h\": sub(",
+      "tools/test_gen_command_inventory.py:495:        with FixtureTree({\"src/firmware_help.h\": lambda s: \"\\n\".join(",
+      "tools/test_gen_command_inventory.py:643:        self.assertEqual(\"src/firmware_help.h\", primary.source.split(\":\")[0])",
+      "tools/test_gen_command_inventory.py:644:        with open(os.path.join(REPO_ROOT, \"src\", \"firmware_help.h\"), encoding=\"utf-8\") as fh:",
+      "tools/test_gen_command_inventory.py:652:        from_header = [r for r in rows if r.source.startswith(\"src/firmware_help.h\")]",
+      "tools/test_gen_command_inventory.py:668:        # \u00a70a: `help`/`?` recognition moved from `dispatch` into `src/firmware_help.h::help_command`, and BLE still",
+      "tools/test_gen_command_inventory.py:817:        self.assertIn((\"src/firmware_help.h\", \"help_command\"), primary)",
+      "tools/gen_command_inventory.py:23:#   product profile. It is the completeness/feature-gate ORACLE for `src/firmware_help.h`, whose flash-resident list",
+      "tools/gen_command_inventory.py:128:    #   and this generator saw it there. 0a moved the text and the whole recognition into `src/firmware_help.h` so a",
+      "tools/gen_command_inventory.py:138:    Surface(\"src/firmware_help.h\", \"help_command\", \"top\", \"serial\",",
+      "tools/gen_command_inventory.py:254:    \"src/firmware_help.h\",",
+      "src/firmware_admin_identity.h:20://    surfacing in `firmware_commands.cpp` / `fw_main.cpp` / `firmware_help.h` \u2014 the [[B255]] idiom \u2014 so the native",
+      "tools/probe_console_sink/run.sh:19:# \u2605\u2605 \u00a70a/[[B208]] + \u00a70g (2026-09-05) \u2014 THIS PROBE ALSO OWNS THE CONSOLE HELP. `src/firmware_help.h` was extracted",
+      "tools/probe_console_sink/run.sh:48:HELP=\"$ROOT/src/firmware_help.h\"",
+      "tools/probe_console_sink/run.sh:59:# \u26a0 lib/core + lib/hal are on the path because `src/firmware_help.h` names its gates (mr_features.h,",
+      "tools/probe_console_sink/run.sh:62:#   includes. Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow a mutation.",
+      "tools/probe_console_sink/run.sh:65:# (R-RA-29's BLAKE2b). Neither directory holds a console_sink.h or a firmware_help.h, so neither can shadow",
+      "tools/probe_console_sink/run.sh:282:build() {   # build($1 = console_sink.h under test, $2 = firmware_help.h under test, $3 = out binary, $4 = profile, $5 = extra -D)",
+      "tools/probe_console_sink/run.sh:370:# The guard's condition is EXTRACTED from the real src/fw_main.cpp and compiled beside the real src/firmware_help.h,",
+      "tools/test_probe_console_sink.py:214:        want_help = _md5_8(os.path.join(ROOT, \"src\", \"firmware_help.h\"))",
+      "tools/probe_console_sink/ble_guard.py:17:# `src/fw_main.cpp`, compiles that exact expression into a generated TU beside the REAL `src/firmware_help.h`, and",
+      "tools/probe_console_sink/ble_guard.py:413:// src/firmware_help.h router. Nothing here is a hand-written copy of production logic.",
+      "tools/probe_console_sink/ble_guard.py:418:#include \"firmware_help.h\"",
+      "tools/probe_console_sink/probe_main.cpp:16:#include \"firmware_help.h\"   // \u00a70a/[[B208]]: the REAL help authority, compiled and RUN here",
+      "tools/probe_console_sink/probe_main.cpp:195://   \u26d4 Deliberately NOT read from `firmware_help.h`'s own conditions: reading the header's gates would make every",
+      "tools/probe_console_sink/probe_main.cpp:426:    // Slice 0a moved the whole `help`/`?` recognition into `src/firmware_help.h`, which depends on `Print` + two",
+      "tools/probe_console_sink/probe_main.cpp:431:    //    macros \u2014 never from firmware_help.h's own conditions, which would make the check circular. The COMPLETE",
+      "tools/probe_console_sink/negctl.py:36:    sys.exit('usage: negctl.py <scratch> <cxx> <sink.h> <cmds.cpp> <cmds.h> <fw_main.cpp> <firmware_help.h> '",
+      "tools/probe_console_sink/negctl.py:249:    # \u24d8 \u00a70a re-aim: the help text moved to firmware_help.h and S4 now asks whether every RESPONSE ends",
+      "tools/probe_console_sink/negctl.py:456:#   decision of `src/firmware_help.h`, REBUILDS the probe against the mutant, RUNS it, and requires the run to turn",
+      "tools/probe_console_sink/structural.py:152:    #   and the topic index. What remains in `src/firmware_help.h` is the bare primary-name list, the manual pointer",
+      "tools/probe_console_sink/structural.py:160:    add('S3', 'every firmware_help.h emission goes through its Print& out sink',",
+      "tools/probe_console_sink/structural.py:212:    add('S19', 'firmware_help.h stays a narrow Print&-only unit (no device state, no allocation)', not forbidden,",
+      "tools/probe_console_sink/structural.py:374:    # \u2605 THE COUNT IS FOUR AND IS DERIVED, NOT ROUNDED: (1) the `firmware_help.h` include annotation, (2) the",
+      "tools/probe_console_sink/structural.py:896:                 '<firmware_help.h> [<device_nv.h> <firmware_config.cpp> '",
+      "tools/probe_console_sink/ownership.py:22:#     extracted to `src/firmware_help.h::help_command`. These are the forms `dispatch(line, len, out)` returns true",
+      "tools/probe_features/run.sh:86:#     `firmware_commands.{cpp,h}`, `fw_main.cpp`, `firmware_help.h`). O4a-c became O4a-g \u21d2 +4 checks, and \u26d4 NOTHING",
+      "tools/probe_features/ownership.py:84:HELP_H = \"src/firmware_help.h\"",
+      "tools/probe_features/ownership.py:131: 'src/firmware_help.h': ['#if MR_FEAT_RADMIN_ACCEPT', '#if MR_FEAT_RADMIN_CLIENT', '#if MR_FEAT_RADMIN_CLIENT'],",
+      "tools/probe_features/ownership.py:598:  'src/firmware_help.h',",
+      "tools/probe_features/ownership.py:640:  'src/firmware_help.h',",
+      "tools/probe_board_ui/run.sh:1395:#   `src/firmware_help.h`, pinned by W54-help below \u2014 and console-sink's H3a (`ui` is listed iff the build compiles",
+      "tools/probe_board_ui/run.sh:1440:#     file for `src/firmware_help.h`, so W54's help token matched nothing and its `help`-group control changed",
+      "tools/probe_board_ui/run.sh:1444:HELP_H=\"$ROOT/src/firmware_help.h\"",
+      "src/firmware_commands.cpp:27:#include \"firmware_help.h\"     // \u26d4 V1 CORRECTION (\u00a7RADMIN-0c / [[B298]]): this read \"\u00a70a/[[B208]]: the console",
+      "src/firmware_commands.cpp:1438:// whole `help` / `?` recognition and the response itself live in `src/firmware_help.h`, which is a header precisely",
+      "src/firmware_commands.cpp:1557:    if (help_command(line, len, out)) return true;   // \u00a70a/[[B208]] + \u00a70g \u2014 the ONE help router (firmware_help.h):",
+      "src/firmware_admin_keyring.h:24://    and the console surfacing in `firmware_commands.cpp` / `fw_main.cpp` / `firmware_help.h`, so the native suite",
+      "src/firmware_help.h:1:// MeshRoute \u2014 src/firmware_help.h",
+      "src/firmware_help.h:28://   of the REAL dispatch arms (`src/firmware_commands.cpp::dispatch`, `src/firmware_help.h::help_command` and"
+    ]
+  },
+  {
+    "pattern": "M103",
+    "files": [
+      "tools/probe_ui_model_mutations.py"
+    ],
+    "matches": [
+      "tools/probe_ui_model_mutations.py:3512: # \u26d4\u26d4 M103 RETIRED 2026-09-28 BY **W2** ([[B458]]), AND THE RECORD IS KEPT RATHER THAN THE ENTRY DELETED SILENTLY.",
+      "tools/probe_ui_model_mutations.py:3513: #     M103 (\"leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index\") removed BOTH"
+    ]
+  },
+  {
+    "pattern": "probe_ui_model_mutations.py",
+    "files": [
+      "lib/core/node_hashlocate.cpp",
+      "src/firmware_config_service.h",
+      "src/firmware_ui_chrome.h",
+      "src/firmware_ui_invite.h",
+      "src/firmware_ui_join.h",
+      "src/firmware_ui_model.h",
+      "src/firmware_ui_nearby.h",
+      "src/firmware_ui_prov.h",
+      "src/firmware_ui_status.h",
+      "test/test_custody_internal_d.cpp",
+      "test/test_dual_layer.cpp",
+      "test/test_firmware_ui_chrome.cpp",
+      "tools/probe_ble_line/run.sh",
+      "tools/probe_board_abi.py",
+      "tools/probe_console_sink/ownership.py",
+      "tools/probe_custody_usb/run.sh",
+      "tools/probe_features/run.sh",
+      "tools/probe_firmware_ui/probe_main.cpp",
+      "tools/probe_inbox_verbs/run.sh",
+      "tools/probe_ui_model_mutations.py",
+      "tools/test_mutation_unusable_reason.py",
+      "tools/test_worker_formula_derived.py"
+    ],
+    "matches": [
+      "tools/test_worker_formula_derived.py:6:`tools/probe_ui_model_mutations.py` prints its default worker formula in two banners. When \u00a7GATE-SPEED raised the",
+      "tools/test_worker_formula_derived.py:35:TARGET = ROOT / \"tools\" / \"probe_ui_model_mutations.py\"",
+      "tools/test_mutation_unusable_reason.py:18:HARNESS = ROOT / \"tools\" / \"probe_ui_model_mutations.py\"",
+      "src/firmware_ui_status.h:23://     (`tools/probe_ui_model_mutations.py`'s own header): left inside the 2700-line model these rows would have",
+      "tools/probe_ble_line/run.sh:71:# \u2605\u2605\u2605 THE TWO PINNED COUNTS \u2014 the `PIN_CASES` idiom from `tools/probe_ui_model_mutations.py`, applied here for the",
+      "tools/probe_board_abi.py:218:# \u2605\u2605 THE PIN DISCIPLINE (`probe_ui_model_mutations.py`'s `PIN_CASES`, and [[B217]]'s lesson): these are updated",
+      "lib/core/node_hashlocate.cpp:2032:        //     which is exactly why it needs its own native cases + mutations; see `probe_ui_model_mutations.py`",
+      "src/firmware_ui_nearby.h:10://     (`tools/probe_ui_model_mutations.py`'s own header \u2014 the backup, the marker and the lock are all",
+      "tools/probe_custody_usb/run.sh:63:# \u2605\u2605\u2605 THE TWO PINNED COUNTS \u2014 the `PIN_CASES` idiom from `tools/probe_ui_model_mutations.py`, applied here for the",
+      "tools/probe_ui_model_mutations.py:93:USAGE:  python3 tools/probe_ui_model_mutations.py                    # the model battery (the default target)",
+      "tools/probe_ui_model_mutations.py:94:        python3 tools/probe_ui_model_mutations.py M07                # one entry, by its label prefix",
+      "tools/probe_ui_model_mutations.py:95:        python3 tools/probe_ui_model_mutations.py --target=config     # the \u00a7UI-13 config-service battery",
+      "tools/probe_ui_model_mutations.py:96:        python3 tools/probe_ui_model_mutations.py --target=config C05 # one entry of it",
+      "tools/probe_ui_model_mutations.py:97:        python3 tools/probe_ui_model_mutations.py --workers=1         # the serial reference path (one scratch tree)",
+      "tools/probe_ui_model_mutations.py:98:        python3 tools/probe_ui_model_mutations.py --where            # print the resolved source + its keyed backup dir, do nothing",
+      "tools/probe_ui_model_mutations.py:99:        python3 tools/probe_ui_model_mutations.py --selftest-unusable # classify and retain fabricated failures; no build/mutation",
+      "src/firmware_ui_invite.h:10://     (`tools/probe_ui_model_mutations.py`'s own header \u2014 the backup, the marker and the lock are all keyed by",
+      "src/firmware_ui_join.h:12://     (`tools/probe_ui_model_mutations.py`'s own header states it \u2014 every safety guard is keyed by the resolved",
+      "tools/probe_features/run.sh:69:# \u2605\u2605\u2605 THE THREE PINNED COUNTS \u2014 the `PIN_CASES` idiom from `tools/probe_ui_model_mutations.py`, applied here for",
+      "src/firmware_config_service.h:25://     this file is pre-registered against (four instances in one session \u2014 see tools/probe_ui_model_mutations.py's",
+      "tools/probe_inbox_verbs/run.sh:116:# \u2605\u2605\u2605 THE TWO PINNED COUNTS \u2014 the `PIN_CASES` idiom from `tools/probe_ui_model_mutations.py`, applied here for the",
+      "tools/probe_inbox_verbs/run.sh:537:  #   `probe_ui_model_mutations.py --target=radmin3id`, and this control attacks what the binding alone owns \u2014",
+      "test/test_firmware_ui_chrome.cpp:12://    `tools/probe_ui_model_mutations.py --target=chrome` installs that wrong implementation in the real source and",
+      "src/firmware_ui_chrome.h:16://     `test/test_firmware_ui_chrome.cpp` and mutated by `tools/probe_ui_model_mutations.py --target=chrome`",
+      "src/firmware_ui_chrome.h:511://     mutated by `tools/probe_ui_model_mutations.py --target=chrome` (X27-X29), which can read `dirty` directly \u2014",
+      "src/firmware_ui_prov.h:211://    CONSTRAINT AND NOT A STYLE SLIP: `tools/probe_ui_model_mutations.py --target=uiprov` anchors THREE landed",
+      "tools/probe_firmware_ui/probe_main.cpp:60://     `tools/probe_ui_model_mutations.py`, plus `test/test_firmware_ui_preset_verbs.cpp`. They are here anyway",
+      "tools/probe_firmware_ui/probe_main.cpp:97://     entries in `tools/probe_ui_model_mutations.py --target=model`, every one of which turns the native suite RED:",
+      "tools/probe_firmware_ui/probe_main.cpp:119://     in `tools/probe_ui_model_mutations.py --target=uiprov` (V23-V32) and `--target=model` (N07-N13) \u2014 where the",
+      "tools/probe_firmware_ui/probe_main.cpp:1799:    //   `tools/probe_ui_model_mutations.py --target=model`, each of which reddens the native suite; the complete",
+      "src/firmware_ui_model.h:277://   times (see `tools/probe_ui_model_mutations.py`'s `arm_backup` roll-call).",
+      "test/test_custody_internal_d.cpp:626://   `io_error`. `probe_ui_model_mutations.py`'s compile-failure detector is `\"error:\" in build_output`, and the pio",
+      "test/test_dual_layer.cpp:4469://    ABI probes, and every case below has a controlled RED in `tools/probe_ui_model_mutations.py --target=b251hash`.",
+      "tools/probe_console_sink/ownership.py:56:#    idiom (`tools/probe_ui_model_mutations.py`, `tools/probe_inbox_verbs/run.sh`): WITHOUT A PIN, A DISAPPEARING"
+    ]
+  },
+  {
+    "pattern": "239",
+    "files": [
+      "lib/core/hal.h",
+      "lib/core/node.cpp",
+      "lib/core/node.h",
+      "lib/core/node_beacon.cpp",
+      "lib/core/node_budget.cpp",
+      "lib/core/node_channel.cpp",
+      "lib/core/node_mac.cpp",
+      "lib/core/protocol_constants.h",
+      "lib/monocypher/src/monocypher.c",
+      "src/device_ble.h",
+      "src/firmware_ui_model.h",
+      "test/test_console_parse.cpp",
+      "test/test_dual_layer.cpp",
+      "test/test_firmware_ui_status.cpp",
+      "test/test_node_channel.cpp",
+      "test/test_node_hashlocate.cpp",
+      "test/test_node_join.cpp",
+      "test/test_node_r3.cpp",
+      "test/test_radmin_characterization_0e.cpp",
+      "test/test_remote_client.cpp",
+      "test/test_remote_codec.cpp",
+      "tools/dm_delivery_breakdown.py",
+      "tools/meshroute_client.py",
+      "tools/probe_ble_line/probe_main.cpp",
+      "tools/probe_firmware_ui/probe_main.cpp",
+      "tools/probe_ui_model_mutations.py",
+      "tools/test_dm_delivery_breakdown.py",
+      "tools/warning_census.sh"
+    ],
+    "matches": [
+      "tools/meshroute_client.py:55:# USB VIDs that a MeshRoute board enumerates as (Seeed XIAO nRF52840 = 0x2886; Adafruit nRF52 = 0x239A).",
+      "tools/meshroute_client.py:56:KNOWN_VIDS = {0x2886, 0x239A, 0x303A}  # Seeed, Adafruit, Espressif (Heltec)",
+      "test/test_console_parse.cpp:548://                             is **232** since Slice 0h / R-RA-25 (was 239): the application-DM body now reserves",
+      "test/test_console_parse.cpp:578:    //    `dm_max_body_bytes` was 239. The cap is now 232, so the canonical maximal `send` line is 265 bytes:",
+      "test/test_console_parse.cpp:601:    CHECK(four.size() == 262);                              // was 269 at the 239-byte cap",
+      "test/test_console_parse.cpp:644:    // That is the CARRIER buffer's bound, not the DM's \u2014 the 232-byte DM cap (was 239 before Slice 0h) belongs to",
+      "test/test_radmin_characterization_0e.cpp:390:        //     `CHECK(cap != P::dm_max_body_bytes);   // 239`. That inequality was never the claim \u2014 it was a PROXY",
+      "test/test_radmin_characterization_0e.cpp:392:        //     only worked while the DM literal happened to be 239. R-RA-25 re-derives the application-DM cap as",
+      "test/test_remote_client.cpp:152:    CHECK(hex(c.key,32)==\"40a66ab000f86863c6dbe0569411572395fe97e96f33f01857590da097b92412\");",
+      "lib/core/node.h:1516:    static uint32_t   channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr);   // origin<<24|(kh&0xffff)<<8|ctr (dv:2239)",
+      "tools/dm_delivery_breakdown.py:185:    by roughly \u22124\u2026+3 ms. MEASURED before the fix: **402 of 23913 frames disagreed with the PHY's own",
+      "tools/dm_delivery_breakdown.py:3305:    the protocol, and it did \u2014 MEASURED on the corpus (arm CURRENT): **2557 of 23913 chargeable frames",
+      "tools/dm_delivery_breakdown.py:3435:      4720 priced, **178 real frames charged nothing**; corpus-wide 2557 of 23913.",
+      "tools/dm_delivery_breakdown.py:3503:        2557 of 23913 aired frames corpus-wide were charged zero because their emit's timestamp did not",
+      "test/test_firmware_ui_status.cpp:269:    //     along, than the stored one. `.1239` truncates to `.123`; `.9999` truncates to `.999`.",
+      "test/test_firmware_ui_status.cpp:270:    loc(l.b, sizeof l.b, false, 521239999, 214569999);",
+      "tools/probe_ble_line/probe_main.cpp:123:std::string line_send_max() {                       // `send 0xffffffff \"<239>\" -a -e -t -K -l`",
+      "tools/probe_ble_line/probe_main.cpp:168:          \"A5  the `send` body term is BOUND to `protocol::dm_max_body_bytes` (239 is never copied)\");",
+      "tools/probe_ble_line/probe_main.cpp:273:          \"C13 the maximal by-hash `send` line (full 239-B DM body + five flags) dispatches byte-identically\");",
+      "lib/core/hal.h:52:    // \u26d4 Absolute ms, uint64 \u2014 NOT a relative or 32-bit value: a u32 ms deadline wraps at 49.7 days ([[B239]]).",
+      "test/test_node_join.cpp:5537:    // own jitter deadline (see its note at :1239), so `last_heard_ms` is NOT kT0 and a boundary computed from kT0",
+      "tools/warning_census.sh:52:#   RAM figures that used to be quoted here \u2014 214116 / 213636 / 239036 \u2014 WENT STALE two slices ago and are now",
+      "tools/warning_census.sh:53:#   **214396 / 213916 / 239316** (`gateway_heltec` = 73.03 %), re-measured to the byte in a controlled A/B. The",
+      "tools/warning_census.sh:65:# \u24d8 RAM unchanged to the byte: 214396 / 213916 / 239316 (`gateway_heltec` = 73.03 %). Flash **+16 B on each** \u2014 the one",
+      "lib/core/node.cpp:846:    // time (node_mac.cpp:1239 / :621 / :781), so a staged channel M was re-broadcast onto the NEW leaf \u2014 and worse, a",
+      "lib/core/node.cpp:1671:            // `dm_max_body_bytes` (239) is `TxItem.inner[]`'s size minus a conservative prefix, so a body past it",
+      "lib/core/node.cpp:1674:            // LAXER of the two bounds for a CRYPTED DM (239 vs a true 214) and it must NOT be tightened here:",
+      "tools/probe_ui_model_mutations.py:628:# \u2605\u2605 RAISED 6 -> 8 ON 2026-08-30 BY \u00a7GATE-SPEED's MEASUREMENT, not by argument. `--target=model` (239 entries) on this",
+      "tools/probe_ui_model_mutations.py:642:#   \u26d4 VERDICTS RE-PROVEN, not assumed: all 239 entries carry the IDENTICAL verdict, assertion count and match count",
+      "tools/probe_ui_model_mutations.py:900:                                         #   test_node_hashlocate \u00a70f DM admission 239 ok / 240 / 241 too_large      5",
+      "tools/probe_ui_model_mutations.py:901:                                         #   test_node_hashlocate \u00a70f sealed 239 -> SealOutcome::too_large           4",
+      "tools/probe_ui_model_mutations.py:1429:                                         #               3 plaintext shapes cap at 239 -> 40x5 = 200 each = 600;",
+      "tools/probe_ui_model_mutations.py:7987: #    and it went RED because body 237-239 reached this guard with `dh != 0` (DST_HASH dropped for SIZE). 0h removed",
+      "tools/probe_ui_model_mutations.py:8068:  \"CRYPTED inner cap reads 243 instead of 239 and the two silent bytes come back\",",
+      "tools/probe_ui_model_mutations.py:8142: (\"B10 the expiry PRUNE is removed \u2014 the clearing term the B239 audit rests on\",",
+      "tools/probe_firmware_ui/probe_main.cpp:3554:            //   cannot depend on WHICH tick of the wake opens the frame: `3m` spans 180..239 s and the frame opens",
+      "test/test_node_hashlocate.cpp:843:    // + body). \u26d4 SYMBOLIC, AND THE VALUE MOVED: the cap was 239 (so this was 240) until Slice 0h / R-RA-25 derived",
+      "test/test_node_hashlocate.cpp:857:    // ...and the exact cap (232 since Slice 0h; was 239) is accepted (unknown hash -> parks).",
+      "test/test_node_hashlocate.cpp:867:// five accepted flags \u2014 272 B when 0f landed, 265 B since Slice 0h moved the cap 239 -> 232). That only matters if",
+      "test/test_node_hashlocate.cpp:893:    // The exact DM cap the canonical maximal `send` line carries (232 since Slice 0h; 239 when 0f wrote this).",
+      "test/test_node_hashlocate.cpp:912:    // (232 since Slice 0h; 239 when 0f wrote this) cannot fit any SEALED DM carrier \u2014 and `e2e_seal_inner` says so",
+      "src/device_ble.h:37:// product lines outright: a full 239-byte DM body (`send`) and any `send_layer` carrying a real body never reached",
+      "lib/core/node_mac.cpp:220:    //   Both decisions used to carry a `\u2026 + body_len <= max_payload_bytes_hard_cap` term, so a body the (then 239-B)",
+      "lib/core/node_mac.cpp:223:    //   237..239 it lost DST_HASH too, i.e. **a by-HASH send silently became a by-ID send** and could be delivered",
+      "lib/core/node_mac.cpp:279:    // \u21d2 A DEDICATED gate here would be DEAD CODE. Measured by sweeping body_len 200..239 through this very function",
+      "lib/core/node_mac.cpp:295:    //   (b) [[B21]] body_len 237-239 \u2014 the DST_HASH fit-check above drops the flag for SIZE, so the",
+      "lib/core/node_mac.cpp:348:            //   with DST_HASH cleared while holding a key. \u26a0 Consequence for the tests: the \u00a7B21 237/238/239 band",
+      "lib/core/node_mac.cpp:366:        // only `data_inner_cap(item.flags, type)` \u2014 239, or 238 once a TYPE byte is emitted. Those 2 (or 3) bytes",
+      "lib/core/node_mac.cpp:2227:        //   path [[B296]] shape 3 reproduced (registered mobile, wrapper body 237..239).",
+      "test/test_node_channel.cpp:8:// Hal. Mirrors dv_dual_sf.lua: channel_msg_id :2239, channel_origin_admit :3456, DATA-M :10942,",
+      "test/test_node_channel.cpp:199:    // The mapper claimed key_hash32 HIGH 16; the Lua (dv:2239) is `& 0xffff` = LOW 16. Pin it.",
+      "test/test_remote_codec.cpp:6373:    CHECK(inner230 == 239);                              // the INNER packed fine (239 <= 241): storage did not bind",
+      "lib/core/protocol_constants.h:715:// \u24d8 B239 AUDIT (a clearing term or a window bound, for every deadline): this needs NEITHER. The comparison is",
+      "lib/core/protocol_constants.h:1076://       `dm_inner_prefix_bytes = 2  // conservative cap (>= the [origin] prefix)`  \u21d2 dm_max_body_bytes = 239,",
+      "lib/core/node_budget.cpp:26:// R4.4 anti-spam ledger append (dv:3205-3239). Prune events older than the window; DEDUP \u2014 refresh the",
+      "lib/core/node_beacon.cpp:1022:        // page (a foreign team never advertises us) or `complete == true` (:239) \u2014 and a team/mobile beacon never",
+      "test/test_dual_layer.cpp:2852:    // (3) CAP+1 REFUSES AT THE CARRIER \u2014 `err_too_large`, from the packer, not from the DM cap (227 < 239) and not",
+      "test/test_dual_layer.cpp:2859:    // \u2605 THE ATTRIBUTION, RE-CHECKED AT THE NEW CAP (Slice 0h / R-RA-25 moved `dm_max_body_bytes` 239 -> 232): the",
+      "test/test_dual_layer.cpp:6840:// The bug it closes: do_data_tx / both RTS builders stamp leaf_id from the LIVE _cfg at TX time (node_mac.cpp:1239 /",
+      "lib/core/node_channel.cpp:10:// :2239, channel_buffer_find :3426, channel_buffer_mark_seen_by :3434, channel_origin_admit :3456,",
+      "lib/core/node_channel.cpp:53:// ---- channel_msg_id mint (dv:2239): origin<<24 | (key_hash32 LOW 16)<<8 | ctr low 8, big-endian on wire.",
+      "lib/core/node_channel.cpp:1248://   LEAF axis (node_mac.cpp:1239 `min.leaf_id = _cfg.leaf_id`, :621 RTS-M, :781 RTS-for-a-DM): a staged/in-flight",
+      "test/test_node_r3.cpp:7563://   first. The CRYPTED caps are the ones the frame bound sets: inner <= 239 and",
+      "test/test_node_r3.cpp:7566://   hand-written **239**. `dm_max_body_bytes` is now **232** \u2014 the admission cap RESERVES the",
+      "test/test_node_r3.cpp:7585:    CHECK(data_inner_cap(DATA_FLAG_CRYPTED, /*type=*/0) == 255 - 8 - 8);                  // 239 \u2014 the B20 bound",
+      "test/test_node_r3.cpp:7617:    //     200..239 with the comment *\"the shape-blind dm_max_body_bytes guard admits all of 200..239\"*, and for an",
+      "test/test_node_r3.cpp:7620:    //         233..239 is a THIRD outcome \u2014 a SYNCHRONOUS `err_too_large` at the command boundary, before a counter,",
+      "test/test_node_r3.cpp:7626:        for (int b = 200; b <= 239; ++b) {",
+      "test/test_node_r3.cpp:7704:// \u2605\u2605 [[B21]] \u2014 THE FLIPPED REPRODUCTION, AND IT IS A DIFFERENT CAUSE AT A DIFFERENT SITE. Pre-fix, body_len 237-239",
+      "test/test_node_r3.cpp:7708://    This case USED to drive body_len 237/238/239 and assert `failed / reason == too_large / no no_pubkey`. Both",
+      "test/test_node_r3.cpp:7711://      \u00b7 the ADMISSION cap is now 232, so 237..239 never reaches `enqueue_data` at all \u2014 it is refused",
+      "test/test_node_r3.cpp:7719:TEST_CASE(\"\u00a7B21/\u00a70h \u2014 the 237-239 band is refused SYNCHRONOUSLY by the cap, and never as `no_pubkey`\") {",
+      "test/test_node_r3.cpp:7720:    for (uint8_t body : { uint8_t{237}, uint8_t{238}, uint8_t{239} }) {",
+      "test/test_node_r3.cpp:11697:// \u24d8 This is also the B239 audit's answer for this deadline: the comparison is `expiry > now` on uint64 ms",
+      "src/firmware_ui_model.h:5791:    //      has run 2^31 ms past it (the \u00a7UI-17 S8 measurement, and [[B239]]'s lesson) \u2014 and here that term is",
+      "tools/test_dm_delivery_breakdown.py:359:    \u21d2 every SF6 frame was mispriced. Corpus-live: 402 of 23913 frames, ALL of them SF6.\"\"\"",
+      "lib/monocypher/src/monocypher.c:950:\t-21827239, -5839606, -30745221, 13898782, 229458,",
+      "lib/monocypher/src/monocypher.c:1865:\t{{15636291,-9688557,24204773,-7912398,616977,",
+      "lib/monocypher/src/monocypher.c:1878:\t  5516873,19480852,5230134,-23952439,-15175766,},",
+      "lib/monocypher/src/monocypher.c:1895:\t{{-33521811,3180713,-2394130,14003687,-16903474,",
+      "lib/monocypher/src/monocypher.c:2042:\t  -14016360,12940910,177905,12165515,-2397893,},},",
+      "lib/monocypher/src/monocypher.c:2044:\t  2927790,22392436,-14852487,2719975,16402117,},",
+      "lib/monocypher/src/monocypher.c:2066:\t  -7265713,2186239,4884640,10826567,7135781,},},",
+      "lib/monocypher/src/monocypher.c:2082:\t  -5923905,15446145,7483684,-30440441,10009108,},",
+      "lib/monocypher/src/monocypher.c:2166:\t\t247,233,122,46,141,49,9,44,107,206,123,81,239,124,111,10,"
+    ]
+  },
+  {
+    "pattern": "ACCEPTED AND IGNORED",
+    "files": [],
+    "matches": []
+  },
+  {
+    "pattern": "Nothing this probe",
+    "files": [],
+    "matches": []
+  },
+  {
+    "pattern": "FIDELITY LIMIT",
+    "files": [
+      "tools/probe_board_ui/fakes/Arduino.h"
+    ],
+    "matches": [
+      "tools/probe_board_ui/fakes/Arduino.h:90:    // \u24d8 FIDELITY LIMIT, KEPT EXPLICIT (corrected 2026-09-28 by W2, [[B451]]): the numeric overloads ACCEPT a base"
+    ]
+  },
+  {
+    "pattern": "probe_board_ui/fakes",
+    "files": [
+      "tools/probe_board_ui/fakes/driver/gpio.h",
+      "tools/probe_board_ui/fakes/esp_sleep.h",
+      "tools/probe_board_ui/fakes/esp_wake_probe.h",
+      "tools/probe_firmware_ui/probe_main.cpp",
+      "tools/probe_firmware_ui/run.sh",
+      "tools/probe_inbox_verbs/probe_main.cpp",
+      "tools/probe_inbox_verbs/run.sh",
+      "tools/probe_inbox_verbs/transcript.py",
+      "tools/probe_inbox_verbs/transcript_main.cpp"
+    ],
+    "matches": [
+      "tools/probe_inbox_verbs/transcript_main.cpp:30://   radix (`tools/probe_board_ui/fakes/Arduino.h`), so a `dh=0x\u2026`/`lp=0x\u2026` field renders DECIMAL here. The bytes",
+      "tools/probe_inbox_verbs/run.sh:26:#   \u00b7 `tools/probe_board_ui/fakes/`     \u2014 Arduino.h (Print/Serial/millis/F). \u24d8 \u00a7CUSTODY-D ADDED `Print`'s numeric",
+      "tools/probe_inbox_verbs/run.sh:110:INCS=(-I\"$HERE/fakes\" -I\"$HERE\" -I\"$ROOT/tools/probe_board_ui/fakes\" -I\"$ROOT/tools/probe_device_radio/fakes\"",
+      "tools/probe_inbox_verbs/run.sh:279:      \"$ROOT/tools/probe_board_ui/fakes/Arduino.h\" \"$ROOT/tools/probe_device_radio/fakes/RadioLib.h\" \\",
+      "tools/probe_inbox_verbs/probe_main.cpp:29://       SHARED fakes (`probe_board_ui/fakes/Arduino.h`, `probe_device_radio/fakes/RadioLib.h`) are REUSED, not",
+      "tools/probe_inbox_verbs/probe_main.cpp:981:        //      (tools/probe_board_ui/fakes/Arduino.h), so the expected `hash=0x\u2026` digits follow the fake, exactly as the",
+      "tools/probe_inbox_verbs/transcript.py:322:    incs = [f\"-I{out_dir}\", f\"-I{HERE}/fakes\", f\"-I{ROOT}/tools/probe_board_ui/fakes\",",
+      "tools/probe_board_ui/fakes/esp_sleep.h:1:// MeshRoute \u2014 tools/probe_board_ui/fakes/esp_sleep.h",
+      "tools/probe_board_ui/fakes/driver/gpio.h:1:// MeshRoute \u2014 tools/probe_board_ui/fakes/driver/gpio.h",
+      "tools/probe_board_ui/fakes/esp_wake_probe.h:1:// MeshRoute \u2014 tools/probe_board_ui/fakes/esp_wake_probe.h",
+      "tools/probe_firmware_ui/run.sh:55:FAKES=\"$ROOT/tools/probe_board_ui/fakes\"   # \u24d8 SHARED, not forked (U1) \u2014 the second probe adds Print/millis/Serial there",
+      "tools/probe_firmware_ui/probe_main.cpp:204:#include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)"
+    ]
+  },
+  {
+    "pattern": "fakes/Arduino.h",
+    "files": [
+      "tools/probe_ble_line/fakes/bluefruit.h",
+      "tools/probe_ble_line/run.sh",
+      "tools/probe_board_ui/probe_main.cpp",
+      "tools/probe_console_sink/run.sh",
+      "tools/probe_console_sink/run.sh.orig",
+      "tools/probe_custody_usb/probe_main.cpp",
+      "tools/probe_custody_usb/run.sh",
+      "tools/probe_device_radio/run.sh",
+      "tools/probe_inbox_verbs/probe_main.cpp",
+      "tools/probe_inbox_verbs/run.sh",
+      "tools/probe_inbox_verbs/transcript_main.cpp",
+      "tools/test_probe_ble_line.py",
+      "tools/test_probe_custody_usb.py"
+    ],
+    "matches": [
+      "tools/test_probe_custody_usb.py:49:        \"\"\"U1: `tools/probe_console_sink/fakes/Arduino.h` is the ONE fake. A second one is how two probes end",
+      "tools/probe_device_radio/run.sh:29:            \"$HERE/structural.py\" \"$HERE/mutations.py\" \"$HERE/fakes/Arduino.h\" \"$HERE/fakes/driver/gpio.h\" \"$HERE/fakes/RadioLib.h\" \\",
+      "tools/test_probe_ble_line.py:51:        \"\"\"U1: `tools/probe_console_sink/fakes/Arduino.h` is the ONE Arduino fake. A second one is how two probes",
+      "tools/probe_inbox_verbs/probe_main.cpp:29://       SHARED fakes (`probe_board_ui/fakes/Arduino.h`, `probe_device_radio/fakes/RadioLib.h`) are REUSED, not",
+      "tools/probe_inbox_verbs/probe_main.cpp:981:        //      (tools/probe_board_ui/fakes/Arduino.h), so the expected `hash=0x\u2026` digits follow the fake, exactly as the",
+      "tools/probe_console_sink/run.sh:10:#   `src/console_sink.h` against a transport model (`fakes/Arduino.h`) built from the two MEASURED ceilings:",
+      "tools/probe_inbox_verbs/transcript_main.cpp:30://   radix (`tools/probe_board_ui/fakes/Arduino.h`), so a `dh=0x\u2026`/`lp=0x\u2026` field renders DECIMAL here. The bytes",
+      "tools/probe_inbox_verbs/run.sh:279:      \"$ROOT/tools/probe_board_ui/fakes/Arduino.h\" \"$ROOT/tools/probe_device_radio/fakes/RadioLib.h\" \\",
+      "tools/probe_console_sink/run.sh.orig:10:#   `src/console_sink.h` against a transport model (`fakes/Arduino.h`) built from the two MEASURED ceilings:",
+      "tools/probe_board_ui/probe_main.cpp:62://   from a claim about source order into a measurement \u2014 see the ProbeGpio note in fakes/Arduino.h.",
+      "tools/probe_ble_line/fakes/bluefruit.h:17:// \u26d4 NOT a second Arduino fake: `Print`, `F()` and `HEX` come from tools/probe_console_sink/fakes/Arduino.h (U1).",
+      "tools/probe_ble_line/run.sh:18:# FAKES \u2014 REUSED, NOT FORKED (U1): the Arduino surface comes from `tools/probe_console_sink/fakes/Arduino.h` and",
+      "tools/probe_custody_usb/run.sh:19:# FAKES \u2014 REUSED, NOT FORKED (U1): `tools/probe_console_sink/fakes/Arduino.h` and nothing else. Its `Print`",
+      "tools/probe_custody_usb/probe_main.cpp:15:// \u26d4 ONE FAKE, REUSED, NEVER FORKED (U1): `tools/probe_console_sink/fakes/Arduino.h`, whose `Print` reproduces"
+    ]
+  },
+  {
+    "pattern": "Control (c) is the plausible SIMPLIFICATION",
+    "files": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "matches": [
+      "tools/probe_board_ui/run.sh:1291:# \u2605 Control (c) is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves"
+    ]
+  },
+  {
+    "pattern": "transcript_main.cpp",
+    "files": [
+      "tools/probe_board_ui/fakes/Arduino.h",
+      "tools/probe_inbox_verbs/probe_main.cpp",
+      "tools/probe_inbox_verbs/transcript.py",
+      "tools/probe_inbox_verbs/transcript_main.cpp"
+    ],
+    "matches": [
+      "tools/probe_board_ui/fakes/Arduino.h:98:    //     \u00b7 the inbox-verbs transcript comparator (`transcript_main.cpp`) shares the limitation.",
+      "tools/probe_inbox_verbs/probe_main.cpp:396:// `tools/probe_inbox_verbs/transcript_main.cpp` (the slice's BEFORE/AFTER byte-identity comparator) needs EVERY",
+      "tools/probe_inbox_verbs/transcript_main.cpp:1:// MeshRoute \u2014 tools/probe_inbox_verbs/transcript_main.cpp",
+      "tools/probe_inbox_verbs/transcript.py:359:                        \"-c\", os.path.join(HERE, \"transcript_main.cpp\"), \"-o\", o_main],"
+    ]
+  },
+  {
+    "pattern": "`structural.py` S24",
+    "files": [],
+    "matches": []
+  },
+  {
+    "pattern": "`structural.py` S27",
+    "files": [
+      "tools/probe_board_ui/fakes/Arduino.h",
+      "tools/probe_inbox_verbs/transcript_main.cpp"
+    ],
+    "matches": [
+      "tools/probe_inbox_verbs/transcript_main.cpp:33://   structurally (`structural.py` S27). \u26d4 The fake is NOT edited: three other probes share it.",
+      "tools/probe_board_ui/fakes/Arduino.h:99:    //   Radix witnesses: console-sink `structural.py` S27 pins the send handle's dh/lp `HEX` radix structurally."
+    ]
+  },
+  {
+    "pattern": "md5_sources",
+    "files": [
+      "tools/probe_ble_line/run.sh",
+      "tools/probe_custody_usb/run.sh",
+      "tools/probe_features/run.sh",
+      "tools/probe_firmware_ui/run.sh",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "matches": [
+      "tools/probe_features/run.sh:114:md5_sources() {",
+      "tools/probe_features/run.sh:118:MD5_BEFORE=$(md5_sources)",
+      "tools/probe_features/run.sh:533:MD5_AFTER=$(md5_sources)",
+      "tools/probe_inbox_verbs/run.sh:277:md5_sources() {",
+      "tools/probe_inbox_verbs/run.sh:290:MD5_BEFORE=$(md5_sources)",
+      "tools/probe_inbox_verbs/run.sh:838:MD5_AFTER=$(md5_sources)",
+      "tools/probe_ble_line/run.sh:96:md5_sources() {",
+      "tools/probe_ble_line/run.sh:100:MD5_BEFORE=$(md5_sources)",
+      "tools/probe_ble_line/run.sh:285:MD5_AFTER=$(md5_sources)",
+      "tools/probe_custody_usb/run.sh:89:md5_sources() {",
+      "tools/probe_custody_usb/run.sh:93:MD5_BEFORE=$(md5_sources)",
+      "tools/probe_custody_usb/run.sh:265:MD5_AFTER=$(md5_sources)",
+      "tools/probe_firmware_ui/run.sh:192:md5_sources() {",
+      "tools/probe_firmware_ui/run.sh:198:MD5_BEFORE=$(md5_sources)",
+      "tools/probe_firmware_ui/run.sh:243:#   `md5_sources` still hashes the real files \u2014 the wrapper lives in `$OUT` and is never a tracked input.",
+      "tools/probe_firmware_ui/run.sh:2003:MD5_AFTER=$(md5_sources)"
+    ]
+  }
+]

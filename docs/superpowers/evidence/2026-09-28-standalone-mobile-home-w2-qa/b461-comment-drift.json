@@ -1,0 +1,13 @@
+{
+  "path": "tools/probe_board_ui/run.sh",
+  "comment_line": 1291,
+  "comment": "# \u2605 Control (c) is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper.",
+  "present_at_base": true,
+  "call": "wchk_in \"$FW_MAIN\" \"W50 setup() calls mrfw::preset_boot_restore_console() exactly once (the /mrui load + its ruled line)\" \\\n     w50 '/mrfw::preset_boot_restore_console();/d' \\\n         's@    mrfw::preset_boot_restore_console();@    (void)mrfw::preset_catalog();@' \\\n         '/mrfw::preset_boot_restore_console();/d; s@^void loop() {$@&\\n    mrfw::preset_boot_restore_console();@'",
+  "measured_controls": 3,
+  "wrapper_removal_ordinal": 2,
+  "relocation_ordinal": 3,
+  "gate": "all three W50 controls executed RED in independent stock default trace; no executable defect",
+  "disposition": "register as B461, nonblocking comment-only follow-up",
+  "QA_setup_correction": "The first multiline regex stopped after control 1 and failed its preset_catalog assertion. Replaced with explicit shell-continuation collection; source and prior gate results unchanged."
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/accounting-proof-driver.log",
+    "bytes": 57,
+    "sha256": "ad3b74455adfbedfd07b3cd8f1dde005fccce13f517666e2b151a64ce58c8fea"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/also-omit-healthy-W1.log",
+    "bytes": 17745,
+    "sha256": "2ba0cfb384a4b71f493df573970f1b3da05701fa7f472b136104dcdec8590c16"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/board-ui-default.log",
+    "bytes": 18154,
+    "sha256": "da6ccaf7d122dbfdffbae0ec978fa8a708565e360b174b7aa7d37858c62b3e1c"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/inventory-check.log",
+    "bytes": 176,
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/model-projection.log",
+    "bytes": 92243,
+    "sha256": "db875569a5e7ff9442fdbf1934e0117f371a5e2a14aabc24d2a6166e52bceb1b"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/omit-three-known-failing-checks.log",
+    "bytes": 17745,
+    "sha256": "4d617d9702330e6d35714cf666f026b435168d74512321378fbc9faf8f26fc74"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-precheck/tools-discovery.log",
+    "bytes": 13224,
+    "sha256": "896ab619ea471bdd0830aeca8d274725c1637879714046bcaaae4fc253ffada4"
+  }
+]

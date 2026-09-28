@@ -1,0 +1,7 @@
+{
+  "coder_before_after_B456_calls_equal": true,
+  "calls": 19,
+  "tests_run": 19,
+  "inc1_discovery_input_manifests_match_final_files": true,
+  "scope": "Verification of frozen coder historical evidence; fresh final B456 tests are in QA step 7."
+}

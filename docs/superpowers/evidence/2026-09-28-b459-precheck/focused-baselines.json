@@ -1,0 +1,27 @@
+[
+  {
+    "name": "discovery",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "exit": 0,
+    "seconds": 738.12
+  },
+  {
+    "name": "inventory",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 2.11
+  }
+]

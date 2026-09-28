@@ -1,0 +1,15 @@
+{
+  "basis": "Actual predicates called by an instrumented temporary copy of the frozen runner; --no-neg, not a release gate. Only path setup and status logging changed.",
+  "exit": 0,
+  "counts": {
+    "live": {
+      "0": 60
+    },
+    "mutant": {
+      "1": 186
+    }
+  },
+  "unique_live_ids": 60,
+  "unique_mutant_ids": 186,
+  "source_sha256": "0ee0bc90df8d8a6e1d5adce73958f2dd32061388c0f3644f70d9e1f88ce56fe8"
+}

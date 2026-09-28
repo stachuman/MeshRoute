@@ -1,0 +1,7 @@
+{
+  "command": "python3 -m unittest discover -s tools -p test_probe_firmware_ui.py -v",
+  "tests": 19,
+  "seconds": 0.267,
+  "result": "OK",
+  "skipped": 0
+}

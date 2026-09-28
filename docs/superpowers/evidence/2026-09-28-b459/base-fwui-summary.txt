@@ -1,0 +1,12 @@
+557 passed / 0 failed / 557 total
+probe exit=0
+       1023 passed / 0 failed / 1023 total
+       557 passed / 0 failed / 557 total
+sources unchanged: md5 044887af69800bd8c08c9230e4bbf940
+checks per arm: l2 528 · v3 994
+coverage: 845 of 995 checks (both arms, unioned) are reddened by at least one control
+controls: 238 verified / 0 unusable
+controls accounted: 238 declared, 238 exactly once with the accepted outcome, 0 guard failure(s)
+PASS
+real	6m11.345s
+exit=0

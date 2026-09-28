@@ -1,0 +1,37 @@
+{
+  "test_counts": {
+    "step3-board-tests": {
+      "tests": 31,
+      "skipped": 0,
+      "result": "OK"
+    },
+    "step7-b456-tests": {
+      "tests": 19,
+      "skipped": 0,
+      "result": "OK"
+    },
+    "step8-discovery": {
+      "tests": 406,
+      "skipped": 0,
+      "result": "OK"
+    }
+  },
+  "report_links": [
+    "../plans/2026-09-28-b459-board-ui-accounting.md",
+    "2026-09-28-b459-qa/inputs.json",
+    "2026-09-28-b459-qa/preflight.json",
+    "2026-09-28-b459/freeze-inventory.json",
+    "2026-09-28-b459-qa/reconciliation.json",
+    "2026-09-28-b459-qa/gate-results.json",
+    "2026-09-28-b459-qa/increment-1-evidence-check.json",
+    "2026-09-28-b459-qa/collation-check.json",
+    "2026-09-28-b459-qa/firmware-ui-comparison.json",
+    "2026-09-28-b459-qa/reader-audit.json",
+    "2026-09-28-b459-qa/w2-reader-reconciliation.json",
+    "2026-09-28-b459-qa/prelanding-preservation.json",
+    "2026-09-28-b459-qa/final-preservation.json",
+    "2026-09-28-b459-qa/SHA256SUMS",
+    "2026-09-28-b459-qa/raw-logs.json"
+  ],
+  "evidence_python_syntax": "PASS"
+}

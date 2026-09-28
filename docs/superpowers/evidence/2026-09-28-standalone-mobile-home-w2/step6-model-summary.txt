@@ -1,0 +1,24 @@
+  [w6]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w5]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w7]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w0]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w3]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w1]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w2]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  [w4]   ok   clean baseline 3031 / 198613 / 0   (DERIVED from this tree)
+  ok   clean baseline 3031 / 198613 / 0   (DERIVED per worker tree; 8 tree(s) agree)
+  worker 0: 30/30 entries, 30 RED / 0 worthless, wall 320.2s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w0
+  worker 1: 30/30 entries, 30 RED / 0 worthless, wall 373.4s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w1
+  worker 2: 30/30 entries, 30 RED / 0 worthless, wall 319.2s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w2
+  worker 3: 30/30 entries, 30 RED / 0 worthless, wall 334.3s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w3
+  worker 4: 30/30 entries, 30 RED / 0 worthless, wall 292.7s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w4
+  worker 5: 30/30 entries, 30 RED / 0 worthless, wall 317.5s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w5
+  worker 6: 29/29 entries, 29 RED / 0 worthless, wall 315.6s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w6
+  worker 7: 29/29 entries, 29 RED / 0 worthless, wall 339.6s, rc 0, source restored: md5 748e4cf4db8d3942cc962d9d224ba0d6 (MATCHES)   /tmp/mr_mutation_run-_jc8ae8_/w7
+real tree untouched: all 62 target files byte-identical to launch (md5); no build ran in /home/staszek/MeshRoute
+timing: copy 36.9s + battery 373.5s = 410.4s total, 238 entries over 8 worker(s)
+mutations: 238 RED / 0 unusable
+real	6m57.580s
+RED entry lines: 238; non-RED outcome lines: 0; match count 1 on every entry
+ID reconciliation vs MUTS_MODEL (AST): declared 238, executed RED 238, identical sets, M103 neither declared nor executed, 0 duplicates
+exit=0 (step6-model.exit)

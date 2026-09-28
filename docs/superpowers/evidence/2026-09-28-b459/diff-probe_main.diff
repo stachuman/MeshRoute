@@ -1,0 +1,69 @@
+diff --git a/tools/probe_board_ui/probe_main.cpp (base 6cffd422) b/tools/probe_board_ui/probe_main.cpp
+index 20cf339..3e283e1 100644
+--- a/tools/probe_board_ui/probe_main.cpp (base 6cffd422)
++++ b/tools/probe_board_ui/probe_main.cpp
+@@ -22,6 +22,7 @@
+ #include <esp_sleep.h>
+ #include <cstdio>
+ #include <cstring>
++#include <cstdlib>                // [[B459]] getenv — the record file is named by the runner
+ 
+ #ifndef MR_PROBE_V4
+ #  error "MR_PROBE_V4 must identify the trait arm under test"
+@@ -108,10 +109,26 @@ esp_err_t esp_sleep_disable_wakeup_source(esp_sleep_source_t source) {
+ 
+ // ---- tiny harness ------------------------------------------------------------------------------------------------
+ static int g_pass = 0, g_fail = 0;
+-#define CHK(label, expr) do {                                                              \
+-    const bool ok_ = (expr);                                                               \
+-    if (ok_) ++g_pass; else { ++g_fail; printf("  FAIL %-58s  %s\n", (label), #expr); }    \
++// [[B459]] RECORDS, ON REQUEST ONLY. With MR_BOARD_UI_RECORDS naming a file, every check also writes one
++// `<id><TAB><pass|fail>` line there — the id is the label's first token, and a CHK_ITER adds `/<iteration>` — for the
++// runner to account against its manifest. Without it nothing is written, which is what every MUTANT build gets (trait,
++// missing-trait and negctl runs), so a mutant can never answer for a positive identity. The assertion, its printed
++// FAIL line and the tally are unchanged: `#expr` is still stringified where the check is written.
++static FILE* g_rec = nullptr;
++static void rec_chk(const char* label, int iter, bool ok) {
++    if (!g_rec) return;
++    const char* sp = strchr(label, ' ');
++    const int n = sp ? int(sp - label) : int(strlen(label));
++    if (iter < 0) fprintf(g_rec, "%.*s\t%s\n", n, label, ok ? "pass" : "fail");
++    else          fprintf(g_rec, "%.*s/%d\t%s\n", n, label, iter, ok ? "pass" : "fail");
++}
++#define CHK_AT_(label, iter, expr, text) do {                                               \
++    const bool ok_ = (expr);                                                                \
++    if (ok_) ++g_pass; else { ++g_fail; printf("  FAIL %-58s  %s\n", (label), text); }      \
++    rec_chk((label), (iter), ok_);                                                          \
+ } while (0)
++#define CHK(label, expr)            CHK_AT_(label, -1, expr, #expr)
++#define CHK_ITER(label, iter, expr) CHK_AT_(label, iter, expr, #expr)   // a repeated check: ids <id>/0 … <id>/N-1
+ 
+ static void reset_counters() { g_u8 = ProbeU8g2(); g_gpio = ProbeGpio(); g_wire = ProbeWire(); g_wake = ProbeWake(); }
+ 
+@@ -126,6 +143,10 @@ static void probe_scene() {
+ }
+ 
+ int main() {
++    if (const char* path = std::getenv("MR_BOARD_UI_RECORDS")) {   // [[B459]] the runner asked for records
++        g_rec = std::fopen(path, "w");
++        if (!g_rec) { printf("  FAIL [[B459]] cannot open the record file %s\n", path); return 2; }
++    }
+     // ================================================================================================ P1
+     // EDGE-TRIGGERED BLANKING. set_power_save must reach the panel ONCE per transition, never per tick.
+     // Revert the `if (on == s_asleep) return;` latch and this reads 10 instead of 2.
+@@ -170,7 +191,7 @@ int main() {
+     (void)mrui::next_page();                          // 1 of 8 pushed
+     mrui::set_power_save(true);
+     const int at_blank = g_u8.nextPage;
+-    for (int i = 0; i < 10; ++i) CHK("P4a next_page() after blank is false", mrui::next_page() == false);
++    for (int i = 0; i < 10; ++i) CHK_ITER("P4a next_page() after blank is false", i, mrui::next_page() == false);
+     CHK("P4b ... and pushed no further page",          g_u8.nextPage == at_blank);
+     mrui::set_power_save(false);
+ 
+@@ -655,5 +676,6 @@ int main() {
+ 
+     printf("Heltec %s board_ui probe: %d passed / %d failed / %d total\n",
+            MR_PROBE_V4 ? "V4" : "V3", g_pass, g_fail, g_pass + g_fail);
++    if (g_rec) std::fclose(g_rec);
+     return g_fail == 0 ? 0 : 1;
+ }

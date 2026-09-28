@@ -1,0 +1,4 @@
+{
+  "command": "python3 tools/gen_command_inventory.py --check",
+  "exit_code": 0
+}

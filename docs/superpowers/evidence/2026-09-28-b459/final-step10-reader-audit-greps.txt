@@ -1,0 +1,432 @@
+
+=== 1. the changed files, by path — who reads or runs them
+src/firmware_ui_chrome.h:523://     `tools/probe_board_ui/run.sh`'s W3 independently forbids `firmware_ui.cpp` from naming `clear_dirty` at all.
+src/firmware_ui_model.h:2438:// the exact text of the FIRST attempt. `firmware_ui.cpp` must CALL this; `tools/probe_board_ui/run.sh`'s W10 pins it.
+src/fw_main.cpp:1063:    //   display dependency (`tools/probe_board_ui/run.sh` W24 pins that, file-wide, as an executable rule). ⇒ off the
+src/firmware_ui.cpp:24://             native suite, and `tools/probe_board_ui/run.sh`'s W1-W4 pin that this file still CALLS them.
+src/firmware_commands.h:217:// `tools/probe_board_ui/run.sh` W24 enforces it file-wide as an executable check. ⇒ the gate is HERE, in the
+src/firmware_commands.h:232://    `tools/probe_board_ui/run.sh` W24). No such rule applies to an NV store, so the CLIENT arm carries ⛔ no
+test/test_firmware_ui_send.cpp:1065://   `tools/probe_board_ui/run.sh`'s W6 — which carries its own negative control.
+test/test_firmware_team_keyring.cpp:781://      (that the real loop carries this and only this) is pinned by `tools/probe_board_ui/run.sh`'s **W47**.
+test/test_firmware_team_keyring.cpp:784://   (`FW_MAIN` is declared in `probe_board_ui/run.sh` alone). A reader following the wrong pointer would find the
+tools/probe_firmware_ui/run.sh:16:#    `tools/probe_board_ui/run.sh` states at the same spot: this project has already LOST a proven 33-assert scenario
+tools/probe_firmware_ui/run.sh:605:  #     them compile this file. (`tools/probe_board_ui/run.sh` W2 pins the same wiring STRUCTURALLY; this measures it.)
+tools/probe_board_ui/run.sh:22:# USAGE:  tools/probe_board_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_board_ui/run.sh:23:#         tools/probe_board_ui/run.sh --no-neg   # probe only -- NOT a gate, use only while iterating
+tools/test_probe_board_ui.py:3:"""[[B459]] regression for tools/probe_board_ui/run.sh — the board-UI probe's completeness accounting.
+tools/probe_build_identity.py:19:   is a control that never ran (`tools/probe_board_ui/run.sh`, QA 2026-08-04). Nothing under the real `src/` or
+   (11 file(s) for: probe_board_ui/run.sh)
+   (0 file(s) for: probe_board_ui/probe_main.cpp)
+src/firmware_ui_model.h:214://   and its own `probe_main.cpp`, neither of which includes this header (its W35/W36 checks are the rule that they
+test/test_firmware_ui_send.cpp:2368:// ⛔ NOT SHARED WITH THE PROBE's COPY (`tools/probe_firmware_ui/probe_main.cpp`), deliberately and for that file's own
+tools/test_probe_features.py:49:MAIN = PROBE / "probe_main.cpp"
+tools/probe_console_sink/run.sh.orig:53:     -I"$HERE/fakes" -I"$dir" "$HERE/probe_main.cpp" -o "$2" 2>&1
+tools/probe_console_sink/structural.py:9:# asserted against the SOURCE. They are weaker than the behavioural rows in probe_main.cpp and are labelled as such —
+tools/probe_console_sink/structural.py:154:    #   a check whose strong half is behavioural (probe_main.cpp) plus the inventory comparison (run.sh).
+tools/probe_console_sink/structural.py:184:    # ⛔ THE POINT OF THIS ROW: the behavioural rows in probe_main.cpp prove the ROUTER is correct; only this one
+tools/probe_console_sink/negctl.py:9:#   • SINK controls  — mutate a COPY of `src/console_sink.h`, rebuild the REPO's probe_main.cpp against the copy, and
+tools/probe_console_sink/negctl.py:61:PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')      # the REPO's probe, never a scratch copy
+tools/probe_console_sink/run.sh:292:     "$HERE/probe_main.cpp" -o "$3" 2>&1
+tools/test_probe_ble_line.py:33:MAIN = HERE / "probe_ble_line" / "probe_main.cpp"
+tools/probe_inbox_verbs/transcript.py:22:#       · the seam itself is EXECUTED by `probe_main.cpp`'s X-rows (both format arms, real sinks), and
+tools/probe_inbox_verbs/transcript.py:353:    # ⓘ `-Wno-unused-function`: this driver reuses `probe_main.cpp` wholesale (U1) and does not call every fixture
+tools/probe_inbox_verbs/probe_main.cpp:1:// MeshRoute — tools/probe_inbox_verbs/probe_main.cpp
+tools/probe_inbox_verbs/run.sh:225:#   is linked at all) +1 X8b (the `/mrpeers` wear guard, newly OBSERVABLE — see the X8 note in probe_main.cpp).
+tools/probe_inbox_verbs/run.sh:278:  cat "$FW_CMDS" "$FW_INBOX" "$FW_ACK" "$HERE/probe_main.cpp" \
+tools/probe_inbox_verbs/run.sh:310:  #    probe merely includes, not from `probe_main.cpp`, and neither is §CUSTODY-D's to fix:
+tools/probe_inbox_verbs/run.sh:316:  #    ⓘ Both are compiled-in HEADERS, so they cannot be scoped away by moving code. Everything `probe_main.cpp`
+tools/probe_inbox_verbs/run.sh:319:       "${DEFS[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" \
+tools/probe_inbox_verbs/run.sh:332:  local router=$1 handler=$2 shadowdir=$3 bin=$4 probe=${5:-"$HERE/probe_main.cpp"}
+tools/probe_inbox_verbs/run.sh:401:  local router="$FW_CMDS" handler="$FW_INBOX" shadowdir="" probe="$HERE/probe_main.cpp"
+tools/probe_inbox_verbs/run.sh:416:    probe)   sed "$script" "$HERE/probe_main.cpp" > "$OUT/mutant_probe.cpp"; probe="$OUT/mutant_probe.cpp"
+tools/probe_inbox_verbs/run.sh:417:             cmp -s "$HERE/probe_main.cpp" "$probe" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+tools/probe_inbox_verbs/run.sh:423:    #    INCLUDING FILE'S OWN DIRECTORY FIRST, so a lone `$OUT/shadow/device_nv.h` is picked up by `probe_main.cpp`
+tools/probe_inbox_verbs/run.sh:436:    #    directory first, so a lone shadow header would be picked up by `probe_main.cpp` while the production TUs
+tools/probe_inbox_verbs/transcript_main.cpp:13://     X-rows of `probe_main.cpp` in this same directory, and (b) the STRUCTURAL adapter pins in
+tools/probe_inbox_verbs/transcript_main.cpp:25:// ⓘ THE FIXTURES ARE `probe_main.cpp`'S, NOT A SECOND SET (U1). This file `#include`s it with `MR0C_NO_MAIN`, so
+tools/probe_inbox_verbs/transcript_main.cpp:35:#include "probe_main.cpp"       // the fixtures + the real device context (U1: one fixture authority)
+tools/probe_inbox_verbs/transcript_main.cpp:144:    //   counters are `probe_main.cpp`'s and are printed (at zero) so the reader can see that no CHK row ran here
+tools/probe_inbox_verbs/fakes/Preferences.h:14://    calls the methods below, and every verdict about the RESULT is asserted in `probe_main.cpp`.
+tools/probe_deferred_actions/run.py:168:    watched=[ROOT/p for p in ('src/fw_main.cpp','src/firmware_commands.cpp','src/device_ota.cpp','src/device_ota.h','src/firmware_action_effects.h','tools/probe_inbox_verbs/probe_m
+tools/probe_deferred_actions/probe.cpp:4:#include "../probe_inbox_verbs/probe_main.cpp"
+tools/probe_firmware_ui/probe_main.cpp:1:// MeshRoute — tools/probe_firmware_ui/probe_main.cpp
+tools/probe_firmware_ui/run.sh:22:#    stale — `git ls-files` now lists `tools/probe_firmware_ui/probe_main.cpp` and `run.sh`, so the file IS tracked and
+tools/probe_firmware_ui/run.sh:172:# ⚠ THE ARMS ASSERT THEIR OWN EXPECTATIONS FROM ONE SOURCE: `probe_main.cpp` carries the matching `#if MR_N_LAYERS < 2`
+tools/probe_firmware_ui/run.sh:190:  cat "$FW_UI" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" "$ROOT/src/fw_context_pure.h" \
+tools/probe_firmware_ui/run.sh:225:  "$CXX" "${STD[@]}" -Wall -Wextra -Werror "${defs[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" \
+tools/probe_firmware_ui/run.sh:232:# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it — and the
+tools/probe_firmware_ui/run.sh:234:#   adapter a POISONED destination of its own (P28). ⇒ every build that links `probe_main.cpp` compiles, in place of the
+tools/probe_firmware_ui/run.sh:292:# requires the probe to pass THERE TOO; `probe_main.cpp` carries the matching `#if`, so one source asserts both arms.
+tools/probe_firmware_ui/run.sh:295:ui_wrapper "$FW_UI" "$OUT/fw_ui_ble_wrap.cpp"   # [[B241]]: this arm links probe_main.cpp too, so it takes the wrapper
+tools/probe_firmware_ui/run.sh:297:        -c "$HERE/probe_main.cpp" -o "$OUT/probe_main_ble.o" 2>"$OUT/ble.log" \
+tools/probe_firmware_ui/run.sh:337:# ⇒ `CHK`'s own 64-character note in `probe_main.cpp` is corrected in place with this (V1: fix the comments you touch).
+tools/probe_firmware_ui/run.sh:445:# ★ THE PROBE'S OWN CONTRACT MAKES THE RULE EXACT: `probe_main.cpp`'s `main` ends `return g_fail == 0 ? 0 : 1;` —
+tools/probe_board_ui/accounting.py:5:# the arm-preprocessed `probe_main.cpp` and `negctl.py`'s two lists — and prints every declared identity with its
+tools/probe_board_ui/accounting.py:24:#   · probe — the preprocessed text of `probe_main.cpp` itself (line markers select it), directives skipped:
+tools/probe_board_ui/accounting.py:193:        if cur != 'probe_main.cpp' or re.match(r'^\s*#', line): continue
+tools/probe_board_ui/negctl.py:9:#       `probe_main.cpp`/`probe_ctl` — so it ignored the paths its runner passed and would keep "passing" off files
+tools/probe_board_ui/negctl.py:35:PROBE_MAIN = os.path.join(HERE, 'probe_main.cpp')     # the REPO's probe, never a scratch copy
+tools/probe_board_ui/run.sh:63:     "$HERE/probe_main.cpp" "$2" -o "$3" 2>&1
+tools/probe_board_ui/run.sh:212:     "$HERE/probe_main.cpp" -o "$OUT/probe_v3.i" || return 1
+tools/probe_board_ui/run.sh:215:     "$HERE/probe_main.cpp" -o "$OUT/probe_v4.i" || return 1
+tools/probe_board_ui/fakes/Arduino.h:6://   `F()`, `Serial` — is added below as HEADER-ONLY (`inline`), so `probe_board_ui`'s probe_main.cpp defines nothing
+tools/probe_features/envmap.py:13:   value; it maps envs to cell NAMES. The values are asserted by `probe_main.cpp` against the runner's ruled table.
+tools/probe_features/probe_main.cpp:1:// MeshRoute — tools/probe_features/probe_main.cpp
+tools/probe_features/probe_main.cpp:25://   g++ -DPROBE_CELL='"board_static_oled0"' -DPROBE_HDR_HASH=0x...ULL -DEXP_TEAM=1 ... probe_main.cpp
+tools/probe_features/run.sh:24:#   • NINE configuration cells, each host-compiling the REAL header and EXECUTING `probe_main.cpp`, which asserts
+tools/probe_features/run.sh:115:  cat "$HDR" "$HERE/probe_main.cpp" "$HERE/envmap.py" "$MUTATE" "$OWNERSHIP" "$ROOT/platformio.ini" \
+tools/probe_features/run.sh:120:# FNV-1a-64 of a file — the runner's half of the source-integrity pin. `probe_main.cpp` recomputes it in C++ over
+tools/probe_features/run.sh:233:      "${pre[@]}" -I"$ROOT/lib/core" "$HERE/probe_main.cpp" -o "$bin" 2>>"$OUT/build.log"
+tools/test_probe_board_ui.py:387:        self.assertCensusRejects({"probe_main.cpp": lambda s: once_re(s, r'\n    CHK\("P1b [^\n]*', "")},
+tools/probe_custody_usb/probe_main.cpp:1:// MeshRoute — tools/probe_custody_usb/probe_main.cpp
+tools/probe_custody_usb/run.sh:90:  cat "$HELPER" "$FWMAIN" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" \
+tools/probe_custody_usb/run.sh:121:  "$CXX" "${STD[@]}" -Wall -Wextra -Werror "${pre[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" \
+tools/probe_ble_line/probe_main.cpp:1:// MeshRoute — tools/probe_ble_line/probe_main.cpp
+tools/probe_ble_line/run.sh:97:  cat "$HDR" "$ROOT/src/device_rng.h" "$HERE/probe_main.cpp" "$HERE/fakes/bluefruit.h" "$HERE/fakes/nrf.h" "$HERE/fakes/nrf_soc.h" \
+tools/probe_ble_line/run.sh:132:       "${pre[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" -o "$OUT/probe_main.o" 2>>"$OUT/build.log" \
+tools/probe_device_radio/run.sh:28:            "$BOARD_RF" "$BOARD_RF_H" "$FW_MAIN" "$FW_CONFIG" "$FW_COMMANDS" "$PIO_INI" "$HERE/probe_main.cpp" "$HERE/board_rf_probe.cpp" \
+tools/probe_device_radio/run.sh:42:"$CXX" "${COMMON[@]}" "$HERE/probe_main.cpp" "$OUT/frame_codec.o" "$OUT/leaf_config.o" "$OUT/monocypher.o" \
+tools/probe_device_radio/run.sh:60:  python3 "$HERE/mutations.py" "$ROOT" "$OUT" "$CXX" "$DEVICE" "$FW_MAIN" "$HERE/probe_main.cpp" "$SUPPORT" || exit 1
+tools/test_probe_custody_usb.py:32:MAIN = HERE / "probe_custody_usb" / "probe_main.cpp"
+   (31 file(s) for: probe_main.cpp)
+tools/probe_console_sink/run.sh.orig:96:  [ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
+tools/probe_console_sink/run.sh.orig:98:  python3 "$HERE/negctl.py" "$OUT" "$CXX" "$SINK" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
+tools/probe_console_sink/structural.py:280:    #    a negative control in negctl.py.
+tools/probe_console_sink/structural.py:411:    # must not turn an absence-only check green, and each controlled mutation in negctl.py names the row it reddens.
+tools/probe_console_sink/structural.py:484:    #    labelled class as S10/S11/S17..S29 above, and each has a deliberate sabotage control in `negctl.py`.
+tools/probe_console_sink/structural.py:725:    # independently executed by inbox-verbs. Each row below has a source-copy sabotage in negctl.py.
+tools/probe_console_sink/negctl.py:36:    sys.exit('usage: negctl.py <scratch> <cxx> <sink.h> <cmds.cpp> <cmds.h> <fw_main.cpp> <firmware_help.h> '
+tools/probe_console_sink/run.sh:129:#         ⛔ NOT ONE of S1..S29 moved. Each new row has a deliberate sabotage control in negctl.py.
+tools/probe_console_sink/run.sh:404:[ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
+tools/probe_console_sink/run.sh:406:python3 "$HERE/negctl.py" "$OUT" "$CXX" "$SINK" "$ROOT/src/firmware_commands.cpp" "$ROOT/src/firmware_commands.h" \
+tools/probe_board_ui/accounting.py:5:# the arm-preprocessed `probe_main.cpp` and `negctl.py`'s two lists — and prints every declared identity with its
+tools/probe_board_ui/accounting.py:32:# Usage: accounting.py census <run.sh> <probe_v3.i> <probe_v4.i> <negctl.py>
+tools/probe_board_ui/accounting.py:231:    if set(lists) != {'MUT_V3', 'MUT_V4'}: raise Unsupported('negctl.py does not declare both MUT_V3 and MUT_V4')
+tools/probe_board_ui/accounting.py:244:        sys.exit('usage: accounting.py census <run.sh> <probe_v3.i> <probe_v4.i> <negctl.py>')
+tools/probe_board_ui/negctl.py:18:    sys.exit('usage: negctl.py <path/to/board_ui.cpp> <scratch-dir> [cxx] [flags...]')
+tools/probe_board_ui/run.sh:79:#      directly; the two positive canvas runs and `negctl.py` through a record file this runner names and imports.
+tools/probe_board_ui/run.sh:217:     "$HERE/negctl.py" > "$OUT/declared.tsv" || return 1
+tools/probe_board_ui/run.sh:1646:  [ -f "$HERE/negctl.py" ] || { echo "negctl.py missing"; exit 1; }
+tools/probe_board_ui/run.sh:1648:  MR_BOARD_UI_NEGCTL_RECORDS="$OUT/negctl_v3.rec" python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
+tools/probe_board_ui/run.sh:1656:  python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
+tools/probe_board_ui/fakes/U8g2lib.h:27:    //   build is a weaker control than one that builds and is caught — negctl.py prints "COMPILE FAILS" and moves on,
+tools/test_probe_board_ui.py:389:        self.assertCensusRejects({"negctl.py": lambda s: drop_entry(s, " ('C1 ", " ('C2 ")}, "negctl/v3/C1")
+tools/test_probe_board_ui.py:420:        rc, out = self.run_copy({"negctl.py": lambda s: once(s, "in enumerate(MUT):", "in enumerate(MUT[1:]):")})
+   (9 file(s) for: negctl.py)
+tools/probe_firmware_ui/run.sh:61:#   the final set comparison — lives in `tools/probe_accounting.sh`, found by an absolute path from the repository
+tools/probe_firmware_ui/run.sh:64:PA_LIB="$ROOT/tools/probe_accounting.sh"
+tools/probe_firmware_ui/run.sh:92:#   shared `tools/probe_accounting.sh`; what stays HERE is this runner's own: the `ctl` extractor and its call-count
+tools/probe_board_ui/accounting.py:8:# ⛔ IT COMPARES NOTHING (U1). The runner hands this list to the ONE shared comparator (`tools/probe_accounting.sh`,
+tools/probe_board_ui/run.sh:82:#      the guard ledger, through the SHARED comparator (`tools/probe_accounting.sh`). A missing, duplicate or unknown
+tools/probe_board_ui/run.sh:90:PA_LIB="$ROOT/tools/probe_accounting.sh"
+tools/test_probe_firmware_ui.py:31:LIBRARY = Path(__file__).resolve().parent / "probe_accounting.sh"   # [[B459]] the shared comparator the runner sources
+tools/test_probe_firmware_ui.py:161:            # [[B459]] the copy's `$ROOT/tools/probe_accounting.sh` is the REAL shared comparator, by an explicit link
+tools/test_probe_firmware_ui.py:162:            (copy_dir.parent / "probe_accounting.sh").symlink_to(LIBRARY)
+tools/test_probe_board_ui.py:10:    explicit mechanism by which a copy resolves `tools/probe_accounting.sh`) prove the static census and, with a few
+tools/test_probe_board_ui.py:40:LIBRARY = TOOLS / "probe_accounting.sh"
+tools/test_probe_board_ui.py:321:                    (tools / "probe_accounting.sh").symlink_to(LIBRARY)      # the REAL shared comparator
+tools/test_probe_board_ui.py:338:        (tools / "probe_accounting.sh").symlink_to(LIBRARY)
+tools/probe_accounting.sh:3:# tools/probe_accounting.sh — THE SHARED COMPLETENESS COMPARATOR for the probe runners ([[B456]] → [[B459]]).
+tools/probe_accounting.sh:5:#   (`source "$ROOT/tools/probe_accounting.sh"`), and fails loudly — its own message, exit 2 — if it is not there.
+   (6 file(s) for: probe_accounting.sh)
+tools/probe_firmware_ui/run.sh:108:account_controls() {   # account_controls <expected.tsv> <declared-call-count> <verdicts.tsv> <guards> <gate|no-neg>
+tools/probe_firmware_ui/run.sh:127:controls_final() {   # controls_final <expected.tsv> <declared-call-count> <gate|no-neg> — ONE call site for both modes
+tools/probe_firmware_ui/run.sh:131:  # ⓘ THE SYNTHETIC STREAM: <dir>/expected.tsv (the extractor's output), <dir>/calls (its declared-call count) and
+tools/probe_firmware_ui/run.sh:145:  controls_final "$st_dir/expected.tsv" "$(cat "$st_dir/calls")" "$st_mode"
+tools/probe_firmware_ui/run.sh:395:expected_controls "$B227_SELF" > "$OUT/ctl_expected.tsv"   # [[B456]] the EXPECTED set: declared, never observed
+tools/probe_firmware_ui/run.sh:2030:  controls_final "$OUT/ctl_expected.tsv" "$b227_calls" no-neg
+tools/probe_firmware_ui/run.sh:2035:controls_final "$OUT/ctl_expected.tsv" "$b227_calls" gate
+tools/probe_board_ui/expected.tsv:1:# tools/probe_board_ui/expected.tsv — [[B459]] THE BOARD-UI PROBE'S IDENTITY MANIFEST.
+tools/probe_board_ui/accounting.py:9:#   `pa_compare`) with the checked-in manifest (`expected.tsv`) as the expected set, exactly as the run's own
+tools/probe_board_ui/run.sh:73:#   1. the EXPECTED set is the checked-in manifest `expected.tsv` — every identity, each with its ONE accepted outcome.
+tools/probe_board_ui/run.sh:95:MANIFEST="$HERE/expected.tsv"
+tools/probe_board_ui/run.sh:181:  # ⓘ SYNTHETIC. <dir>/expected.tsv is the expected set and <dir>/events one `kind<TAB>args…` line per event, replayed
+tools/probe_board_ui/run.sh:201:  board_final "$st_mode" "$st_dir/expected.tsv"
+tools/probe_board_ui/run.sh:208:echo "== [[B459]] static declaration census (what the source declares, against expected.tsv) =="
+tools/test_probe_firmware_ui.py:57:            (dd / "expected.tsv").write_text("".join(f"{l}\t{mb}\n" for l, mb in expected))
+tools/test_probe_board_ui.py:39:MANIFEST = PROBE_DIR / "expected.tsv"
+tools/test_probe_board_ui.py:105:            (dd / "expected.tsv").write_text("".join(f"{i}\t{o}\n" for i, o in expected))
+tools/test_probe_board_ui.py:392:        self.assertCensusRejects({"expected.tsv": lambda s: once(s, "\nwiring/W1\tpass\n", "\n")},
+   (6 file(s) for: expected.tsv)
+   (0 file(s) for: probe_board_ui/accounting.py)
+src/firmware_ui.cpp:182://   BOTH arms (`settings_rows(true, …)` / `(false, …)`) and `tools/probe_firmware_ui/run.sh` builds a second variant
+src/firmware_ui.cpp:2703:    // ⓘ ONE ARM PER LINE, WITH ITS OWN `return`, and that is not style: `tools/probe_firmware_ui/run.sh`'s controls
+test/test_firmware_ui_send.cpp:2650://     drain loop's own shape, and its source form is pinned by `tools/probe_firmware_ui/run.sh`.
+test/test_custody_internal_d.cpp:683:// controls are `tools/probe_firmware_ui/run.sh`'s). Identical in shape to §CUSTODY-C's mirror, deliberately: what
+test/test_custody_internal_c.cpp:41://   simulator (§B115), so the SHIPPED callback's controls are `tools/probe_firmware_ui/run.sh`'s. What this
+test/test_firmware_team_keyring.cpp:782:// ⚠ THE ATTRIBUTION ABOVE WAS DRIFTED AND IS CORRECTED (V1, 2026-08-25): it read *"`tools/probe_firmware_ui/run.sh`'s
+tools/probe_firmware_ui/probe_main.cpp:1156:        //    now `tools/probe_firmware_ui/run.sh` did not compile at all (`-Werror=switch`, both arms), so the ONE
+tools/probe_firmware_ui/run.sh:27:# USAGE:  tools/probe_firmware_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_firmware_ui/run.sh:28:#         tools/probe_firmware_ui/run.sh --no-neg   # probe only — NOT a gate, use only while iterating; it SAYS so
+tools/probe_firmware_ui/run.sh:29:#         tools/probe_firmware_ui/run.sh --selftest-accounting <dir> [--no-neg]
+tools/test_probe_firmware_ui.py:3:"""[[B456]] regression for tools/probe_firmware_ui/run.sh — the control-completeness accounting.
+tools/probe_ui_model_mutations.py:223:    #    NOT here — it lives in `src/firmware_ui.cpp` and its controls are `tools/probe_firmware_ui/run.sh`'s
+tools/probe_ui_model_mutations.py:413:    #        `tools/probe_firmware_ui/run.sh`'s **CC2** (measured RED, 3 checks). Same trade the `busy`
+   (9 file(s) for: probe_firmware_ui/run.sh)
+tools/probe_firmware_ui/run.sh:31:#                                                   #   no build, no mutant; `tools/test_probe_firmware_ui.py` drives it
+tools/probe_firmware_ui/run.sh:89:#   `tools/test_probe_firmware_ui.py` asserts its exit status per case, including that removing that ONE call lets a
+tools/test_probe_firmware_ui.py:18:RUN:  python3 -m unittest discover -s tools -p "test_*.py"     (or: cd tools && python3 test_probe_firmware_ui.py)
+   (2 file(s) for: test_probe_firmware_ui)
+tools/test_probe_board_ui.py:22:RUN:  python3 -m unittest discover -s tools -p "test_*.py"     (or: cd tools && python3 test_probe_board_ui.py)
+   (1 file(s) for: test_probe_board_ui)
+
+=== 2. the environment variables that carry records
+tools/probe_board_ui/negctl.py:357:CHILD_ENV = {k: v for k, v in os.environ.items() if k not in ('MR_BOARD_UI_RECORDS', 'MR_BOARD_UI_NEGCTL_RECORDS')}
+tools/probe_board_ui/probe_main.cpp:112:// [[B459]] RECORDS, ON REQUEST ONLY. With MR_BOARD_UI_RECORDS naming a file, every check also writes one
+tools/probe_board_ui/probe_main.cpp:146:    if (const char* path = std::getenv("MR_BOARD_UI_RECORDS")) {   // [[B459]] the runner asked for records
+tools/probe_board_ui/run.sh:100:unset MR_BOARD_UI_RECORDS MR_BOARD_UI_NEGCTL_RECORDS   # ⛔ a record file is named per positive run, never inherited
+tools/probe_board_ui/run.sh:233:MR_BOARD_UI_RECORDS="$OUT/canvas_v3.rec" "$OUT/probe_v3"; rc=$?
+tools/probe_board_ui/run.sh:242:MR_BOARD_UI_RECORDS="$OUT/canvas_v4.rec" "$OUT/probe_v4"; v4_rc=$?
+tools/test_probe_board_ui.py:430:                                'MR_BOARD_UI_RECORDS="$OUT/canvas_v4.rec" "$OUT/probe_v4"', '"$OUT/probe_v4"')
+   (4 file(s) for: MR_BOARD_UI_RECORDS)
+tools/probe_board_ui/negctl.py:351:#   used to be printed as "controls run" even when the loop had skipped some. With MR_BOARD_UI_NEGCTL_RECORDS naming a
+tools/probe_board_ui/negctl.py:356:RECORDS = os.environ.get('MR_BOARD_UI_NEGCTL_RECORDS')
+tools/probe_board_ui/negctl.py:357:CHILD_ENV = {k: v for k, v in os.environ.items() if k not in ('MR_BOARD_UI_RECORDS', 'MR_BOARD_UI_NEGCTL_RECORDS')}
+tools/probe_board_ui/run.sh:100:unset MR_BOARD_UI_RECORDS MR_BOARD_UI_NEGCTL_RECORDS   # ⛔ a record file is named per positive run, never inherited
+tools/probe_board_ui/run.sh:1648:  MR_BOARD_UI_NEGCTL_RECORDS="$OUT/negctl_v3.rec" python3 "$HERE/negctl.py" "$CANVAS/board_ui.cpp" "$OUT" "$CXX" \
+tools/probe_board_ui/run.sh:1655:  MR_BOARD_UI_NEGCTL_RECORDS="$OUT/negctl_v4.rec" MR_BOARD_UI_NEGCTL_ARM=v4 \
+   (2 file(s) for: MR_BOARD_UI_NEGCTL_RECORDS)
+tools/probe_board_ui/negctl.py:346:ARM = os.environ.get('MR_BOARD_UI_NEGCTL_ARM', 'v3')
+tools/probe_board_ui/negctl.py:348:    sys.exit(f'unknown MR_BOARD_UI_NEGCTL_ARM={ARM!r}; expected v3 or v4')
+tools/probe_board_ui/run.sh:1655:  MR_BOARD_UI_NEGCTL_RECORDS="$OUT/negctl_v4.rec" MR_BOARD_UI_NEGCTL_ARM=v4 \
+   (2 file(s) for: MR_BOARD_UI_NEGCTL_ARM)
+
+=== 3. the changed and new output lines
+tools/probe_prov_tx/probe.py:21:# USAGE:  tools/probe_prov_tx/run.sh          # checks + the negative controls (the controls run BY DEFAULT)
+tools/probe_prov_tx/run.sh:16:# USAGE:  tools/probe_prov_tx/run.sh          # the checks AND the negative controls (the controls run BY DEFAULT)
+tools/probe_console_sink/run.sh.orig:19:# USAGE:  tools/probe_console_sink/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_console_sink/run.sh.orig:21:# ⚠ The controls run by default DELIBERATELY: a previous probe documented them as "not optional" while the standard
+tools/probe_console_sink/negctl.py:463:#   compiles it, so those controls run on the reduced profile the owner's rule is actually about.
+tools/probe_console_sink/negctl.py:1285:      f'{n_radmin3} radmin3 + {n_radmin4} radmin4 controls run '
+tools/probe_console_sink/run.sh:30:# USAGE:  tools/probe_console_sink/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_console_sink/run.sh:32:# ⚠ The controls run by default DELIBERATELY: a previous probe documented them as "not optional" while the standard
+tools/probe_inbox_verbs/run.sh:36:# USAGE:  tools/probe_inbox_verbs/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_inbox_verbs/run.sh:38:# ⚠ The controls run by default DELIBERATELY (the sibling probe's trap: controls documented as "not optional" while
+tools/probe_firmware_ui/run.sh:27:# USAGE:  tools/probe_firmware_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_firmware_ui/run.sh:32:# ⚠ The controls run by default DELIBERATELY. The sibling probe documented its controls as "not optional" while the
+tools/probe_board_ui/negctl.py:331:# V4-1's new source arm is deliberately tiny, but each of its three state writes is load-bearing. These controls run
+tools/probe_board_ui/negctl.py:351:#   used to be printed as "controls run" even when the loop had skipped some. With MR_BOARD_UI_NEGCTL_RECORDS naming a
+tools/probe_board_ui/negctl.py:395:print(f'\nreal source verified UNCHANGED; {len(done)} {ARM.upper()} controls run')
+tools/probe_board_ui/run.sh:22:# USAGE:  tools/probe_board_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_board_ui/run.sh:24:# ⚠ The controls run by default DELIBERATELY: the previous version documented them as "not optional" while the
+tools/probe_features/run.sh:44:# USAGE:  tools/probe_features/run.sh            # matrix + ALL controls (the controls run BY DEFAULT)
+tools/test_probe_board_ui.py:423:        self.assertIn("real source verified UNCHANGED; 59 V3 controls run", out)
+tools/probe_custody_usb/run.sh:32:# USAGE:  tools/probe_custody_usb/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_custody_usb/run.sh:34:# ⚠ The controls run by default DELIBERATELY (the sibling probes' documented trap: controls described as "not
+tools/probe_ble_line/run.sh:35:# USAGE:  tools/probe_ble_line/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
+tools/probe_ble_line/run.sh:37:# ⚠ The controls run by default DELIBERATELY (the sibling probes' documented trap: controls described as "not
+   (13 file(s) for: controls run)
+tools/probe_board_ui/run.sh:153:  pa_compare "$expected" "$OBS" "$GUARDS" '[[B459]]' 'probe identity' 'its recorder' 'identities accounted' || rc=1
+tools/test_probe_board_ui.py:42:                        "'identities accounted' || rc=1")
+tools/test_probe_board_ui.py:137:        self.assertIn(f"identities accounted: {len(manifest())} declared, {len(manifest())} exactly once", out)
+tools/test_probe_board_ui.py:290:        self.assertIn(f"identities accounted: {len(rows)} declared, {len(rows)} exactly once", out)
+   (2 file(s) for: identities accounted)
+tools/probe_board_ui/run.sh:221:             'a declaration in the source' 'declarations census'
+tools/test_probe_board_ui.py:414:        self.assertIn(f"declarations census: {n} declared, {n} exactly once with the accepted outcome, 0 guard failure(s)", out)
+   (2 file(s) for: declarations census)
+tools/test_probe_features.py:337:        self.assertIn("PROBE-ONLY — NOT A GATE", self.probe_only.stdout)
+tools/probe_console_sink/run.sh:390:  # ⚠ VISIBLY PROBE-ONLY, AND IT NEVER PRINTS PASS. A previous probe documented its controls as "not optional" while
+tools/probe_console_sink/run.sh:393:  echo "PROBE-ONLY (negative controls SKIPPED) — this is NOT a gate result. Re-run without --no-neg."
+tools/test_probe_ble_line.py:147:        self.assertIn("PROBE-ONLY — NOT A GATE", self.probe_only.stdout)
+tools/probe_inbox_verbs/run.sh:870:  if [ "$rc" -eq 0 ]; then echo "PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)"
+tools/test_probe_console_sink.py:274:        self.assertIn("PROBE-ONLY", self.noneg.stdout)
+tools/probe_firmware_ui/probe_main.cpp:212:// ★★★★ [[B241]] (W1) — THE ONE PROBE-ONLY DOOR INTO A FILE-LOCAL FUNCTION. `label_from_hash` sits in
+tools/probe_board_ui/run.sh:96:NO_NEG_BANNER="PROBE-ONLY — NOT A GATE (--no-neg: canvas mutation controls skipped)"
+tools/probe_features/run.sh:567:  if [ "$rc" -eq 0 ]; then echo "PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)"
+tools/test_probe_board_ui.py:43:BANNER = "PROBE-ONLY — NOT A GATE (--no-neg: canvas mutation controls skipped)"
+tools/probe_custody_usb/run.sh:293:  if [ "$rc" -eq 0 ]; then echo "PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)"
+tools/probe_ble_line/run.sh:313:  if [ "$rc" -eq 0 ]; then echo "PROBE-ONLY — NOT A GATE (controls skipped; run without --no-neg to gate)"
+tools/test_probe_custody_usb.py:112:        self.assertIn("PROBE-ONLY — NOT A GATE", self.probe_only.stdout)
+   (12 file(s) for: PROBE-ONLY)
+tools/probe_board_ui/run.sh:166:    END { printf "wiring predicate exits: live"; for (e in l) printf " %d x exit %s", l[e], e
+   (1 file(s) for: wiring predicate exits)
+tools/probe_board_ui/run.sh:170:    echo "negctl: $(grep -c '^negctl/' "$2") identities SKIPPED by mode (--no-neg), and any negctl observation fails the run"
+tools/test_probe_board_ui.py:292:        self.assertIn(f"negctl: {n_neg} identities SKIPPED by mode (--no-neg)", out)
+   (2 file(s) for: SKIPPED by mode)
+tools/probe_board_ui/run.sh:289:echo "traits:      $trait_pass passed / $trait_fail failed / $((trait_pass+trait_fail)) controls verified RED"
+   (1 file(s) for: traits:)
+lib/core/node_mobile.cpp:908:        // §MH-S4 was missing: it spent a re-CLAIM on this very line, in the same callback as the probe, so the
+src/firmware_ui_model.h:2240:        case HomeProfile::key_missing:
+src/firmware_config.cpp:1384:        case mrfw::GrantArgs::missing:
+test/test_firmware_ui_model.cpp:10535:        case HomeProfile::key_missing: s.team_id = 0x66C0FFEEu; s.my_team_id = 7; break;   // an ID too: the key outranks it
+tools/vendor_meshcore.sh:43:    echo "ERROR: expected upstream file missing: $s" >&2
+tools/probe_board_abi.py:499:        if missing:
+tools/meshroute_lab.py:52:    if missing:
+tools/fading_from_logs.py:466:        if missing:
+tools/probe_b278_row_abi.py:331:    if missing:
+tools/dm_delivery_breakdown.py:1984:            print(f"  {r['origin']} -> {r['dst']}   intended-but-missing: {r['unsent']}")
+tools/compare_corpus_slice_g.py:246:    if missing:
+tools/probe_firmware_ui/probe_main.cpp:6579:            //      because their CONTROLS said so rather than because a reviewer felt they were missing: without
+tools/probe_firmware_ui/run.sh:66:  echo "FATAL: the shared accounting library is missing: $PA_LIB — nothing can be accounted, so nothing runs"; exit 2
+tools/probe_board_ui/run.sh:92:  echo "FATAL: the shared accounting library is missing: $PA_LIB — nothing can be accounted, so nothing runs"; exit 2
+tools/probe_board_ui/run.sh:321:echo "missing:     $missing_pass passed / $missing_fail failed / $((missing_pass+missing_fail)) controls failed loud"
+tools/probe_features/ownership.py:790:            elif missing:
+tools/probe_ui_model_mutations.py:12508:        if missing:
+tools/test_dm_delivery_breakdown.py:1528:                  f"{name}: every logical_* key present in totals (missing: {missing}) — an absent "
+tools/probe_device_radio/mutations.py:51:            raise ValueError(f"marker missing: {marker!r}")
+tools/probe_device_radio/mutations.py:54:            raise ValueError(f"target after marker missing: {old!r}")
+tools/test_gen_command_inventory.py:812:            G.primary_names(rows, {"MR_HELP_HAS_MOBILE": 1})   # MR_FEAT_WIDGET missing: refuse, never assume 0
+tools/check_a0_matrix.py:267:        print(f"FAIL: the A0 matrix is missing: {MATRIX.relative_to(ROOT)}")
+   (20 file(s) for: missing:)
+lib/core/node_mac_rx.cpp:1404:        //   (5) normal DATA, not channel M/FLOOD-> structural: a channel message is an M frame and never reaches
+src/firmware_ui_send.h:617:    // ⛔ DO NOT "FIX" IT BY WIDENING THE ROUTER TO `msg_recv`. Two reasons, both structural:
+test/test_remote_codec.cpp:4918:        case Bound::structural: return "structural";
+tools/probe_prov_tx/run.sh:6:# WHY IT IS NOT A `pio` ENV, and why the checks are structural: `src/firmware_config.cpp` is compiled by NEITHER the
+tools/probe_console_sink/structural.py:904:    print(f'   structural: {len(rows) - bad} passed / {bad} failed / {len(rows)} total')
+tools/probe_console_sink/run.sh:421:   | sed -n 's/.*structural: [0-9]* passed \/ [0-9]* failed \/ \([0-9]*\) total.*/\1/p')
+tools/probe_firmware_ui/probe_main.cpp:2158:            // (c) a NON-COVERED write raises NOTHING — the negative half, and it is structural: the hook extracts
+tools/probe_board_ui/run.sh:365:#   `open` and `next_page` arms now SHARE a single tail, so "drawn on every page" is structural: there is exactly ONE
+tools/probe_board_ui/run.sh:1638:echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
+tools/probe_ble_line/probe_main.cpp:162:    // ---- the derivation is structural: no naked literal may control admission ----------------------------------------
+tools/gen_command_inventory.py:28:#    The model below is structural: every recognised comparison site is attributed to its enclosing FUNCTION, its
+   (10 file(s) for: structural:)
+test/test_identity.cpp:5:// the seed-not-wiped contract, and the crypto that MUST be right before any device wiring:
+tools/probe_board_ui/run.sh:1639:echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
+   (2 file(s) for: wiring:)
+tools/probe_console_sink/run.sh.orig:95:  echo "== negative controls (each MUST fail) =="
+tools/probe_console_sink/run.sh:403:echo "== negative controls (each MUST fail) =="
+tools/probe_board_ui/run.sh:1645:  echo "== negative controls (each MUST fail) =="
+   (3 file(s) for: == negative controls (each MUST fail) ==)
+tools/probe_board_ui/run.sh:1654:  echo "== V4 fixed-ADC source controls (each MUST fail) =="
+   (1 file(s) for: V4 fixed-ADC source controls)
+
+=== 4. the changed functions and their callers
+tools/probe_board_ui/accounting.py:18:#     `schk "<id>" …` at any indentation, <id> literal (`S1`), or `S<k>/$<var>` / `S<k>/${<var>%%|*}` inside a
+tools/probe_board_ui/accounting.py:142:        m = re.match(r'^\s*schk "([^"]*)" ', line)
+tools/probe_board_ui/accounting.py:150:                _, words = enclosing(loop, var.group(2), n, f'schk "{tmpl}"')
+tools/probe_board_ui/accounting.py:157:                raise Unsupported(f'line {n}: schk identity {tmpl!r} is not a recognised shape')
+tools/probe_board_ui/run.sh:349:  schk "S1" "S1 board_ui.o defines NO mr_ui_* symbol (got $defined)" "[ '$defined' -eq 0 ]"
+tools/probe_board_ui/run.sh:355:  schk "S2/$h" "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
+tools/probe_board_ui/run.sh:360:schk "S2b" "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui_allows_sleep\\(' '$FW_UI'"
+tools/probe_board_ui/run.sh:373:  schk "S3/${s3%%|*}" "S3 exactly one '$pat' in the tick (got $(grep -cF "$pat" "$FW_UI"))" \
+tools/probe_board_ui/run.sh:382:schk "S4a" "S4a board_ui.h #includes no firmware_ui_model.h" \
+tools/probe_board_ui/run.sh:384:schk "S4b" "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
+tools/probe_board_ui/run.sh:387:schk "S5" "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
+tools/probe_board_ui/run.sh:406:  schk "S6/$nm" "S6 -D${nm} mirrors [env:heltec_v3] (env x$n_env='${v_env:-<none>}' probe='${v_prb:-<none>}')" \
+   (2 file(s) for: schk )
+tools/probe_firmware_ui/run.sh:77:# ★ THE CONTRACT (pre-check §9, brief §2.8), all four halves enforced by `account_controls`:
+tools/probe_firmware_ui/run.sh:94:#   the selftest mode, the counters and every line of output. `account_controls` is kept as the adapter's name.
+tools/probe_firmware_ui/run.sh:108:account_controls() {   # account_controls <expected.tsv> <declared-call-count> <verdicts.tsv> <guards> <gate|no-neg>
+tools/probe_firmware_ui/run.sh:128:  account_controls "$1" "$2" "$CTL_VERDICTS" "$CTL_GUARDS" "$3" || rc=1
+tools/test_probe_firmware_ui.py:32:ACCOUNTING_STATEMENT = 'account_controls "$1" "$2" "$CTL_VERDICTS" "$CTL_GUARDS" "$3" || rc=1'
+   (2 file(s) for: account_controls)
+tools/probe_firmware_ui/run.sh:80:#   2. every label gets exactly ONE terminal verdict through ONE path (`record_verdict`), C0's required build failure
+tools/probe_firmware_ui/run.sh:97:record_verdict() {   # record_verdict <label> <outcome>  — THE one terminal-verdict path; ⓘ counters are derived here
+tools/probe_firmware_ui/run.sh:137:      verdict)       record_verdict "$st_label" "$st_outcome" ;;
+tools/probe_firmware_ui/run.sh:139:      guard_nonzero) false && record_verdict "$st_label" red ;;                       # `<guard> && ctl …`, guard said no
+tools/probe_firmware_ui/run.sh:140:      guard_127)     __b456_selftest_undefined_helper__ 2>/dev/null && record_verdict "$st_label" red ;;   # exit 127
+tools/probe_firmware_ui/run.sh:502:    record_verdict "$label" sed_failed
+tools/probe_firmware_ui/run.sh:506:    record_verdict "$label" vacuous
+tools/probe_firmware_ui/run.sh:511:      record_verdict "$label" still_builds
+tools/probe_firmware_ui/run.sh:514:      record_verdict "$label" build_fail_ok; printf '  ok   %s (build fails, as required)\n' "$label"
+tools/probe_firmware_ui/run.sh:519:    record_verdict "$label" no_compile
+tools/probe_firmware_ui/run.sh:535:    record_verdict "$label" passes
+tools/probe_firmware_ui/run.sh:538:    record_verdict "$label" died
+tools/probe_firmware_ui/run.sh:543:    record_verdict "$label" silent
+tools/probe_firmware_ui/run.sh:546:    record_verdict "$label" red
+   (1 file(s) for: record_verdict)
+tools/probe_firmware_ui/run.sh:84:#   3. ANY guard failure fails the run: a zero/multiple match or a failed sed (`once` → `record_guard_failure`), and an
+tools/probe_firmware_ui/run.sh:101:record_guard_failure() {   # record_guard_failure <what failed> — a guard is not a label, so it has its own ledger
+tools/probe_firmware_ui/run.sh:138:      guard_record)  record_guard_failure "$st_label" ;;                              # `once`'s failure arm
+tools/probe_firmware_ui/run.sh:568:  record_guard_failure "once: $1"                    # [[B456]] counted AND listed — a failed guard fails the run
+   (1 file(s) for: record_guard_failure)
+tools/probe_firmware_ui/run.sh:88:#   accounting call the real run makes (`controls_final`), without compiling anything; the discoverable
+tools/probe_firmware_ui/run.sh:127:controls_final() {   # controls_final <expected.tsv> <declared-call-count> <gate|no-neg> — ONE call site for both modes
+tools/probe_firmware_ui/run.sh:145:  controls_final "$st_dir/expected.tsv" "$(cat "$st_dir/calls")" "$st_mode"
+tools/probe_firmware_ui/run.sh:2027:# ★★★★ [[B456]] THE FINAL ACCOUNTING — the SAME call the selftest mode makes (`controls_final`). `n_ctl`/`n_bad` are
+tools/probe_firmware_ui/run.sh:2030:  controls_final "$OUT/ctl_expected.tsv" "$b227_calls" no-neg
+tools/probe_firmware_ui/run.sh:2035:controls_final "$OUT/ctl_expected.tsv" "$b227_calls" gate
+tools/test_probe_firmware_ui.py:7:(`controls_final`), without building a probe or compiling a single mutant. Each case below asserts the runner's exit
+   (2 file(s) for: controls_final)
+tools/probe_firmware_ui/run.sh:91:# ★ [[B459]] (2026-09-28): the GENERIC half — `pa_record`, `pa_guard` and the comparison `pa_compare` — moved to the
+tools/probe_firmware_ui/run.sh:125:  pa_compare "$OUT/ctl_accepted.tsv" "$verdicts" "$guards" '[[B456]]' control ctl 'controls accounted'
+tools/probe_board_ui/accounting.py:9:#   `pa_compare`) with the checked-in manifest (`expected.tsv`) as the expected set, exactly as the run's own
+tools/probe_board_ui/run.sh:153:  pa_compare "$expected" "$OBS" "$GUARDS" '[[B459]]' 'probe identity' 'its recorder' 'identities accounted' || rc=1
+tools/probe_board_ui/run.sh:220:  pa_compare "$OUT/manifest.tsv" "$OUT/declared.tsv" "$OUT/census_guards.txt" '[[B459]] census:' 'manifest identity' \
+tools/test_probe_board_ui.py:41:ACCOUNTING_STATEMENT = ("pa_compare \"$expected\" \"$OBS\" \"$GUARDS\" '[[B459]]' 'probe identity' 'its recorder' "
+tools/probe_accounting.sh:19:# THE VERDICT (`pa_compare`) fails, and reports, each of: an EMPTY expected set; a DUPLICATE declaration; a MISSING,
+tools/probe_accounting.sh:39:# pa_compare <expected> <observations> <guard ledger> <tag> <noun> <reached> <summary>
+tools/probe_accounting.sh:43:pa_compare() {
+   (5 file(s) for: pa_compare)
+tools/probe_firmware_ui/run.sh:91:# ★ [[B459]] (2026-09-28): the GENERIC half — `pa_record`, `pa_guard` and the comparison `pa_compare` — moved to the
+tools/probe_firmware_ui/run.sh:98:  pa_record "$CTL_VERDICTS" "$1" "$2"
+tools/probe_board_ui/run.sh:101:rec()   { pa_record "$OBS" "$@"; }     # rec <id> <outcome> [<detail>] — THE one terminal-observation path
+tools/probe_accounting.sh:16:#   observations   one `id<TAB>outcome[<TAB>detail]` per line — written ONLY by `pa_record`; the detail is diagnostic
+tools/probe_accounting.sh:23:pa_record() {   # pa_record <observations> <id> <outcome> [<detail>] — THE one terminal-observation path
+   (3 file(s) for: pa_record)
+tools/probe_board_ui/accounting.py:26:#     `for (int <i> = 0; <i> < <N>; ++<i>) CHK_ITER("<id> …", <i>, …`                 -> canvas/<arm>/<id>/0 … /<N-1>
+tools/probe_board_ui/accounting.py:195:        for m in re.finditer(r'(?<![A-Za-z0-9_])(CHK|CHK_ITER)\s*\(', code):
+tools/probe_board_ui/accounting.py:201:                it = re.search(r'for \(int (\w+) = 0; \1 < (\d+); \+\+\1\) CHK_ITER\("([^"\\]*)", \1, ', code)
+tools/probe_board_ui/accounting.py:202:                if not it: raise Unsupported(f'{arm}: CHK_ITER outside the one recognised loop shape: {code.strip()[:80]}')
+tools/probe_board_ui/probe_main.cpp:113:// `<id><TAB><pass|fail>` line there — the id is the label's first token, and a CHK_ITER adds `/<iteration>` — for the
+tools/probe_board_ui/probe_main.cpp:131:#define CHK_ITER(label, iter, expr) CHK_AT_(label, iter, expr, #expr)   // a repeated check: ids <id>/0 … <id>/N-1
+tools/probe_board_ui/probe_main.cpp:194:    for (int i = 0; i < 10; ++i) CHK_ITER("P4a next_page() after blank is false", i, mrui::next_page() == false);
+   (2 file(s) for: CHK_ITER)
+tools/probe_firmware_ui/run.sh:29:#         tools/probe_firmware_ui/run.sh --selftest-accounting <dir> [--no-neg]
+tools/probe_firmware_ui/run.sh:87:# ★ `--selftest-accounting <dir>` replays a synthetic label/verdict stream through THESE functions and THE SAME final
+tools/probe_firmware_ui/run.sh:130:if [ "${1:-}" = "--selftest-accounting" ]; then
+tools/probe_firmware_ui/run.sh:133:  st_dir=${2:?--selftest-accounting needs a directory}; st_mode=gate; [ "${3:-}" = "--no-neg" ] && st_mode=no-neg
+tools/probe_board_ui/run.sh:180:if [ "${1:-}" = "--selftest-accounting" ]; then
+tools/probe_board_ui/run.sh:183:  st_dir=${2:?--selftest-accounting needs a directory}; st_mode=gate; [ "${3:-}" = "--no-neg" ] && st_mode=no-neg
+tools/test_probe_firmware_ui.py:5:WHAT THIS COVERS. The runner's `--selftest-accounting <dir> [--no-neg]` mode replays a SYNTHETIC label/verdict stream
+tools/test_probe_firmware_ui.py:60:            argv = ["bash", str(runner), "--selftest-accounting", str(dd)] + (["--no-neg"] if no_neg else [])
+tools/test_probe_board_ui.py:6:  · `--selftest-accounting <dir> [--no-neg]` replays synthetic records through the runner's own recorder, record
+tools/test_probe_board_ui.py:109:            argv = ["bash", str(runner), "--selftest-accounting", str(dd)] + (["--no-neg"] if no_neg else [])
+   (4 file(s) for: selftest-accounting)
+
+=== 5. B461 — the W50 comment text, old and new
+   (0 file(s) for: Control (c))
+tools/probe_board_ui/run.sh:1476:# ★ Control 2 is the plausible SIMPLIFICATION, not a deletion: keep the load, drop the console wrapper. It leaves
+   (1 file(s) for: Control 2 is the plausible)
+
+=== 6. W2 frozen evidence parsers (docs/, not a gate input) — what they read
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/comment_only.py
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/console_sink_replay.py
+2:# W2 §4.1 step 5 — replay console-sink's X14–X17 (their EXACT old/new strings, read from negctl.py by AST — never
+7:t = ast.parse(open(f'{R}/tools/probe_console_sink/negctl.py', encoding='utf-8').read())
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/declared.py
+28:    """-> [{'line','id','label','file','pred','scripts'}] in source order (`wchk` = `wchk_in "$FW_UI"`)."""
+30:    for ln, st in statements(src, ['wchk_in', 'wchk']):
+32:        file_, label, pred, scripts = (st.split(' ', 2)[1], a[1], a[2], a[3:]) if name == 'wchk_in' else ('"$FW_UI"', a[0], a[1], a[2:])
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/m103_proof.py
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/ordinal_map.py
+10:R = '/home/staszek/MeshRoute'; RUN = 'tools/probe_board_ui/run.sh'
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/per_control.py
+14:R = '/home/staszek/MeshRoute'; RUN = f'{R}/tools/probe_board_ui/run.sh'
+159:                     'wchk_in_would_report': 'CONTROL 5 — the revert changed NOTHING, so the check is vacuous' if same else 'a change',
+162:old5 = subprocess.check_output(['git', 'show', 'HEAD:tools/probe_board_ui/run.sh'], cwd=R).decode().split('\n')
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/reconcile.py
+3:# open: the runner counts only what happens to run). The DECLARED side is read from the runner SOURCE (and negctl.py's
+7:# Usage: python3 reconcile.py <run.sh> <negctl.py> <trace.txt> <traced-run.log> <out.json> <out.tsv>
+24:# ---------------------------------------------------------------- executed: wchk_in invocations in the trace
+27:    m = re.match(r'^\+wchk_in@\d+\|(.*)$', t)
+41:    elif cmd.startswith('w_ctl='):
+43:    elif cmd.startswith('w_pass='):
+47:if any("$'" in t for t in trace if t.startswith('+wchk_in@')):
+48:    problems.append("ANSI-C quoting in a wchk_in trace line (shlex cannot read it)")
+70:last_ctl = max((int(t.split('w_ctl=')[1]) for t in trace if t.startswith('+wchk_in@') and '|w_ctl=' in t), default=0)
+71:last_pass = max((int(t.split('w_pass=')[1]) for t in trace if t.startswith('+wchk_in@') and '|w_pass=' in t), default=0)
+88:for fn, kind in (('schk', 'structural'), ('trait_control', 'trait'), ('missing_trait_control', 'missing')):
+98:s_pass = sum(1 for t in trace if re.match(r'^\+schk@\d+\|s_pass=', t)); s_fail = sum(1 for t in trace if re.match(r'^\+schk@\d+\|s_fail=', t))
+101:# ---------------------------------------------------------------- negctl: MUT_V3 / MUT_V4 labels vs the run's output
+105:    if isinstance(n, ast.Assign) and len(n.targets) == 1 and getattr(n.targets[0], 'id', '') in ('MUT_V3', 'MUT_V4'):
+107:i3 = log.index('== negative controls (each MUST fail) ==')
+108:i4 = log.index('== V4 fixed-ADC source controls (each MUST fail) ==')
+109:sections = {'MUT_V3': log[i3:i4], 'MUT_V4': log[i4:]}
+115:        rows.append({'kind': 'negctl-' + arm[-2:].lower(), 'id': lab.split(' ', 1)[0], 'declared': 1, 'executed': len(pos),
+117:        if not red: problems.append(f'negctl {arm} {lab!r}: executed {len(pos)}, red {red}')
+123:               'trace_final_w_ctl': last_ctl, 'trace_final_w_pass': last_pass},
+127:    'negctl_v3': {'declared': len(decl_neg['MUT_V3']), 'executed_red': sum(r['red'] for r in rows if r['kind'] == 'negctl-v3')},
+128:    'negctl_v4': {'declared': len(decl_neg['MUT_V4']), 'executed_red': sum(r['red'] for r in rows if r['kind'] == 'negctl-v4')},
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/scope.py
+11:FENCE = ['tools/probe_board_ui/run.sh', 'tools/probe_board_ui/fakes/Arduino.h',
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/accounting_audit.py
+6:for fn,field,want in [('wchk_in','w_ctl',186),('wchk_in','w_pass',60),('schk','s_pass',23),('trait_control','trait_pass',14),('missing_trait_control','missing_pass',12)]:
+13: if not re.match(r'^\+wchk_in@\d+\|local file=',line):return False
+17:for name,remove in [('missing-check',is_w1),('missing-red',lambda line:re.match(r'^\+wchk_in@\d+\|w_ctl=186$',line))]:
+21:  run=subprocess.run(['python3','-B',str(c/'reconcile.py'),str(r/'tools/probe_board_ui/run.sh'),str(r/'tools/probe_board_ui/negctl.py'),str(p/'trace'),str(raw/'board-ui.log'),str(p/'result.json'),s
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/reader_audit.py
+6:'probe_board_ui/run.sh','W49','W51','W54','W54-help','keeps the shared dispatch fallback','keeps the ONE shared seam call',
+22:p='tools/probe_board_ui/run.sh'; source=(R/p).read_text(); old=subprocess.check_output(['git','show','8079e54:'+p],cwd=R).decode()
+25:lines=source.splitlines(); start=next(i for i,line in enumerate(lines) if line.startswith('wchk_in "$FW_MAIN" "W50 '))
+--- docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/static_proofs.py

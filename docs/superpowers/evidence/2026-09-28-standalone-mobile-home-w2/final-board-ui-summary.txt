@@ -1,0 +1,14 @@
+Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total
+Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total
+traits:      14 passed / 0 failed / 14 controls verified RED
+missing:     12 passed / 0 failed / 12 controls failed loud
+  W49 counts: 1 arm line(s) in firmware_commands.cpp (required 1), 1 guarded arm(s) inside dispatch() (required 1)
+  W51 counts: 1 seam call(s) in ble_dispatch_line (required 1), 1 streamed-arm flush(es) (required 1), 0 ui-shaped handler token(s) (required 0)
+  W54 counts: 78 line(s) of firmware_commands.cpp inside a MR_FEAT_OLED region (required > 0), 1 live catalog instance(s) (required 1)
+  W54-help counts: 1 ui help row(s) in firmware_help.h (required 1), 1 inside a MR_FEAT_OLED region (required 1)
+structural: 23 passed / 0 failed / 23 total
+wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED
+real source verified UNCHANGED; 60 V3 controls run
+real source verified UNCHANGED; 3 V4 controls run
+real	0m23.127s
+exit=0 (stock default run, W2 tree)

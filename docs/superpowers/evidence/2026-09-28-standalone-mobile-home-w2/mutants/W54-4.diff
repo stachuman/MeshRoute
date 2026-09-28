@@ -1,0 +1,10 @@
+--- real/firmware_commands.cpp
++++ mutant/W54-4
+@@ -210,7 +210,6 @@
+ mrfw::PresetCatalog& preset_catalog() {
+     static DeviceUiPresetStore st;
+     static DeviceEmergencyGate gate;
+-    static mrfw::PresetCatalog cat(st, gate);
+     return cat;
+ }
+ 

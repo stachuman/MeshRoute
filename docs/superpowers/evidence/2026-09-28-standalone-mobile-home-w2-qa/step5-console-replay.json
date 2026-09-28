@@ -1,0 +1,62 @@
+{
+ "live_failing_rows": [],
+ "X14": {
+  "label": "X14 the BLE adapter keeps a residual direct dispatch() beside the seam call",
+  "source": "src/fw_main.cpp",
+  "anchor_matches": 1,
+  "edit_old": "\n    const mrfw::LineExec ex = mrfw::exec_console_line(",
+  "edit_new": "\n    if (mrfw::dispatch(line, len, ls)) { ls.flush(); return 0; }\n    const mrfw::LineExec ex = mrfw::exec_console_line(",
+  "declared_targets": [
+   "S23"
+  ],
+  "failing_rows": [
+   "S23"
+  ],
+  "targets_red": true
+ },
+ "X15": {
+  "label": "X15 the BLE adapter drops the seam response flush",
+  "source": "src/fw_main.cpp",
+  "anchor_matches": 1,
+  "edit_old": "    if (ex.state == mrfw::LineExec::State::streamed) { ls.flush(); return 0; }",
+  "edit_new": "    if (ex.state == mrfw::LineExec::State::streamed) { return 0; }",
+  "declared_targets": [
+   "S23"
+  ],
+  "failing_rows": [
+   "S23"
+  ],
+  "targets_red": true
+ },
+ "X16": {
+  "label": "X16 the BLE adapter hands the seam its direct buffer where the stream belongs",
+  "source": "src/fw_main.cpp",
+  "anchor_matches": 1,
+  "edit_old": "mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, out, cap, ctx)",
+  "edit_new": "mrfw::exec_console_line(line, len, mrfw::LineFormat::json, ls, nullptr, 0, ctx)",
+  "declared_targets": [
+   "S23"
+  ],
+  "failing_rows": [
+   "S23"
+  ],
+  "targets_red": true
+ },
+ "X17": {
+  "label": "X17 the seam asks the parser BEFORE the router (the order the pin exists to hold)",
+  "source": "src/firmware_commands.cpp",
+  "anchor_matches": 1,
+  "edit_old": "    if (dispatch(line, len, stream, ctx.transport)) { r.state = LineExec::State::streamed; r.outcome = DispatchOutcome::completed; return r; }\n\n    // (2) the command parser.",
+  "edit_new": "    // (2) the command parser.",
+  "declared_targets": [
+   "S24"
+  ],
+  "failing_rows": [
+   "S24",
+   "S53",
+   "S62"
+  ],
+  "targets_red": true
+ },
+ "verdict": "PASS"
+}

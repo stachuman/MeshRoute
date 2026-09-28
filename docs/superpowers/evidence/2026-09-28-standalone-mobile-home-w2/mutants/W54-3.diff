@@ -1,0 +1,11 @@
+--- real/firmware_commands.cpp
++++ mutant/W54-3
+@@ -846,7 +846,7 @@
+     // ⓘ [[B255]]: gated with the catalog it reads. Off `MR_FEAT_OLED` there is no catalog to report a generation,
+     //   an active count or a save count FOR, and no boot read to have produced a diagnosis — so the two lines are
+     //   ABSENT rather than reporting zeros about a store this build never touches (C2: a zero would be a lie).
+-#if MR_FEAT_OLED   // ★ [[B255]] the `status` surface
++//#if MR_FEAT_OLED   // ★ [[B255]] the `status` surface
+     {
+         const mrfw::PresetCatalog& pc = preset_catalog();
+         out.print(F("  presets: generation="));   out.print(pc.generation());

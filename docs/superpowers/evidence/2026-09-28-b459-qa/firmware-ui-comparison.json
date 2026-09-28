@@ -1,0 +1,11 @@
+{
+  "normalized_output_identical": true,
+  "normalization": "shell real/user/sys timing wrapper and trailing blank lines removed; temporary paths normalized",
+  "normalized_lines": 441,
+  "baseline_raw_lines": 445,
+  "qa_raw_lines": 441,
+  "declared_controls": 238,
+  "observed_controls": 238,
+  "unique_controls": 238,
+  "qa_analysis_correction": "The fresh run exited 0; QA log reader initially assumed UTF-8, but panel output contains intentional Latin-1 0xBB. Re-read losslessly with surrogateescape. The first run had a different locale ordering for coverage diagnostics. A fresh stock run under en_US.UTF-8 matches the baseline exactly after excluding shell timing/footer blanks; no source input changed."
+}

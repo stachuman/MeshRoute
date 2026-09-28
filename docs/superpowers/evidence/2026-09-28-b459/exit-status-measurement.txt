@@ -1,0 +1,7 @@
+brief §2.2.4 — the stock default run (final step 4) printed:
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+the stock --no-neg run (final step 5) printed:
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+the independent reconciliation (final step 6, recorder trace) counted:
+{'live': {'pred_exit=0': 60}, 'mutant': {'pred_exit=1': 186}}
+=> 60 live predicate exits of 0 and 186 mutant evaluations of 1, no other exit status: no exception, no STOP-1.

@@ -1,0 +1,29 @@
+{
+  "timing": "after all nine gate steps and gate-inputs-preserved.json",
+  "files": {
+    "docs/2026-07-30-open-bug-register.md": {
+      "before": "56edcd1addf15879021a133b4726e2acf82aa9e483ca1cd4714e45ec7b7e5986",
+      "after": "e94c810638be644b3980f10fcc20d906e375e84d6de8f045fe2cb7ce1842419d"
+    },
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": {
+      "before": "a7b0515e633682bdb246f64b46dd345ca9b021764e078a10863a796d92796428",
+      "after": "dd64b400cab260cfc7b9edd07c7739a88e71665a1efb0ca8b485f99d83d137a4"
+    },
+    "tracker.md": {
+      "before": "a40d074d643c6d1be6820a6a5da88ca8bd7e92743c819aeaaea8d6993f923f5c",
+      "after": "c21969070a97ad81501ce6af3541a7f33a4c762a0836c8da4a3735db7d03de8b"
+    },
+    "MEMORY.md": {
+      "before": "cb10bdcde351184ea91d7a0640d8d7312b929cbd4a20927e4ba2171f2793b33b",
+      "after": "54ef0f8e908e2dbbe55697b1aa9fa1ed060ffaed650f90578e79b38ac91589d7"
+    }
+  },
+  "closed": [
+    "B418",
+    "B451",
+    "B458"
+  ],
+  "new_finding": "B461",
+  "next_free": "B462",
+  "next_dispatch": "B459"
+}

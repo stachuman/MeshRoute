@@ -1,0 +1,11 @@
+--- real/firmware_commands.cpp
++++ mutant/W54-2
+@@ -165,7 +165,7 @@
+ //    `DeviceUiPresetStore::save` override inside this guard — so a gated build NEVER creates the record; and
+ //    `mrnv::kSlotUi` lives in the `"mr"` namespace / InternalFS root, so `factory_erase()` (`Preferences::clear()`
+ //    on ESP32, `InternalFS.format()` on nRF52) already takes any stale one. See `device_nv.h`'s kSlotUi ledger.
+-#if MR_FEAT_OLED   // ★ [[B255]] the catalog binding: the ONE instance, its adapters and the two entry points
++//#if MR_FEAT_OLED   // ★ [[B255]] the catalog binding: the ONE instance, its adapters and the two entry points
+ // ★★ THIN ON PURPOSE, for the fourth time in this arc and for the same MEASURED reason (§B115): this TU is compiled
+ //    by NEITHER the native suite (`test_build_src = no`) NOR the simulator, and no corpus scenario runs a console
+ //    verb or a boot. ⇒ every DECISION — the grammar, the three records' bytes, the six reason spellings, the stable

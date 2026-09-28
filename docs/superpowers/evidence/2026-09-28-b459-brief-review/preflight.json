@@ -1,0 +1,87 @@
+{
+  "brief": {
+    "path": "docs/superpowers/plans/2026-09-28-b459-board-ui-accounting.md",
+    "sha256": "f485c49427838f1480fb5a8b32a0dd454f3e88a4c7eab65b54aaeeb46c7e1453",
+    "lines": 523
+  },
+  "pins": {
+    "tools/probe_firmware_ui/run.sh": "60478a2a541e6a6959f69312f096a5c011ae3ede99b96dda29ff8d0b1d7b5bdc",
+    "tools/test_probe_firmware_ui.py": "50e517ed19079893d3b39fd0b795b581e528a68d5b494daabd901b132f122b16",
+    "tools/probe_board_ui/run.sh": "0ee0bc90df8d8a6e1d5adce73958f2dd32061388c0f3644f70d9e1f88ce56fe8",
+    "tools/probe_board_ui/probe_main.cpp": "6cffd422588280136e09b05a1bdf9b602420336c7fba76315953a13d23af07b8",
+    "tools/probe_board_ui/negctl.py": "067e1e1b2e9bc464a4e4677b63c0058038a83568a4f801dd48192ba95917f76f",
+    "docs/2026-07-30-open-bug-register.md": "86837517b071729925d5b9bbb67e68cce8f6eed64209ec8e74dc523b7de4d3ed",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "dd64b400cab260cfc7b9edd07c7739a88e71665a1efb0ca8b485f99d83d137a4",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck.md": "98d96dc538288145f4ea88b60a0271d02a53dfbeae8d0f8e01edc2c11734c710",
+    "docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS": "a0eebbdd65cb494e3bc77f8c8e9d9008e919f44c7412c03709db9bddcb26265f",
+    "tracker.md": "ef73543d1f749b529a81751bc391613a6222b9e80f7d584685fa848e5a788276",
+    "MEMORY.md": "a55e27aa416a7ed64a694a8ddbf222a34fcd3eb71188a04dc3ad947b536d278c"
+  },
+  "precheck_checksums_verified": 19,
+  "comparison_to_precheck_entry": {
+    "meshroute": {
+      "changed": [
+        "MEMORY.md",
+        "docs/2026-07-30-open-bug-register.md",
+        "tracker.md"
+      ],
+      "added": [
+        "docs/superpowers/evidence/2026-09-28-b459-precheck.md",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/base-reconciliation.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/baseline-runs.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/baseline-summary.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/board-fault-measurements.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/board-reconciliation.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/board-reconciliation.tsv",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/census.py",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/final-preservation.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/focused-baselines.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/inputs.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/measure_board_accounting.py",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/raw-logs.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/reader-search.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/receipt-validation.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/recommended-inputs.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/register-additions.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/runner-census.json",
+        "docs/superpowers/evidence/2026-09-28-b459-precheck/seal.py",
+        "docs/superpowers/plans/2026-09-28-b459-board-ui-accounting.md"
+      ],
+      "staged": ""
+    },
+    "simulator": {
+      "changed": [],
+      "added": [],
+      "staged": ""
+    }
+  },
+  "new_paths_absent": [
+    "tools/probe_accounting.sh",
+    "tools/probe_board_ui/expected.tsv",
+    "tools/probe_board_ui/accounting.py",
+    "tools/test_probe_board_ui.py"
+  ],
+  "links": [
+    {
+      "target": "../evidence/2026-09-28-standalone-mobile-home-w2-qa.md",
+      "exists": true
+    },
+    {
+      "target": "../evidence/2026-09-28-b459-precheck.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-07-30-open-bug-register.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-09-02-agent-roles.md",
+      "exists": true
+    },
+    {
+      "target": "../evidence/README.md",
+      "exists": true
+    }
+  ]
+}

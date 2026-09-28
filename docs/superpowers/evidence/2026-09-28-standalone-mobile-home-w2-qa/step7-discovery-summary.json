@@ -1,0 +1,10 @@
+{
+  "tests": 375,
+  "seconds": 737.875,
+  "result": "OK",
+  "skipped": 0,
+  "notes": [
+    "B278 census selftest intentionally prints failure as its negative control; unittest final result is OK.",
+    "An unclosed /dev/null ResourceWarning is emitted by the suite; it does not fail discovery."
+  ]
+}

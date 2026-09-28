@@ -1,0 +1,64 @@
+{
+ "wiring": {
+  "base_checks": 60,
+  "final_checks": 60,
+  "base_controls": 186,
+  "final_controls": 186,
+  "identical_in_order": true
+ },
+ "predicate_functions": {
+  "compared": 28,
+  "differing": []
+ },
+ "negctl": {
+  "v3": 60,
+  "v4": 3,
+  "identical": true
+ },
+ "traits": {
+  "calls": 14,
+  "identical": true
+ },
+ "missing": {
+  "list": [
+   "MR_UI_OLED_RST",
+   "MR_UI_OLED_SCL",
+   "MR_UI_OLED_SDA",
+   "MR_UI_OLED_ADDR",
+   "MR_UI_VEXT_PIN",
+   "MR_UI_VEXT_ON_LEVEL",
+   "MR_UI_BTN_PIN",
+   "MR_UI_ADC_CTRL",
+   "MR_UI_VBAT_READ",
+   "MR_UI_ADC_CTRL_STRATEGY",
+   "MR_UI_ADC_CTRL_FAILSAFE_PARK",
+   "MR_UI_VBAT_ADC_SCALE"
+  ],
+  "identical": true
+ },
+ "structural": {
+  "sites": 8,
+  "label_and_expression_identical": true,
+  "s2_list_identical": true,
+  "s6_list_identical": true,
+  "s3_patterns": {
+   "base": [
+    "draw_frame(s_frame_state",
+    "mrui::begin_frame()",
+    "s_gate.on_page(mrui::next_page(), s_model, s_counters)"
+   ],
+   "final": [
+    "draw_frame(s_frame_state",
+    "mrui::begin_frame()",
+    "s_gate.on_page(mrui::next_page(), s_model, s_counters)"
+   ],
+   "final_ids": [
+    "draw_frame",
+    "begin_frame",
+    "on_page"
+   ]
+  }
+ },
+ "problems": [],
+ "verdict": "PASS"
+}

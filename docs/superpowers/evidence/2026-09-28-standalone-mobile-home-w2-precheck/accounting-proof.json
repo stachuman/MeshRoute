@@ -1,0 +1,30 @@
+{
+  "stock_sha256": "a458be2be55d4aefb246f73d2bbe41e2c5075ca2123dddfb57ebe3372eedcd6c",
+  "scope": "runner omissions only; no product or predicates changed; not a product gate or repair",
+  "results": [
+    {
+      "synthetic_fault": "omit-three-known-failing-checks",
+      "exit_code": 0,
+      "runner_sha256": "78e03f86ddd81d5744a28312321321544d4a0931b2b4ff2424d6fc4f2a20e8d6",
+      "summary": [
+        "traits:      14 passed / 0 failed / 14 controls verified RED",
+        "structural: 23 passed / 0 failed / 23 total",
+        "wiring:     56 passed / 0 failed / 56 total; 171 negative control(s) verified RED",
+        "real source verified UNCHANGED; 60 V3 controls run",
+        "real source verified UNCHANGED; 3 V4 controls run"
+      ]
+    },
+    {
+      "synthetic_fault": "also-omit-healthy-W1",
+      "exit_code": 0,
+      "runner_sha256": "0d610e7d8f91a99f28b3ce30f71cc7d79a35dcd88a74903f9fa0f5be3400f784",
+      "summary": [
+        "traits:      14 passed / 0 failed / 14 controls verified RED",
+        "structural: 23 passed / 0 failed / 23 total",
+        "wiring:     55 passed / 0 failed / 55 total; 170 negative control(s) verified RED",
+        "real source verified UNCHANGED; 60 V3 controls run",
+        "real source verified UNCHANGED; 3 V4 controls run"
+      ]
+    }
+  ]
+}

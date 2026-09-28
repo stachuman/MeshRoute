@@ -1,0 +1,29 @@
+{
+  "links": [
+    {
+      "path": "../plans/2026-09-28-b459-board-ui-accounting.md",
+      "exists": true
+    },
+    {
+      "path": "2026-09-28-b459-brief-review/",
+      "exists": true
+    },
+    {
+      "path": "2026-09-28-b459-brief-review/preflight.json",
+      "exists": true
+    },
+    {
+      "path": "2026-09-28-b459-brief-review/identity-census.json",
+      "exists": true
+    },
+    {
+      "path": "2026-09-28-b459-brief-review/predicate-exits.json",
+      "exists": true
+    },
+    {
+      "path": "2026-09-28-b459-brief-review/predicate-exits.tsv",
+      "exists": true
+    }
+  ],
+  "evidence_python_syntax": "PASS"
+}

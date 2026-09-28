@@ -1,0 +1,5 @@
+{
+  "command": "bash -x tools/probe_board_ui/run.sh (default, unmodified runner)",
+  "exit": 0,
+  "seconds": 23.23
+}

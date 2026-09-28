@@ -1,0 +1,6 @@
+139:Ran 375 tests in 736.336s
+141:OK
+208:real	12m16.448s
+skips: 0; import failures: 0
+the one printed 'FAIL: §B278 census selftest, 9 failure(s)' is test_b278_correlation_census.test_the_selftest_is_not_vacuous's deliberate negative (asserts selftest() > 0); it appears in every earlier discovery log (W1c/W3/W4a/W4b QA, pre-check)
+exit=0 (step7-discovery.exit)

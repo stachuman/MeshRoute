@@ -1,0 +1,32 @@
+{
+  "meshroute": {
+    "head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+    "entry_paths_preserved": 1864,
+    "changed": [],
+    "added_review_outputs": [
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review.md",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/b456-tests.json",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/identity-census.json",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/identity_census.py",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/inputs.json",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate-exits.json",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate-exits.tsv",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/predicate_exits.py",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/preflight.json",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/preflight.py",
+      "docs/superpowers/evidence/2026-09-28-b459-brief-review/seal.py"
+    ],
+    "staged": "",
+    "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md\n M tools/probe_board_ui/fakes/Arduino.h\n M tools/probe_board_ui/run.sh\n M tools/probe_inbox_verbs/transcript_main.cpp\n M tools/probe_ui_model_mutations.py\n M tracker.md\n?? docs/superpowers/evidence/2026-09-28-b459-brief-review.md\n?? docs/superpowers/evidence/2026-09-28-b459-brief-review/\n?? docs/superpowers/evidence/2026-09-28-b459-precheck.md\n?? docs/superpowers/evidence/2026-09-28-b459-precheck/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-rereview/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-brief-review/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-qa/\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2.md\n?? docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2/\n?? docs/superpowers/plans/2026-09-28-b459-board-ui-accounting.md\n?? docs/superpowers/plans/2026-09-28-standalone-mobile-home-w2-board-ui-readers.md\n",
+    "whitespace": "PASS"
+  },
+  "simulator": {
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "entry_paths_preserved": 285,
+    "changed": [],
+    "added_review_outputs": [],
+    "staged": "",
+    "status": "",
+    "whitespace": "PASS"
+  }
+}

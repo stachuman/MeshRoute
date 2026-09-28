@@ -1,0 +1,25 @@
+declarations census: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total
+Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total
+traits:      14 passed / 0 failed / 14 controls verified RED
+missing:     12 passed / 0 failed / 12 controls failed loud
+structural: 23 passed / 0 failed / 23 total
+wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED
+real source verified UNCHANGED; 60 V3 controls run
+real source verified UNCHANGED; 3 V4 controls run
+identities accounted: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+  canvas/v3        124 expected,  124 observed
+  canvas/v4        110 expected,  110 observed
+  trait             14 expected,   14 observed
+  missing           12 expected,   12 observed
+  struct            23 expected,   23 observed
+  wiring            60 expected,   60 observed
+  wiring/control   186 expected,  186 observed
+  negctl/v3         60 expected,   60 observed
+  negctl/v4          3 expected,    3 observed
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+negctl v3 assert_red: 60
+negctl v4 assert_red: 3
+PASS
+real	0m25.369s
+exit=0

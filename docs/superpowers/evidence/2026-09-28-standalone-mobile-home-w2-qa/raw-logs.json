@@ -1,0 +1,47 @@
+[
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/board-ui.log",
+    "bytes": 17891,
+    "sha256": "74e1d04ff7cccdc184bdeb9c1aaaa92b38dcef9dafa9c4b50fcc76ca0262af8b"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/board-ui.trace",
+    "bytes": 1378560,
+    "sha256": "69fb96b368a03069127afb746914404ae4c46077c68793a2fc327d34156f6444"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/console-replay.log",
+    "bytes": 351,
+    "sha256": "1d093840d529a199ba12198bede2501871cb78eb297a0598d0ecddd678c21dc3"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/console-sink.log",
+    "bytes": 36714,
+    "sha256": "3928d5f96df12eb9df73b45d57e3b6f39ac9167a7cc207a183bb2a0c90b6d4b4"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/discovery.log",
+    "bytes": 13224,
+    "sha256": "b1fc8686c9454d2fc7319a75abaee821b8a25312c47b955006aa3b76434f54f9"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/inventory.log",
+    "bytes": 176,
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/model.log",
+    "bytes": 92157,
+    "sha256": "4cc345b1d38fb74a2a717a2ccecc78749312187a4425f0464609d859d382c1df"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/step4-controls.log",
+    "bytes": 4234,
+    "sha256": "1fa70b7dc023ea0786e332262410bd75922084b6841501f818562cdc4f2e8c6b"
+  },
+  {
+    "path": "artifacts/2026-09-28-standalone-mobile-home-w2-qa/step4-reconcile.log",
+    "bytes": 564,
+    "sha256": "ee40a53bfe7b83dc1bb09c8b6d189848a36b4ed2468dc7326ff5c9b9889a74c8"
+  }
+]

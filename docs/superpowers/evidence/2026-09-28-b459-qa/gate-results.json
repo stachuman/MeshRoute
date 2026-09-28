@@ -1,0 +1,152 @@
+[
+  {
+    "name": "step2-shell",
+    "command": [
+      "bash",
+      "-n",
+      "tools/probe_accounting.sh",
+      "tools/probe_board_ui/run.sh",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 0.0,
+    "log": "artifacts/2026-09-28-b459-qa/step2-shell.log"
+  },
+  {
+    "name": "step2-probe_board_ui",
+    "command": [
+      "bash",
+      "-n",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 0.01,
+    "log": "artifacts/2026-09-28-b459-qa/step2-probe_board_ui.log"
+  },
+  {
+    "name": "step2-probe_firmware_ui",
+    "command": [
+      "bash",
+      "-n",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 0.01,
+    "log": "artifacts/2026-09-28-b459-qa/step2-probe_firmware_ui.log"
+  },
+  {
+    "name": "step3-board-tests",
+    "command": [
+      "python3",
+      "tools/test_probe_board_ui.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 68.3,
+    "log": "artifacts/2026-09-28-b459-qa/step3-board-tests.log"
+  },
+  {
+    "name": "step4-board",
+    "command": [
+      "bash",
+      "-c",
+      "exec 9>\"$1\"; export BASH_XTRACEFD=9; export PS4='+${FUNCNAME[0]:-main}@${LINENO}|'; bash -x tools/probe_board_ui/run.sh",
+      "qa",
+      "/home/staszek/MeshRoute/artifacts/2026-09-28-b459-qa/step4.trace"
+    ],
+    "exit": 0,
+    "seconds": 25.58,
+    "log": "artifacts/2026-09-28-b459-qa/step4-board.log"
+  },
+  {
+    "name": "step5-board-noneg",
+    "command": [
+      "bash",
+      "tools/probe_board_ui/run.sh",
+      "--no-neg"
+    ],
+    "exit": 0,
+    "seconds": 12.61,
+    "log": "artifacts/2026-09-28-b459-qa/step5-board-noneg.log"
+  },
+  {
+    "name": "step6-reconcile",
+    "command": [
+      "python3",
+      "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-28-b459-qa/reconcile.py"
+    ],
+    "exit": 0,
+    "seconds": 0.09,
+    "log": "artifacts/2026-09-28-b459-qa/step6-reconcile.log"
+  },
+  {
+    "name": "step7-firmware-ui",
+    "command": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 371.17,
+    "log": "artifacts/2026-09-28-b459-qa/step7-firmware-ui.log"
+  },
+  {
+    "name": "step7-firmware-ui-matched-locale",
+    "command": [
+      "env",
+      "LC_ALL=en_US.UTF-8",
+      "bash",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 371.56,
+    "log": "artifacts/2026-09-28-b459-qa/step7-firmware-ui-matched-locale.log"
+  },
+  {
+    "name": "step7-b456-tests",
+    "command": [
+      "python3",
+      "tools/test_probe_firmware_ui.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 0.42,
+    "log": "artifacts/2026-09-28-b459-qa/step7-b456-tests.log"
+  },
+  {
+    "name": "step8-discovery",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "exit": 0,
+    "seconds": 804.92,
+    "log": "artifacts/2026-09-28-b459-qa/step8-discovery.log"
+  },
+  {
+    "name": "step9-inventory",
+    "command": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 2.11,
+    "log": "artifacts/2026-09-28-b459-qa/step9-inventory.log"
+  },
+  {
+    "name": "step10-reader-audit",
+    "command": [
+      "python3",
+      "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-28-b459-qa/reader_audit.py"
+    ],
+    "exit": 0,
+    "seconds": 1.19,
+    "log": "artifacts/2026-09-28-b459-qa/step10-reader-audit.log"
+  }
+]

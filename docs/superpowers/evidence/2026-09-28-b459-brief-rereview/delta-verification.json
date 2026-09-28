@@ -1,0 +1,20 @@
+{
+  "method": "Reverse only the declared edits, then require the cryptographic identity of the result with the previously reviewed brief. No git HEAD substitution.",
+  "reconstructed_revision_1_sha256": "f485c49427838f1480fb5a8b32a0dd454f3e88a4c7eab65b54aaeeb46c7e1453",
+  "revision_2_sha256": "443b95ea697353d36ef595975a002c1c1b3335dcb21cbe46886aea500d57de5a",
+  "edits": [
+    "revision header",
+    "test table permission",
+    "register pin",
+    "preparation explanation",
+    "B459R-2 adapter and test binding",
+    "B459R-3 removal case",
+    "common evidence fence",
+    "increment-2 evidence relocation",
+    "increment-1 scope comparison",
+    "B459R-1 discovery before freeze",
+    "B459R-2 STOP constraints",
+    "revision-2 history"
+  ],
+  "other_brief_changes": false
+}

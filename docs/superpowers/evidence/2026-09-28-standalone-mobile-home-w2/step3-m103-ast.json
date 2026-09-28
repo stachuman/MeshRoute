@@ -1,0 +1,47 @@
+{
+ "active_M103_in_final": [],
+ "base_MUTS_MODEL_entries": 239,
+ "base_M103_indices": [
+  101
+ ],
+ "final_MUTS_MODEL_entries": 238,
+ "ast_equal_after_removing_M103": true,
+ "hunks": [
+  {
+   "base_lines": [
+    3512,
+    3516
+   ],
+   "final_lines": [
+    3512,
+    3521
+   ]
+  }
+ ],
+ "added_all_comments": true,
+ "removed_non_comment_lines": [
+  " (\"M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index\",",
+  "  \"        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;\",",
+  "  \"        _st.settings = Settings::closed;   _st.dirty = true;\"),"
+ ],
+ "removed_non_comment_is_exactly_M103_tuple": true,
+ "record_items": {
+  "id": true,
+  "old_edit": true,
+  "reason": true,
+  "witnesses": true
+ },
+ "targets": {
+  "model": "MUTS_MODEL",
+  "w4bhome": "MUTS_W4BHOME"
+ },
+ "witnesses_live": {
+  "M100": true,
+  "M101": true,
+  "M102": true,
+  "M105": true,
+  "H25": true
+ },
+ "M104_still_live": true,
+ "verdict": "PASS"
+}

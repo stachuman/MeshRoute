@@ -1,0 +1,192 @@
+{
+ "baseline": {
+  "tests_run": 19,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "ok": true,
+  "n_calls": 19
+ },
+ "candidate": {
+  "tests_run": 19,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "ok": true,
+  "n_calls": 19
+ },
+ "cases": [
+  {
+   "test": "test_build_control_accepts_its_build_failure",
+   "call": 1,
+   "rc": [
+    0,
+    0
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_build_control_that_still_builds_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_bypassing_the_final_accounting_lets_a_missing_control_through",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_bypassing_the_final_accounting_lets_a_missing_control_through",
+   "call": 2,
+   "rc": [
+    0,
+    0
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_complete_set_passes",
+   "call": 1,
+   "rc": [
+    0,
+    0
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_duplicate_compensating_a_missing_label_at_equal_count_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_duplicate_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_extraction_mismatch_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_guard_127_with_no_verdict_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_guard_nonzero_with_no_verdict_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_missing_first_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_missing_last_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_missing_middle_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_no_neg_says_it_is_not_a_gate_and_never_passes",
+   "call": 1,
+   "rc": [
+    0,
+    0
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_no_neg_with_recorded_verdicts_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_ordinary_control_that_does_not_compile_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_recorded_guard_failure_fails_even_with_every_verdict",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_unknown_label_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  },
+  {
+   "test": "test_zero_expected_fails",
+   "call": 1,
+   "rc": [
+    1,
+    1
+   ],
+   "identical": true
+  }
+ ],
+ "all_identical": true
+}

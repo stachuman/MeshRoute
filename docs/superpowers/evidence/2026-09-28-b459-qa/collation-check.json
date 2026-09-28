@@ -1,0 +1,20 @@
+{
+  "C.UTF-8": {
+    "exit": 0,
+    "matches_baseline": false,
+    "matches_qa": true,
+    "stderr": ""
+  },
+  "en_US.UTF-8": {
+    "exit": 0,
+    "matches_baseline": true,
+    "matches_qa": false,
+    "stderr": ""
+  },
+  "C": {
+    "exit": 0,
+    "matches_baseline": false,
+    "matches_qa": true,
+    "stderr": ""
+  }
+}

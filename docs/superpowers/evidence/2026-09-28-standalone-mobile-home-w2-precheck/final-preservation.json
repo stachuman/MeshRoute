@@ -1,0 +1,58 @@
+[
+  {
+    "repository": "meshroute",
+    "head": "8079e545fb2e1065c2bbc347eb9a66160f6cbf8e",
+    "original_paths_checked": 1702,
+    "unchanged_original_paths": 1701,
+    "changed": [
+      {
+        "path": "docs/2026-07-30-open-bug-register.md",
+        "before_sha256": "3dd8e2b325eea20e8451a2f06b4c2f3226bda7d7b4172b7e8779df4adb7492d4",
+        "after_sha256": "eda1a3e25fc8a656fdb3540c98d7c059a54b2b5658cfa7d493c5857ada3fd15b"
+      }
+    ],
+    "missing": [],
+    "symlink_targets_unchanged": 4,
+    "new_before_this_record_and_checksum": [
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/accounting-proof.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/accounting-proof.py",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/anchor-facts.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/base-reconciliation.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/board-run-history.tsv",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/board-ui-exit.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/board-ui-summary.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/dormant-controls-format.md",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/dormant-controls.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/dormant-controls.tsv",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/inputs.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/inventory-check.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/model-exit.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/model-projection.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/model-summary.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/raw-logs.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/reader-audit.py",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/recommended-inputs.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/run-summary.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/scratch-path.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/tools-exit.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/tools-summary.txt",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/witness-audit.json",
+      "docs/superpowers/evidence/2026-09-28-standalone-mobile-home-w2-precheck/witness-audit.py"
+    ],
+    "staged": [],
+    "scope": "Evidence only; requested Q7 registration is the sole existing-file exception."
+  },
+  {
+    "repository": "simulator",
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "original_paths_checked": 285,
+    "unchanged_original_paths": 285,
+    "changed": [],
+    "missing": [],
+    "symlink_targets_unchanged": 0,
+    "new_before_this_record_and_checksum": [],
+    "staged": [],
+    "scope": "Evidence only; requested Q7 registration is the sole existing-file exception."
+  }
+]
