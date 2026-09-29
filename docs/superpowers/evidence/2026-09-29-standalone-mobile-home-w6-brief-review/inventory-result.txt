@@ -1,0 +1,2 @@
+python3 -B tools/gen_command_inventory.py --check
+exit 0; tracked command inventory matches fresh generation byte-for-byte; 197 command rows.

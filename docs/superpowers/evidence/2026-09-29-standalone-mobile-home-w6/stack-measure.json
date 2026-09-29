@@ -1,0 +1,166 @@
+{
+  "scope": "W6 coder gate \u00a74.1 step 6 \u2014 compile-only `-fstack-usage` frames for the console and boot paths, base vs final.\nCompiler frames and call-chain subtotals only: NOT a task high-water mark or a whole-program stack bound (the\npre-check's caveat, restated). The base source is `git archive 70ff486` (the frozen base); the final source is the\nworking tree. Raw `.su` files and compiler logs go under the ignored artifacts folder.",
+  "scratch": "/tmp/w6-stack-5kz29jb0",
+  "compiles": [
+    {
+      "variant": "base",
+      "target": "heltec_mobile",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "forced_oled": false,
+      "su": "base-heltec_mobile-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "heltec_mobile",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "forced_oled": false,
+      "su": "base-heltec_mobile-fw_main.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "heltec_mobile",
+      "unit": "firmware_ui.cpp",
+      "exit": 0,
+      "forced_oled": false,
+      "su": "base-heltec_mobile-firmware_ui.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "gateway",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "forced_oled": true,
+      "su": "base-gateway-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "gateway",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "forced_oled": true,
+      "su": "base-gateway-fw_main.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "heltec_mobile",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "forced_oled": false,
+      "su": "final-heltec_mobile-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "heltec_mobile",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "forced_oled": false,
+      "su": "final-heltec_mobile-fw_main.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "heltec_mobile",
+      "unit": "firmware_ui.cpp",
+      "exit": 0,
+      "forced_oled": false,
+      "su": "final-heltec_mobile-firmware_ui.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "gateway",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "forced_oled": true,
+      "su": "final-gateway-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "gateway",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "forced_oled": true,
+      "su": "final-gateway-fw_main.cpp.su"
+    }
+  ],
+  "frames": {
+    "base-heltec_mobile-firmware_commands.cpp": {
+      "void mrfw::preset_emit_record(const PresetCatalog&, uint8_t, IPresetLines&)": 240,
+      "void mrfw::preset_emit_list(const PresetCatalog&, IPresetLines&)": 224,
+      "void mrfw::preset_emit_err(PresetErr, IPresetLines&)": 224,
+      "void mrfw::preset_render(const PresetCatalog&, long int, bool, const PresetResult&, IPresetLines&)": 32,
+      "bool mrfw::preset_verb(PresetCatalog&, PresetDiag&, const char*, size_t, IPresetLines&)": 96,
+      "void mrfw::preset_boot_restore_console()": 208,
+      "void mrfw::handle_ui(const char*, size_t, Print&)": 48,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 336,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 400
+    },
+    "base-heltec_mobile-fw_main.cpp": {
+      "static constexpr bool setup()::<lambda()>::_FUN()": 32,
+      "static constexpr void setup()::<lambda(const char*)>::_FUN(const char*)": 32,
+      "void setup()": 992,
+      "void mesh_service_once()": 2128,
+      "void loop()": 32
+    },
+    "base-heltec_mobile-firmware_ui.cpp": {
+      "void mrui::ui_perform_send(SendTracker&, SendTracker&, UiModel&, const SendReq&, const mrnv::UiPresetBlob&, uint8_t, bool, SendExecFn, void*, uint32_t)": 160,
+      "void {anonymous}::ui_perform_send(const mrui::SendReq&, uint32_t)": 48,
+      "void mr_ui_tick(uint32_t)": 1664
+    },
+    "base-gateway-firmware_commands.cpp": {
+      "void mrfw::preset_emit_list(const PresetCatalog&, IPresetLines&)": 248,
+      "void mrfw::preset_emit_err(PresetErr, IPresetLines&)": 192,
+      "void mrfw::preset_render(const PresetCatalog&, long int, bool, const PresetResult&, IPresetLines&)": 232,
+      "void mrfw::preset_boot_restore_console()": 208,
+      "void mrfw::handle_ui(const char*, size_t, Print&)": 256,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 256,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 360
+    },
+    "base-gateway-fw_main.cpp": {
+      "static constexpr bool setup()::<lambda()>::_FUN()": 0,
+      "static constexpr void setup()::<lambda(const char*)>::_FUN(const char*)": 0,
+      "void loop()": 16,
+      "void setup()": 1040,
+      "void mesh_service_once()": 728
+    },
+    "final-heltec_mobile-firmware_commands.cpp": {
+      "void mrfw::preset_emit_record(const PresetCatalog&, uint8_t, IPresetLines&)": 320,
+      "void mrfw::preset_emit_list(const PresetCatalog&, IPresetLines&, uint8_t)": 304,
+      "void mrfw::preset_emit_err(PresetErr, IPresetLines&)": 304,
+      "void mrfw::preset_render(const PresetCatalog&, long int, bool, const PresetResult&, IPresetLines&)": 32,
+      "bool mrfw::preset_verb(PresetCatalog&, PresetDiag&, const char*, size_t, IPresetLines&)": 96,
+      "void mrfw::preset_boot_restore_console()": 128,
+      "void mrfw::handle_ui(const char*, size_t, Print&)": 48,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 336,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 400
+    },
+    "final-heltec_mobile-fw_main.cpp": {
+      "static constexpr bool setup()::<lambda()>::_FUN()": 32,
+      "static constexpr void setup()::<lambda(const char*)>::_FUN(const char*)": 32,
+      "void setup()": 992,
+      "void mesh_service_once()": 2128,
+      "void loop()": 32
+    },
+    "final-heltec_mobile-firmware_ui.cpp": {
+      "void {anonymous}::ui_perform_send(const mrui::SendReq&, uint32_t)": 64,
+      "void mr_ui_tick(uint32_t)": 1680
+    },
+    "final-gateway-firmware_commands.cpp": {
+      "void mrfw::preset_emit_record(const PresetCatalog&, uint8_t, IPresetLines&)": 320,
+      "void mrfw::preset_emit_err(PresetErr, IPresetLines&)": 280,
+      "void mrfw::preset_render(const PresetCatalog&, long int, bool, const PresetResult&, IPresetLines&)": 328,
+      "void mrfw::preset_boot_restore_console()": 136,
+      "bool mrfw::preset_verb(PresetCatalog&, PresetDiag&, const char*, size_t, IPresetLines&)": 344,
+      "void mrfw::handle_ui(const char*, size_t, Print&)": 32,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 256,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 360
+    },
+    "final-gateway-fw_main.cpp": {
+      "static constexpr bool setup()::<lambda()>::_FUN()": 0,
+      "static constexpr void setup()::<lambda(const char*)>::_FUN(const char*)": 0,
+      "void loop()": 16,
+      "void setup()": 1040,
+      "void mesh_service_once()": 728
+    }
+  }
+}

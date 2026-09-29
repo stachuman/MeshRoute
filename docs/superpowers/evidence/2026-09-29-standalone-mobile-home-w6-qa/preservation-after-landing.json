@@ -1,0 +1,62 @@
+{
+  "unchanged": true,
+  "phase": "post-landing",
+  "head": "70ff486b40c9b07001b33bcbcdf640ad494c1149",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "simulator_clean": true,
+  "original_file_count": 2097,
+  "changed": {
+    "MEMORY.md": {
+      "before": "b90794dab03a4f8c5073b145a69557d884892878564cf12ae96140fb58834d0b",
+      "after": "67d847e2935b6eb18bc71ffbd1b0f973f9b1bde935c491147bc3367f9c974ceb"
+    },
+    "docs/2026-07-30-open-bug-register.md": {
+      "before": "b78da31ba37ad694f1817265829161fce177d14fc34f2d47fd3746a0bd0a1e85",
+      "after": "2756b3836b173284f699463e6ecd4e154288712c93db445fb74ca6eb695b9f45"
+    },
+    "docs/2026-09-20-metal-test-plan.md": {
+      "before": "b5fe604e0d1a657d03bd5becf182042af1b9756d88f82619fc352c7b971d41e7",
+      "after": "b571396c0ea2c82a48f18c7cc4158c654779c7bc822cfc98a1b4295c1086825a"
+    },
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": {
+      "before": "d6ad9a12443eb545cb4db181d5b19fcd35f7d02840f47aa87b20ee5ee5d34bca",
+      "after": "2c83c6147d83019661b61fa47056cd2c6945af077cd0c071b26661769052b959"
+    },
+    "tracker.md": {
+      "before": "b9472fd2a1e421f28d6dad626bcac3743a17a315bae52aeaed238e71d0d07e21",
+      "after": "dee3bc43cf5b28209d3026e6500596118bf005cd2045ce82654f744bd63c9147"
+    }
+  },
+  "missing": [],
+  "new_qa_files": [
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa.md",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/abi-measurements.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/alarm-fixture-query.cpp",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/alarm-fixture-result.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/board-comparison.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/board-gateway.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/board-heltec_mobile.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/board-step.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/collector-note.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/comment-drift.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/corpus-compare.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/corpus-manifest.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/decode-reproducer.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/decode-result.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/documentation-checks.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/first-results.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/followup-findings.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/frozen-input-check.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/inputs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/mutation-census.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/mutation-results.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/preservation-after-landing.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/preservation-before-landing.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/raw-logs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/source-review.md"
+  ],
+  "unexpected_new": [],
+  "simulator_changed": [],
+  "simulator_new": [],
+  "staged": []
+}

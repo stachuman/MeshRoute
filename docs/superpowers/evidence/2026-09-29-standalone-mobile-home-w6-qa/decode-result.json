@@ -1,0 +1,6 @@
+{
+  "scope": "synthetic stdout, actual run_suite, successful build stub",
+  "function_sha256": "f13cf87b76996587c3fbd8d3d1f28459bbcecff2c5f21f07245f69726e56a6cb",
+  "exception": "UnicodeDecodeError",
+  "detail": "'utf-8' codec can't decode byte 0xbb in position 17: invalid start byte"
+}

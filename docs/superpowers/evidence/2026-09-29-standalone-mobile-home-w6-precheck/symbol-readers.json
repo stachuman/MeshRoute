@@ -1,0 +1,7406 @@
+[
+  {
+    "file": "src/device_nv.h",
+    "line": 340,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "struct UiPresetSlot {"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 347,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    uint8_t len;       // 0..kUiPresetTextMax; \u2605 the bytes AT and AFTER `len` are ZERO (canonical)"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 356,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "constexpr uint8_t kUiPresetTextMax = 17;   // OQ-A: 17 printable ASCII bytes for EVERY preset, both location states"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 357,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "struct UiPresetBlob {"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 362,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //     (`mrfw::preset_generation_next`), so `0` is available as \"no generation\" and a `SendReq` can never seal one."
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 365,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    UiPresetSlot slot[kUiPresets];"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 367,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    //     357, so the struct body ends at 369 \u2014 which is NOT a multiple of `alignof(UiPresetBlob)` (4, from `magic`)."
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 369,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    //     after `UiPresetBlob{}` \u2014 which would make the whole-record `memcmp` the write-coalescing policy IS answer"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 383,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "static_assert(sizeof(UiPresetSlot) == 21, \"device_nv.h: the /mrui slot layout moved \u2014 bump kUiPresetVersion\");"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 384,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "static_assert(alignof(UiPresetSlot) == 1, \"device_nv.h: /mrui slot alignment moved \u2014 the 21-byte claim is ABI-dependent\");"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 385,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "static_assert(sizeof(UiPresetBlob) == 12 + 17 * 21 + 3, \"device_nv.h: the /mrui blob layout moved \u2014 bump kUiPresetVersion\");"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 388,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "static_assert(sizeof(UiPresetBlob) % alignof(UiPresetBlob) == 0,"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 423,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    //   `memcmp` the write-coalescing policy IS answer differently on identical records. (`UiPresetBlob`'s rule.)"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 432,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "// \u2605 PER-ABI, NOT native-only \u2014 PeerRec's, JoinProfile's, TeamKeyRecord's and UiPresetSlot's reason: `sizeof` IS the"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 615,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "//   rather than a silently-ignored row. (The `UiPresetSlot::enabled` \"exactly 0 or 1\" ruling, one record over.)"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 657,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "//    corruption destroy identity AND config. A failed/short/invalid read is handled LOCALLY, as `UiPresetRead`."
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 926,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "enum class UiPresetRead : uint8_t {"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 939,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "inline UiPresetRead ui_preset_blob_state(const UiPresetBlob& b, int n, const SlotIo& io = SlotIo{}) {"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 940,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    if (io.backend_failed) return UiPresetRead::io_failed;"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 941,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    if (io.oversize)       return UiPresetRead::invalid;"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 942,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    if (n == kSlotAbsent)  return UiPresetRead::absent;"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 947,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    return blob_valid_exact(b, n, kUiPresetMagic, kUiPresetVersion) ? UiPresetRead::ok : UiPresetRead::invalid;"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 951,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "// \u2605 `UiPresetBlob{}` zeroes `reserved`, `reserved_tail` and every slot byte, which is what makes the whole-record"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 956,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "inline void ui_preset_blob_init(UiPresetBlob& b) {"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 957,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    b = UiPresetBlob{};"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 961,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    //    generation\" (see UiPresetBlob::generation), so a record stamped with it would be rejected as non-canonical"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 962,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //    by the very predicate that protects a `SendReq` from sealing one."
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 979,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "// \u24d8 U1, CONSIDERED AND ANSWERED IN PLACE, exactly as `TeamKeyRead` and `UiPresetRead` answer it against"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 1498,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "// `UiPresetRead` states: absent (a first boot), corrupt (the wearer's phrases are gone and he must be told) and"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 1504,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "inline UiPresetRead load_ui_presets(UiPresetBlob& out) {"
+  },
+  {
+    "file": "src/device_nv.h",
+    "line": 1514,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "inline bool save_ui_presets(const UiPresetBlob& b) { return write_slot(kSlotUi, &b, sizeof b); }"
+  },
+  {
+    "file": "src/firmware_admin_identity.h",
+    "line": 120,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "//   SECRET \u2014 forever. (`UiPresetSlot::enabled`'s \"exactly 0 or 1\" ruling, one record over.)"
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "line": 53,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "#include \"firmware_ui_preset_verbs.h\"  // \u00a7UI-10/11 P2: mrfw::preset_verb / preset_boot_restore / the three NDJSON"
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "line": 180,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override { return mrnv::load_ui_presets(out); }"
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "line": 181,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    bool save(const mrnv::UiPresetBlob& b)           override { return mrnv::save_ui_presets(b); }"
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "line": 217,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "// setup(): the boot load + the ruled diagnostic. \u26d4 A CALL, \u26d4 not a decision \u2014 `preset_boot_restore` asks"
+  },
+  {
+    "file": "src/firmware_commands.cpp",
+    "line": 222,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "    (void)mrfw::preset_boot_restore(preset_catalog(), s_preset_diag, out);"
+  },
+  {
+    "file": "src/firmware_commands.h",
+    "line": 203,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//   comparing equal the moment a change lands \u2014 which is \u00a73.2.3's modal-close trigger AND its stale-`SendReq`"
+  },
+  {
+    "file": "src/firmware_ui.cpp",
+    "line": 574,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "//      projection is not the question `send_gate_of` has to answer. \u26d4 Do not \"tidy\" this into the snapshot's copy."
+  },
+  {
+    "file": "src/firmware_ui.cpp",
+    "line": 576,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {"
+  },
+  {
+    "file": "src/firmware_ui.cpp",
+    "line": 2241,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "//    build failure instead of a mis-send. UI-7 needs the strings in a PURE header anyway (`ui_compose_send_line`"
+  },
+  {
+    "file": "src/firmware_ui.cpp",
+    "line": 2367,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    const mrui::ComposeList& list = dm ? s.preset_dm : s.preset_ch;"
+  },
+  {
+    "file": "src/firmware_ui.cpp",
+    "line": 2576,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    mrui::SendReq req{};"
+  },
+  {
+    "file": "src/firmware_ui.cpp",
+    "line": 2578,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (!s_tracker_normal.idle() && s_tracker_normal.kind() != mrui::SendKind::dm) s_tracker_normal.close();"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 132,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//    plus the catalog GENERATION the wearer saw** (`SendReq`), and the words themselves live in the record"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 220,
+    "symbols": [
+      "UiPresetSlot",
+      "UiPresetBlob"
+    ],
+    "text": "//      `mrnv::UiPresetBlob` / `UiPresetSlot` (what a compose list is PROJECTED FROM) and `mrfw::kPresetPerKind` /"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1519,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "// the strings in a PURE header anyway (`ui_compose_send_line` composes the console line and the native suite asserts"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1563,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "//     the text has 17 columns in BOTH location states. That is permanent GEOMETRY. `mrnv::kUiPresetTextMax` is the"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1577,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//      emergency, 1..8 = dm1..dm8, 9..16 = channel1..channel8), carried whole so the `SendReq` it seals names the"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1579,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "struct ComposeSlot {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1588,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "// \u24d8 COST, MEASURED not assumed: `sizeof(ComposeSlot)` is **20** (alignof 1 \u2014 18 char + 2 uint8, no padding), so"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1589,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "//   `sizeof(ComposeList)` is 8 x 20 + 1 = **161** and the pair on `UiSnapshot` costs 322. The `offsetof` proof is in"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1591,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "struct ComposeList {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1592,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "    ComposeSlot row[mrfw::kPresetPerKind] = {};"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1606,
+    "symbols": [
+      "UiPresetBlob",
+      "ComposeList",
+      "compose_project"
+    ],
+    "text": "inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind, ComposeList& out) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1607,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    out = ComposeList{};"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1609,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "        const mrnv::UiPresetSlot& s = cat.slot[i];"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1612,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "        ComposeSlot& r = out.row[out.n++];"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1622,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1637,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "// \u24d8 THE ROW ORDER IS FIXED AND DERIVED: the canned texts keep indices `0 .. sendable-1` (so `SendReq::text_index`"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1642,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//   exactly true\"*, and that was FALSE in one word \u2014 the sentence names **`SendReq::text_index`**, which P3"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1643,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//   **DELETED**. A `SendReq` now carries `{slot, generation}` (see its own block), so nothing about it is"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1646,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "//   occupy `0 .. n-1` where **`n` is the PROJECTED LIST's own length** (`ComposeList::n`), `GRANT KEY` sits at `n`,"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1705,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline uint8_t compose_row_count(const ComposeList& l, bool grant) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1710,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline ComposeRow compose_row_kind(uint8_t idx, const ComposeList& l, bool grant) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1719,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline uint8_t compose_row_slot(uint8_t idx, const ComposeList& l) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1727,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool grant) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1748,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline char compose_row_loc_marker(uint8_t idx, const ComposeList& l, bool grant) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1757,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "//     `emg_attempt_line` / `ui_compose_send_line` discipline. The renderer places the answer; it decides nothing."
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1760,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline void compose_row_line(char* out, std::size_t cap, uint8_t idx, const ComposeList& l, bool grant,"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1773,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "inline bool send_list_row_override(char* out, std::size_t cap, uint8_t idx, const ComposeList& l, bool selected,"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1785,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1787,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//      paragraph in a struct: *\"A `SendReq` identifies both the enabled stable slot selected by the wearer and the"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1797,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "//   carry it. It is the EMERGENCY's value \u2014 see `send_gate_of` in firmware_ui_send.h, where an alarm is"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1800,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "struct SendReq {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 1801,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    SendKind kind       = SendKind::emergency;"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2129,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //    (`UiState::compose_gen`), a `SendReq` SEALS it, and a MOVE is what closes an open selection-phase modal."
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2136,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    //    `preset_defaults`, which is what `PresetCatalog::begin()` runs and what `build_snapshot` therefore reads."
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2164,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList preset_dm{};"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2165,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList preset_ch{};"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2179,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "inline void ui_snapshot_publish_presets(UiSnapshot& s, const mrnv::UiPresetBlob& cat) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2181,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::dm,      s.preset_dm);"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 2182,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::channel, s.preset_ch);"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3436,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    bool take_send_request(SendReq& out) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3438,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "        //   \u26d4 THE ZERO IS LOAD-BEARING: `send_gate_of` exempts the emergency kind, and a sealed generation on this"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3441,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "                                out = SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0}; return true; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3444,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (out.kind == SendKind::dm) { _dm = DmState::submitting; _st.dirty = true; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3448,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        else if (out.kind == SendKind::channel_canned) { _chan = ChanState::submitting; _st.dirty = true; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3628,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    void on_send_accepted(SendKind k, uint32_t now_ms) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3636,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (k == SendKind::emergency) { ++_tries; _last_try_ms = now_ms; _emg_attempt_counted = true; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3637,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        else if (k == SendKind::dm)   { _dm = DmState::waiting_ack; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3658,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    void on_send_refused(SendKind k, RefuseReason r, MESHROUTE_NS::CmdCode code, uint32_t now_ms) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3660,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (k == SendKind::emergency) { _emg = Emergency::failed; retain(now_ms); }   // terminal + actionable, never a stuck SENDING..."
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3661,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        else if (k == SendKind::dm)   { _dm  = DmState::failed; }"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3675,
+    "symbols": [
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    //    outranks a phrase edit): `send_gate_of` exempts `SendKind::emergency` outright, so no alarm can ever reach"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3682,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    void on_preset_changed(SendKind k, uint32_t now_ms) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3684,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (k == SendKind::dm)                   _dm   = DmState::preset_changed;"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3685,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        else if (k == SendKind::channel_canned)  _chan = ChanState::preset_changed;"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3703,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    //   and every channel line this UI sends carries `-t` with no `-g` (`ui_compose_send_line`), so `want_global` is"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3751,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    void on_send_aired(SendKind k, uint32_t now_ms) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3757,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (k == SendKind::emergency) return;"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3758,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (k == SendKind::dm) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3829,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        _emg = Emergency::firing; queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0); _st.dirty = true;"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3904,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //   `uint8_t idx`, the compacted visible-row index \u2014 see `SendReq`). The EMERGENCY arm takes neither: its slot"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3907,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    void queue(SendKind k, uint8_t peer, uint8_t slot, uint32_t gen) {"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3914,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (k == SendKind::emergency) { _emg_req_pending = true; _emg_attempt_counted = false; return; }   // its own slot; never overwritten"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 3956,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq  _req{};"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 5595,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    //   carries, the id `compose_peer` already stores, and the id `ui_compose_send_line` already puts on the wire"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 5884,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        const ComposeList& list = dm ? s.preset_dm : s.preset_ch;"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 5907,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        queue(dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer,"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 6037,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0);"
+  },
+  {
+    "file": "src/firmware_ui_model.h",
+    "line": 6044,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        _retry_armed = false; _emg = Emergency::firing; queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0); _st.dirty = true;"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 33,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//     \u00b7 \u26d4 NO COMPOSE-LIST PROJECTION, \u26d4 no `SendReq` change, \u26d4 no `PRESET CHANGED` refusal, \u26d4 no modal"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 38,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//       selection-phase compose modal is open closes that modal\"* trigger and the stale-`SendReq` refusal,"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 43,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//       `UiState::compose_gen` against the published `UiSnapshot::preset_generation`, and the stale-`SendReq`"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 44,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "//       refusal is `mrui::send_gate_of` (`src/firmware_ui_send.h`), comparing the SEALED generation against the"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 75,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "// \u24d8 NO ESCAPE GROWTH IS POSSIBLE: `validate_preset_text` refuses `\"` and `\\` and everything outside 0x20..0x7e, and"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 78,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "inline constexpr size_t kPresetLineMax = 160;"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 136,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "inline size_t write_ui_preset(char* buf, size_t cap, uint8_t slot, const mrnv::UiPresetSlot& s) {"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 159,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //    `SendReq` seals and a companion editor re-reads. A list without it cannot tell the reader WHICH catalog"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 183,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    char b[kPresetLineMax];"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 191,
+    "symbols": [
+      "preset_emit_list"
+    ],
+    "text": "inline void preset_emit_list(const PresetCatalog& cat, IPresetLines& out) {"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 193,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    char b[kPresetLineMax];"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 200,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    char b[kPresetLineMax];"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 217,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead boot = mrnv::UiPresetRead::absent;"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 218,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    void on_boot(mrnv::UiPresetRead st) { boot = st; }"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 219,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    void on_result(const PresetResult& r) { if (r.verdict == PresetVerdict::ok) boot = mrnv::UiPresetRead::ok; }"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 229,
+    "symbols": [
+      "UiPresetRead",
+      "preset_boot_restore"
+    ],
+    "text": "inline mrnv::UiPresetRead preset_boot_restore(PresetCatalog& cat, PresetDiag& diag, IPresetLines& out) {"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 230,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    const mrnv::UiPresetRead st = cat.begin();   // \u26d4 ZERO writes on every arm \u2014 P1's `begin()` never repairs"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 234,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    char b[kPresetLineMax];"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 261,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    //   may not contain a quote (`validate_preset_text` refuses it), so a second pair is a MALFORMED line and must"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 299,
+    "symbols": [
+      "preset_emit_list"
+    ],
+    "text": "            if (whole_list) preset_emit_list(cat, out);"
+  },
+  {
+    "file": "src/firmware_ui_preset_verbs.h",
+    "line": 330,
+    "symbols": [
+      "preset_emit_list"
+    ],
+    "text": "        preset_emit_list(cat, out);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 45,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "//       \u00b7 padding/reserved bytes are NAMED and zero           (`UiPresetBlob::reserved` / `reserved_tail`)"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 51,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "//     \u00b7 the RECORD and its four-state read: `mrnv::UiPresetBlob` / `mrnv::UiPresetRead` (`src/device_nv.h`), which in"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 73,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//     \u00b7 \u26d4 NO COMPOSE-LIST PROJECTION and \u26d4 no `SendReq` change. Rendering the enabled slots in stable-slot order,"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 84,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "//       of the live record (`mrui::compose_project` -> `UiSnapshot::preset_dm` / `preset_ch`, frozen per frame),"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 85,
+    "symbols": [
+      "SendReq",
+      "send_gate_of"
+    ],
+    "text": "//       `mrui::SendReq` carries `{slot, generation}`, and `mrui::send_gate_of` (`src/firmware_ui_send.h`) is the"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 89,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//       `SendReq` \u2014 P3 consumes the RECORD and the slot space, and re-decides nothing here."
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 94,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "//       has repaired the record) is `mrfw::preset_boot_restore` + `mrfw::PresetDiag` in"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 100,
+    "symbols": [
+      "UiPresetSlot",
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "#include \"device_nv.h\"    // mrnv::UiPresetBlob / UiPresetSlot / UiPresetRead \u2014 THE durable carrier (U2)"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 116,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "    virtual mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) = 0;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 117,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    virtual bool save(const mrnv::UiPresetBlob& b) = 0;   // false = THE WRITE FAILED. \u26d4 Never \"nothing was written\"."
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 296,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "inline const char* preset_boot_line(mrnv::UiPresetRead st) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 298,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        case mrnv::UiPresetRead::ok:        return nullptr;   // loaded \u2014 say nothing"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 299,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        case mrnv::UiPresetRead::absent:    return nullptr;   // \u2605 a first boot is SILENT (owner-ruled)"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 300,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        case mrnv::UiPresetRead::invalid:   return kPresetInvalidLine;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 301,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        case mrnv::UiPresetRead::io_failed: return kPresetIoFailedLine;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 329,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "inline PresetErr validate_preset_text(const char* text, size_t len) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 332,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 345,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//     catalog that wrapped onto it would be indistinguishable from an unstamped one \u2014 and P3's `SendReq` seals the"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 362,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "//    the model consumes THIS catalog through `mrui::compose_project`, and the drift-fence case that guarded the two"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 403,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "// \u26d4 CALL ONLY AFTER `validate_preset_text` RETURNED `none` for an ENABLED slot: this function does not re-validate,"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 409,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "inline void preset_slot_put(mrnv::UiPresetSlot& s, bool enabled, bool loc, const char* text, size_t len) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 410,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    s = mrnv::UiPresetSlot{};                       // \u2605 zeroes text, len, loc and enabled \u2014 see the block above"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 414,
+    "symbols": [
+      "kUiPresetTextMax",
+      "validate_preset_text"
+    ],
+    "text": "    if (len > mrnv::kUiPresetTextMax) len = mrnv::kUiPresetTextMax;   // validate_preset_text already refused this"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 419,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "inline void preset_slot_default(mrnv::UiPresetSlot& s, uint8_t slot) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 421,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    const size_t len = d.text ? strlen(d.text) : 0;   // \u2605 `size_t` all the way, for `validate_preset_text`'s reason"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 427,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "inline void preset_defaults(mrnv::UiPresetBlob& b) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 443,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "inline bool preset_slot_canonical(const mrnv::UiPresetSlot& s, bool mandatory) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 453,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    if (validate_preset_text(s.text, s.len) != PresetErr::none) return false;   // \u26d4 ONE authority (U1)"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 460,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "inline bool presets_canonical(const mrnv::UiPresetBlob& b) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 476,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "inline bool preset_read_refuses_writes(mrnv::UiPresetRead st) { return st == mrnv::UiPresetRead::io_failed; }"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 481,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "//        \u00b7 `sizeof(mrnv::UiPresetBlob)` = 372 B. A transaction needs TWO scratch records \u2014 the CANDIDATE it composes"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 504,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        preset_defaults(_live);   // \u2605 the catalog is LIVE from construction \u2014 \u26d4 never an unusable pre-`begin()` state"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 511,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead begin() {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 512,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        const mrnv::UiPresetRead st = read_store();"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 513,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::ok) { _live = _cur; return st; }"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 516,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        preset_defaults(_live);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 521,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob& live() const { return _live; }"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 525,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    const mrnv::UiPresetSlot& slot(uint8_t i) const {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 551,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    //      `validate_preset_text`, with the arithmetic. \u26d4 Do not \"tidy\" this back to the record's own width."
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 556,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "        const PresetErr ve = validate_preset_text(text, len);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 558,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        const mrnv::UiPresetRead st = read_store();"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 574,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        const mrnv::UiPresetRead st = read_store();"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 588,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        const mrnv::UiPresetRead st = read_store();"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 601,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        const mrnv::UiPresetRead st = read_store();"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 603,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        preset_defaults(_cand);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 604,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        // \u2605 THE GENERATION IS THE LIVE ONE, \u26d4 not `preset_defaults`' 1: a reset restores the wearer's PHRASES, and"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 605,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        //   resetting the generation would make a `SendReq` sealed under an OLD catalog compare EQUAL to the new one"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 615,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead read_store() {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 616,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        mrnv::UiPresetRead st = _store.load(_cur);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 620,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::ok && !presets_canonical(_cur)) st = mrnv::UiPresetRead::invalid;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 629,
+    "symbols": [
+      "UiPresetRead",
+      "preset_defaults"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::absent) preset_defaults(_cur);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 635,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        else if (st != mrnv::UiPresetRead::ok) mrnv::ui_preset_blob_init(_cur);"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 638,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::invalid)   ++_invalid_loads;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 639,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::io_failed) ++_io_failed_loads;"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 646,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    PresetResult commit(mrnv::UiPresetRead st) {"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 668,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::ok &&"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 670,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (st == mrnv::UiPresetRead::absent &&"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 694,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    //   either `preset_defaults` or a record that passed `presets_canonical`."
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 695,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob _live{};"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 698,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob _cur{};"
+  },
+  {
+    "file": "src/firmware_ui_presets.h",
+    "line": 699,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob _cand{};"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 66,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    void submit(SendKind k, uint8_t peer_id, uint8_t channel_id, uint32_t now_ms) {"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 92,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    SendKind kind() const                      { return _k; }"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 103,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (_k == SendKind::dm) return false;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 116,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (_k == SendKind::dm) return false;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 142,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if ((_state != State::accepted && _state != State::late_ack) || _k != SendKind::dm) return false;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 178,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        return (_k == SendKind::dm) ? (dst == _peer) : (dst == 0);"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 191,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    // ON THE EMERGENCY SLOT, `on_send_accepted(SendKind::emergency, now_ms)` MUST BE CALLED **BEFORE** THE"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 212,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        if (_k == SendKind::dm) return false;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 223,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    SendKind _k = SendKind::emergency;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 269,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, now_ms);   // consume ONE bounded attempt"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 313,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "//   submitted as `SendKind::emergency`) \u2014 it is made anyway so there is no per-kind exception to remember."
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 470,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "//   promoted-`%u` worst case the paragraph above sizes for. The bound is `mrnv::kUiPresetTextMax` (OQ-A's 17), so a"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 472,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "inline constexpr std::size_t kSendLineCap = 96;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 493,
+    "symbols": [
+      "UiPresetBlob",
+      "SendReq",
+      "send_gate_of"
+    ],
+    "text": "inline SendGate send_gate_of(const SendReq& req, const mrnv::UiPresetBlob& cat) {"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 494,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (req.kind == SendKind::emergency) return SendGate::send;              // \u26d4 R-3/\u00a74.1 \u2014 never gated"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 499,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //   projection already guarantees it on the way in; asked again here it is what stops a `SendReq` assembled any"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 501,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    const mrfw::PresetKind want = (req.kind == SendKind::dm) ? mrfw::PresetKind::dm : mrfw::PresetKind::channel;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 533,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "// \u24d8 CALL ONLY AFTER `send_gate_of` ANSWERED `send`: this function does not re-ask the freeze, it COMPOSES."
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 534,
+    "symbols": [
+      "UiPresetBlob",
+      "SendReq",
+      "ui_compose_send_line"
+    ],
+    "text": "inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req, const mrnv::UiPresetBlob& cat,"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 539,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    const mrnv::UiPresetSlot& sl = cat.slot[req.slot];"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 544,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (req.kind == SendKind::dm) {"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 547,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    } else if (req.kind == SendKind::channel_canned) {"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 550,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    } else {   // SendKind::emergency \u2014 the catalog's mandatory slot; \u2605 \u00a74.1: the fix, not the flag alone, adds `-l`"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 573,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "inline void ui_perform_send(SendTracker& emg, SendTracker& normal, UiModel& m, const SendReq& req,"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 574,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "                            const mrnv::UiPresetBlob& cat, uint8_t team_channel_id, bool have_fix,"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 576,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    SendTracker& tr = (req.kind == SendKind::emergency) ? emg : normal;"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 582,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "    if (send_gate_of(req, cat) == SendGate::preset_changed) { m.on_preset_changed(req.kind, now_ms); return; }"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 583,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char line[kSendLineCap];"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 584,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    const int n = ui_compose_send_line(line, sizeof line, req, cat, team_channel_id, have_fix);"
+  },
+  {
+    "file": "src/firmware_ui_send.h",
+    "line": 592,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    tr.submit(req.kind, req.peer_id, (req.kind == SendKind::dm) ? uint8_t(0) : team_channel_id, now_ms);"
+  },
+  {
+    "file": "test/test_firmware_ui_chrome.cpp",
+    "line": 860,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "    {   mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat); ui_snapshot_publish_presets(s, cat); }"
+  },
+  {
+    "file": "test/test_firmware_ui_chrome.cpp",
+    "line": 871,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_chrome.cpp",
+    "line": 877,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, s.now_ms);                  // the core accepted it and minted a ctr"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 27,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "//      from. `preset_defaults` is what `PresetCatalog::begin()` runs for an ABSENT `/mrui`, i.e. what an ordinary"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 31,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "static mrnv::UiPresetBlob preset_defaults_blob() {"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 32,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob b{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 33,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(b);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 138,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 148,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 152,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 171,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 212,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); s.team_build = false; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 230,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap_inbox(3); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 256,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap_inbox(0); SendReq req{}; InboxReq rq{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 282,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "// rows are \"Got your message\" / \"All good\" / back \u2014 three, like the DM list, but a different SendKind."
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 284,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 295,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::channel_canned);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 316,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 344,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 369,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 409,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 436,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 457,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 508,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); s.team_shown = 0; s.team_total = 0; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 518,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 563,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 600,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 618,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 657,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 670,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (got) CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 695,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        ComposeList dm{}, ch{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 696,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(preset_defaults_blob(), mrfw::PresetKind::dm,      dm);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 697,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(preset_defaults_blob(), mrfw::PresetKind::channel, ch);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 750,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 772,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 777,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::emergency, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 4600);   // put nothing on air"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 783,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 789,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, 5000u * uint32_t(i));"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 798,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 800,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 809,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 811,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 821,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 823,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 0xFFFFF000u);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 847,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 849,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 857,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 859,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 860,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 5100);                       // a DM in flight alongside"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 918,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 920,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 930,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 932,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 937,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel n; SendReq r2{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 943,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        n.on_send_accepted(SendKind::emergency, 40000u + 1000u * uint32_t(i));"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 974,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel fail; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 976,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    fail.take_send_request(req); fail.on_send_refused(SendKind::emergency, RefuseReason::unsealable, MESHROUTE_NS::CmdCode::err_unsupported, 4600);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 982,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 991,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 997,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, 5000u * uint32_t(i));"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1008,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1010,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1039,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1041,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1050,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1052,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1067,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1073,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, 5000u * uint32_t(i));"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1096,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1103,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (first) CHECK(req.kind == SendKind::emergency);                                // ALARM FIRST"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1106,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (second) { CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id); }   // and the DM survived"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1111,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1120,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (got) CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1128,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1136,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1145,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::dm, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1149,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    n.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1153,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    o.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1159,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1161,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1175,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1177,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1193,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1199,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 0xFFFFF000u);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1209,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind      == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1218,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1223,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1239,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel picked; SendReq req{};                               // nor demote a sticky success"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1241,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    picked.take_send_request(req); picked.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1252,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1261,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind     == SendKind::dm);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1264,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 2000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1267,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel e; SendReq er{};                                     // an ALARM drain must not touch the DM machine"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1272,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(er.kind      == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1281,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1288,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    n.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1307,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1317,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1320,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::dm, 3000);                      // a second DM, refused by the parser this time"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1321,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::dm, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 3100);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1334,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1340,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::emergency, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, refused_at);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1353,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1359,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1375,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1377,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1379,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::dm, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 5100 + kEmgHoldMs / 2);   // a DM refusal, mid-window"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1431,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1437,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1465,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    a.on_send_accepted(SendKind::emergency, 5200);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1467,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    a.on_send_accepted(SendKind::emergency, 5400);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1497,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel f; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1505,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    f.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1547,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    l.on_send_accepted(SendKind::emergency, 5200);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1549,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    l.on_send_accepted(SendKind::emergency, 5400);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1552,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1568,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1584,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::emergency);                    // \u2605 the alarm's own slot, not the modal's"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1585,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1593,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq stale{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1622,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1623,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 13500);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1743,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1754,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1760,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1771,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1778,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq mis{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1799,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq mis{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1877,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1881,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1898,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1899,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1933,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::emergency, RefuseReason::other, MESHROUTE_NS::CmdCode::err_no_binding, 5100);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1950,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1953,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, 5000u + 1000u * uint32_t(i));"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1965,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1973,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_refused(SendKind::channel_canned, RefuseReason::other, MESHROUTE_NS::CmdCode::err_no_binding, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1992,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2012,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = dm_sent(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2015,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m2 = dm_sent(); SendReq req2{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2179,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        mrnv::UiPresetBlob b{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2180,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        mrfw::preset_defaults(b);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2187,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        ComposeList dm{}, ch{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2188,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(b, mrfw::PresetKind::dm,      dm);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2189,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(b, mrfw::PresetKind::channel, ch);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2192,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        for (const ComposeList* l : { &dm, &ch })"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2810,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2812,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3352,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq sr{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3354,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(sr.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5600,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5603,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5801,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    //   record's own limit `mrnv::kUiPresetTextMax` (OQ-A's 17) is the record's, pinned by the presets suite. So the"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5807,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        mrnv::UiPresetBlob wide{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5808,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        mrfw::preset_defaults(wide);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5814,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        ComposeList dm{}, ch{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5815,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(wide, mrfw::PresetKind::dm,      dm);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5816,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(wide, mrfw::PresetKind::channel, ch);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5818,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        for (const ComposeList* l : { &dm, &ch })"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5835,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    //    TODAY no stored phrase is CLAMPED by the row \u2014 `validate_preset_text` refuses more than the record's 17"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6276,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap_inbox(3); SendReq req{}; InboxReq rq{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6332,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap_inbox(3); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6352,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap_inbox(0); s.team_shown = 0; s.team_total = 0; SendReq req{}; InboxReq rq{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6382,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6447,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; const auto s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6591,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel n; const auto t = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6606,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    if (got) CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6834,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6838,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8291,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 \u2014 so it measures **1336 (+328)**. \u26d4 NOTHING BELOW"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8534,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    const mrui::ComposeList& l = (m.state().compose == Compose::dm) ? s.preset_dm : s.preset_ch;"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8774,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9217,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 \u2014 so it measures **1336 (+328)**. \u26d4 NOTHING BELOW"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9552,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 \u2014 so it measures **1336 (+328)**. \u26d4 NOTHING BELOW"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9982,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 \u2014 so it measures **1336 (+328)**. \u26d4 NOTHING BELOW"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10136,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "mrnv::UiPresetBlob gapped_cat(std::initializer_list<uint8_t> dm_on,"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10138,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob b{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10139,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(b);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10154,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "UiSnapshot snap_with(const mrnv::UiPresetBlob& cat, uint32_t now_ms = 1000) {"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10165,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList l{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10166,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::dm, l);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10187,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10205,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList dm{}, ch{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10206,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::dm,      dm);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10207,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::channel, ch);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10227,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList l{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10228,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(full, mrfw::PresetKind::dm, l);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10248,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList l{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10249,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::dm, l);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10284,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList l{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10285,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(cat, mrfw::PresetKind::dm, l);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10292,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    ComposeList some{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10293,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    compose_project(gapped_cat({3}), mrfw::PresetKind::dm, some);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10298,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10313,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10348,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10358,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10379,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10395,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    a.on_preset_changed(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10400,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    b.on_preset_changed(SendKind::channel_canned, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10404,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "    // \u26d4 AND THE EMERGENCY CANNOT REACH IT \u2014 R-3/\u00a74.1. `send_gate_of` exempts the kind; the model refuses it too."
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10406,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    c.on_preset_changed(SendKind::emergency, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10411,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    a.on_send_aired(SendKind::dm, 2000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10413,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    b.on_send_aired(SendKind::channel_canned, 2000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10462,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        ComposeList l{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10464,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        mrnv::UiPresetBlob c{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10465,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10469,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "        compose_project(c, mrfw::PresetKind::dm, l);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10485,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "    CHECK(sizeof(mrui::ComposeSlot) == 20u);               // 18 char + slot + loc, alignof 1, no padding"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10486,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    CHECK(sizeof(mrui::ComposeList) == 161u);              // 8 x 20 + the count"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10487,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "    CHECK(offsetof(mrui::ComposeSlot, text) == 0u);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10488,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "    CHECK(offsetof(mrui::ComposeSlot, slot) == 18u);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10489,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "    CHECK(offsetof(mrui::ComposeSlot, loc)  == 19u);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10512,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    // \u2605 `SendReq` gains 4 bytes over the withdrawn `{kind, peer, text_index}` \u2014 it is a by-value request, held in"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10514,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    CHECK(sizeof(mrui::SendReq) == 8u);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10781,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        CfgFix f; const UiSnapshot s = snap_inbox(3); SendReq req{}; InboxReq rq{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10847,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10882,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; const UiSnapshot s = home_snap(HomeProfile::key_missing); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10973,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; UiSnapshot s = home_snap(HomeProfile::ready); SendReq req{}; InboxReq rq{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11043,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; UiSnapshot s = home_snap(HomeProfile::ready); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11096,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "                CfgFix f; UiSnapshot s = snap_inbox(3, 1000); SendReq req{}; InboxReq rq{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11170,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; const UiSnapshot s = home_snap(HomeProfile::ready); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11177,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11178,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11190,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; const UiSnapshot s = snap(1000); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11205,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11607,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "mrnv::UiPresetBlob moved_catalog(const mrnv::UiPresetBlob& from) {"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11608,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob c = from;"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11617,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; const UiSnapshot s = snap(); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11637,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob cat = preset_defaults_blob();"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11638,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; UiSnapshot s = snap_with(cat); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11642,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob moved = moved_catalog(cat);"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11666,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob cat = preset_defaults_blob();"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11676,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; UiSnapshot s = snap_with(cat); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11687,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        UiModel m; UiSnapshot s = snap_with(cat); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11920,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob empty = gapped_cat({});          // every channel slot disabled: item 1 IS the exit row"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11921,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; UiSnapshot s = snap_with(empty); SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11928,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob moved = empty;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 37,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob rec{};"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 38,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 41,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override {"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 43,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (state != mrnv::UiPresetRead::ok) { std::memset(&out, 0xA5, sizeof out); return state; }"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 45,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        return mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 47,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    bool save(const mrnv::UiPresetBlob& b) override {"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 50,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        rec = b; state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 108,
+    "symbols": [
+      "UiPresetRead",
+      "preset_defaults"
+    ],
+    "text": "    Fix() { mrfw::preset_defaults(st.rec); st.state = mrnv::UiPresetRead::ok; cat.begin(); zero(); }"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 129,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    char b[mrfw::kPresetLineMax];"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 130,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob d{};"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 131,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(d);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 272,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob before = f.st.rec;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 377,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    st2.state = mrnv::UiPresetRead::io_failed;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 385,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(st3.rec); c3.begin();"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 443,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        mrfw::preset_defaults(stA.rec); mrfw::preset_defaults(stB.rec);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 460,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    struct { mrnv::UiPresetRead st; const char* expect; } arms[] = {"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 461,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        { mrnv::UiPresetRead::ok,        nullptr },                        // \u2605 loaded \u2014 say NOTHING"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 462,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        { mrnv::UiPresetRead::absent,    nullptr },                        // \u2605 a first boot is SILENT"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 463,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        { mrnv::UiPresetRead::invalid,   mrfw::kPresetInvalidLine  },"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 464,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        { mrnv::UiPresetRead::io_failed, mrfw::kPresetIoFailedLine },"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 468,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        mrfw::preset_defaults(st.rec);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 470,
+    "symbols": [
+      "UiPresetRead",
+      "preset_boot_restore"
+    ],
+    "text": "        const mrnv::UiPresetRead got = mrfw::preset_boot_restore(cat, diag, out);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 487,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    st.state = mrnv::UiPresetRead::invalid;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 488,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "    mrfw::preset_boot_restore(cat, diag, out);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 496,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    st2.state = mrnv::UiPresetRead::io_failed;"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 497,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "    mrfw::preset_boot_restore(cat2, diag2, out2);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 507,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetBlob) == 372);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 508,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrfw::PresetCatalog) >= 3 * sizeof(mrnv::UiPresetBlob));"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 509,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrfw::PresetCatalog) <= 3 * sizeof(mrnv::UiPresetBlob) + 32);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 513,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    CHECK(mrfw::kPresetLineMax == 160);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 514,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    char b[mrfw::kPresetLineMax];"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 515,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "    mrnv::UiPresetBlob d{}; mrfw::preset_defaults(d);"
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 519,
+    "symbols": [
+      "kPresetLineMax"
+    ],
+    "text": "    CHECK(widest < mrfw::kPresetLineMax);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 24,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "                                 //    compose_project`, which is what the panel actually renders the defaults"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 38,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob rec{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 39,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob attempted{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 40,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 45,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override {"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 47,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        if (state != mrnv::UiPresetRead::ok) { std::memset(&out, 0xA5, sizeof out); return state; }"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 49,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        return mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 51,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    bool save(const mrnv::UiPresetBlob& b) override {"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 55,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        rec = b; state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 79,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(s.rec);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 80,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    s.state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 98,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetSlot) == 21);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 99,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    CHECK(alignof(mrnv::UiPresetSlot) == 1);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 100,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetBlob) == 372);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 102,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    CHECK(mrnv::kUiPresetTextMax == 17);          // \u2605 OQ-A's owner ruling, and `text[18]` = 17 + the terminator"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 103,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetSlot::text) == 18);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 108,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(offsetof(mrnv::UiPresetBlob, magic)      == 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 109,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(offsetof(mrnv::UiPresetBlob, version)    == 4);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 110,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(offsetof(mrnv::UiPresetBlob, reserved)   == 6);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 111,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(offsetof(mrnv::UiPresetBlob, generation) == 8);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 112,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(offsetof(mrnv::UiPresetBlob, slot)       == 12);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 113,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(offsetof(mrnv::UiPresetBlob, reserved_tail) == 12 + 17 * 21);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 114,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetBlob) % alignof(mrnv::UiPresetBlob) == 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 137,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob b{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 141,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(b, n) == mrnv::UiPresetRead::ok);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 142,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kSlotAbsent) == mrnv::UiPresetRead::absent);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 147,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kSlotAbsent, io) == mrnv::UiPresetRead::io_failed);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 150,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(b, n, over) == mrnv::UiPresetRead::invalid);   // \u26d4 a valid PREFIX is not ok"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 152,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(b, n - 1) == mrnv::UiPresetRead::invalid);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 153,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(b, n + 1) == mrnv::UiPresetRead::invalid);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 154,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob wrong = b; wrong.magic = mrnv::kMagic;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 155,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(wrong, n) == mrnv::UiPresetRead::invalid);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 157,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrnv::ui_preset_blob_state(wrong, n) == mrnv::UiPresetRead::invalid);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 166,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob b{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 167,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(b);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 200,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    //   device are the compiled defaults, arriving through the SHIPPED projection (`mrui::compose_project`) rather"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 203,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    mrui::ComposeList dm{}, ch{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 204,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    mrui::compose_project(f.cat.live(), PresetKind::dm,      dm);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 205,
+    "symbols": [
+      "compose_project"
+    ],
+    "text": "    mrui::compose_project(f.cat.live(), PresetKind::channel, ch);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 230,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "            CHECK(mrfw::validate_preset_text(mrfw::kPresetDefaults[i].text,"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 237,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::absent;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 238,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    const mrnv::UiPresetRead st = f.cat.begin();"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 239,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(st == mrnv::UiPresetRead::absent);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 252,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::invalid;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 253,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    const mrnv::UiPresetRead st = f.cat.begin();"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 254,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(st == mrnv::UiPresetRead::invalid);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 268,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::io_failed;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 269,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    const mrnv::UiPresetRead st = f.cat.begin();"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 270,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(st == mrnv::UiPresetRead::io_failed);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 284,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    const mrnv::UiPresetRead st = f.cat.begin();"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 285,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(st == mrnv::UiPresetRead::ok);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 298,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    // The whole four-valued domain swept, so an arm added to `UiPresetRead` without a wording decision is visible."
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 299,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::ok)        == nullptr);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 300,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::absent)    == nullptr);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 301,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::invalid)   == mrfw::kPresetInvalidLine);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 302,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::io_failed) == mrfw::kPresetIoFailedLine);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 310,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    struct Case { const char* what; void (*break_it)(mrnv::UiPresetBlob&); };"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 312,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"generation 0\",              [](mrnv::UiPresetBlob& b) { b.generation = 0; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 313,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"header reserved dirty\",     [](mrnv::UiPresetBlob& b) { b.reserved = 1; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 314,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"tail padding dirty\",        [](mrnv::UiPresetBlob& b) { b.reserved_tail[2] = 1; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 315,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled is not 0/1\",        [](mrnv::UiPresetBlob& b) { b.slot[1].enabled = 7; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 316,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"loc is not 0/1\",            [](mrnv::UiPresetBlob& b) { b.slot[1].loc = 2; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 317,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"len past the OQ-A bound\",   [](mrnv::UiPresetBlob& b) { b.slot[1].len = 18; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 318,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"len past the buffer\",       [](mrnv::UiPresetBlob& b) { b.slot[1].len = 40; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 319,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"emergency DISABLED\",        [](mrnv::UiPresetBlob& b) { b.slot[0].enabled = 0; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 326,
+    "symbols": [
+      "UiPresetSlot",
+      "UiPresetBlob"
+    ],
+    "text": "        { \"emergency cleared AND zeroed\", [](mrnv::UiPresetBlob& b) { b.slot[0] = mrnv::UiPresetSlot{}; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 327,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"emergency EMPTY\",           [](mrnv::UiPresetBlob& b) { b.slot[0].len = 0;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 329,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled slot, empty text\",  [](mrnv::UiPresetBlob& b) { b.slot[1].len = 0; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 330,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled slot, all spaces\",  [](mrnv::UiPresetBlob& b) { std::memset(b.slot[1].text, ' ', 3);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 333,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled slot, control byte\",[](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = '\\n'; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 334,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled slot, quote byte\",  [](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = '\"'; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 335,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled slot, backslash\",   [](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = '\\\\'; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 336,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"enabled slot, high byte\",   [](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = char(0xC3); } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 337,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"GARBAGE AFTER len\",         [](mrnv::UiPresetBlob& b) { b.slot[1].text[17] = 'x'; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 338,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"disabled slot keeps text\",  [](mrnv::UiPresetBlob& b) { b.slot[5].text[0] = 'x'; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 339,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"disabled slot keeps len\",   [](mrnv::UiPresetBlob& b) { b.slot[5].len = 3; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 340,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        { \"disabled slot keeps loc\",   [](mrnv::UiPresetBlob& b) { b.slot[5].loc = 1; } },"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 344,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        mrnv::UiPresetBlob b{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 345,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "        mrfw::preset_defaults(b);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 354,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        f.store.state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 355,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        CHECK(mrnv::ui_preset_blob_state(b, int(sizeof b)) == mrnv::UiPresetRead::ok);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 356,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "        CHECK(f.cat.begin() == mrnv::UiPresetRead::invalid);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 373,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    const mrnv::UiPresetSlot& s = f.store.rec.slot[4];"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 396,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    mrnv::UiPresetSlot s{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 414,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //     stale-generation refusal, which compares the generation a `SendReq` sealed."
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 463,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    //     case that keeps `reset_all`'s candidate carrying the LIVE generation rather than `preset_defaults`' 1. If it"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 464,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    //     reset the counter, this second `reset all` would compare unequal and write, and \u2014 far worse \u2014 a `SendReq`"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 477,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::absent;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 496,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::invalid;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 504,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(f.store.state == mrnv::UiPresetRead::ok);   // and the store is well again"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 626,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    const mrnv::UiPresetBlob intact = f.store.rec;   // \u2605 what a POSSIBLY-INTACT record looks like"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 628,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::io_failed;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 642,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::invalid;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 653,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(k17, 17) == PresetErr::none);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 654,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(k18, 18) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 655,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"a\", 1) == PresetErr::none);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 656,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"\", 0) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 657,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(nullptr, 3) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 673,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"say \\\"hi\\\"\", 8) == PresetErr::bad_text);   // `\"` breaks the quoted forms"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 674,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"a\\\\b\", 3) == PresetErr::bad_text);         // `\\`  likewise"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 675,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"a\\rb\", 3) == PresetErr::bad_text);         // CR \u2014 excluded by the range"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 676,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"a\\nb\", 3) == PresetErr::bad_text);         // LF \u2014 likewise"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 677,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    { char t[3] = {'a', '\\0', 'b'}; CHECK(mrfw::validate_preset_text(t, 3) == PresetErr::bad_text); }"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 678,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    { char t[3] = {'a', char(0x7f), 'b'}; CHECK(mrfw::validate_preset_text(t, 3) == PresetErr::bad_text); }  // DEL"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 679,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    { char t[3] = {'a', char(0xE9), 'b'}; CHECK(mrfw::validate_preset_text(t, 3) == PresetErr::bad_text); }  // high"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 680,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    { char t[2] = {'a', char(0x1f)};      CHECK(mrfw::validate_preset_text(t, 2) == PresetErr::bad_text); }"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 682,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\"   \", 3) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 683,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(\" a \", 3) == PresetErr::none);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 687,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "        const bool ok_here = mrfw::validate_preset_text(t, 2) == PresetErr::none;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 702,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    CHECK((n273 & 0xFFu) == mrnv::kUiPresetTextMax);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 703,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(big, n273) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 705,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(big, size_t(256)) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 706,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(big, size_t(274)) == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 707,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(big, size_t(18))  == PresetErr::bad_text);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 708,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "    CHECK(mrfw::validate_preset_text(big, size_t(17))  == PresetErr::none);   // the control: 17 still passes"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 724,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    mrnv::UiPresetSlot s{};"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 726,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    CHECK(s.len == mrnv::kUiPresetTextMax);        // clamped, \u26d4 never 273 bytes into an 18-byte buffer"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 743,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(f.cat.begin() == mrnv::UiPresetRead::ok);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 748,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    f.store.state = mrnv::UiPresetRead::absent;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 756,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    CHECK(f.store.state == mrnv::UiPresetRead::ok);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 764,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "    g.store.state = mrnv::UiPresetRead::absent;"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 897,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetBlob) == 372);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 898,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(3 * sizeof(mrnv::UiPresetBlob) == 1116);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 900,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrfw::PresetCatalog) >= 3 * sizeof(mrnv::UiPresetBlob));"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 901,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrfw::PresetCatalog) <= 3 * sizeof(mrnv::UiPresetBlob) + 64);"
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 903,
+    "symbols": [
+      "UiPresetSlot",
+      "UiPresetBlob"
+    ],
+    "text": "    CHECK(sizeof(mrnv::UiPresetBlob) == 12 + mrnv::kUiPresets * sizeof(mrnv::UiPresetSlot) + 3);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 30,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.accept(/*ctr=*/77, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 40,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.accept(77, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 47,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.accept(77, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 53,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::dm, /*peer=*/174, 0, 1000); t.accept(/*ctr=*/900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 66,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::dm, 174, 0, 1000); t.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 76,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.refuse();"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 83,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.awaiting_outcome(1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 94,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.awaiting_outcome(1010);   // on_command answered {queued, ctr = 0}"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 106,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        t.submit(SendKind::emergency, 0, 0, 1000); t.accept(c, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 109,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        t2.submit(SendKind::emergency, 0, 0, 1000); t2.accept(c, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 116,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::dm, 174, 0, 1000); t.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 140,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::channel_canned, 0, 0, 1000); t.awaiting_outcome(1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 157,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.accept(77, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 172,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.accept(/*ctr=*/0, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 185,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 1000); t.awaiting_outcome(1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 199,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::dm, 174, 0, 1000); t.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 217,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::dm, 174, 0, 1000); t.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 232,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    dm.submit(SendKind::dm, 174, 0, 1000); dm.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 239,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    ch.submit(SendKind::channel_canned, 0, 7, 1000); ch.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 249,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::dm, 174, 0, 1000); t.awaiting_outcome(1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 258,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::emergency, 0, 0, 0xFFFFF000u); t.awaiting_outcome(0xFFFFF000u);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 265,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t2.submit(SendKind::emergency, 0, 0, 0xFFFFF000u); t2.awaiting_outcome(0xFFFFF000u);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 278,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    t.submit(SendKind::channel_canned, 0, 0, 1000); t.accept(/*team copy's ctr=*/77, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 301,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        t.submit(SendKind::dm, 174, 0, 1000); t.accept(900, 1010);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 314,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendTracker emg; SendTracker normal; SendReq req{}; SendOutcome o{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 322,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 323,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    emg.submit(SendKind::emergency, 0, 0, 4500);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 325,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 360,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{}; SendOutcome o{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 366,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        CHECK(req.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 369,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "        emg.submit(SendKind::emergency, 0, 0, t_sub);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 396,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 413,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 427,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendTracker emg; SendReq req{}; SendOutcome o{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 431,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    emg.submit(SendKind::emergency, 0, 0, 4500);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 446,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000 + kOutcomeWindowMs + 1);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 463,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 468,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    emg.submit(SendKind::emergency, 0, 0, 4500);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 470,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 487,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 497,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq spurious{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 508,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 509,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::emergency, 5200);        // three accepted transmissions, still awaiting evidence"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 512,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5300);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 523,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m; SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 528,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    emg.submit(SendKind::emergency, 0, 0, 4500);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 591,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 607,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 623,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::dm, /*peer=*/174, 0, 5100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1257,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "// \u2605\u2605\u2605\u2605 \u00a7UI-10/11 P3 \u2014 **THE CATALOG THESE CASES SEND FROM.** `ui_compose_send_line` and `ui_perform_send` read the"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1259,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "//      it is driving. `preset_defaults` is what an ABSENT record means \u2014 i.e. what the panel shipped before this"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1263,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "const mrnv::UiPresetBlob& dflt_cat() {"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1264,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "    static mrnv::UiPresetBlob b = [] { mrnv::UiPresetBlob t{}; mrfw::preset_defaults(t); return t; }();"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1267,
+    "symbols": [
+      "SendReq",
+      "preset_defaults"
+    ],
+    "text": "// The generation `preset_defaults` stamps (`mrnv::ui_preset_blob_init`'s 1) \u2014 the value a `SendReq` must seal for"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1294,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "// \u2605\u2605\u2605\u2605 \u00a7UI-10/11 P3 \u2014 EVERY CASE BELOW NOW COMPOSES FROM THE **CATALOG RECORD** (`dflt_cat()`), and a `SendReq`"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1296,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "//      compacted VISIBLE-ROW index \u2014 see `mrui::SendReq`'s own block for why it could not survive a configurable"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1300,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1301,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    const int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, /*peer=*/7, kDm1, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1310,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1311,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 200, kDm2, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1317,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1318,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh2, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1329,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char with_fix[kSendLineCap], no_fix[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1330,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, 0};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1332,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(with_fix, sizeof with_fix, alarm, dflt_cat(), 0, /*have_fix=*/true) > 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1334,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(no_fix, sizeof no_fix, alarm, dflt_cat(), 0, /*have_fix=*/false) > 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1345,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob c{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1346,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1348,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, 0};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1349,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1350,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/true) > 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1352,
+    "symbols": [
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/false) > 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1359,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob c{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1360,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1362,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1363,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1372,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob c{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1373,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1376,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1378,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, c.generation}, c, 0, fix) > 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1382,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, c.generation},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1388,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, c.generation}, c, 0, true) > 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1396,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1398,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, uint8_t(kDm1 + 2), dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1402,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0,"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1406,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99, dflt_gen()}, dflt_cat(), 0, false) == 0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1407,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, mrnv::kUiPresets, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1414,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(tiny, sizeof tiny, SendReq{SendKind::dm, 7, kDm1, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1419,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "TEST_CASE(\"ui7-line: kSendLineCap fits every line either verb can produce, at the widest id and channel\") {"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1420,
+    "symbols": [
+      "kSendLineCap"
+    ],
+    "text": "    char b[kSendLineCap];"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1421,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1423,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1425,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1428,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "    //   the cap must now clear, and it is `mrnv::kUiPresetTextMax` rather than the longest compiled string."
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1429,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob wide{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1430,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(wide);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1436,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, wide.generation},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1438,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, wide.generation},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1440,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "ui_compose_send_line"
+    ],
+    "text": "        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1446,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "// \u2605\u2605\u2605\u2605 THE HEADLINE OF THE SLICE, AT THE UNIT LEVEL: `send_gate_of` is asked at EXECUTION, against the LIVE record."
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1448,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, dflt_gen()}, dflt_cat()) == SendGate::send);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1449,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::channel_canned, 0, kCh2, dflt_gen()}, dflt_cat()) == SendGate::send);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1455,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    const SendReq sealed{SendKind::dm, 7, kDm1, dflt_gen()};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1456,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(sealed, dflt_cat()) == SendGate::send);        // the control: it was fine a moment ago"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1458,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "        mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1461,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1464,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "        mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1467,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1471,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "        mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1474,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1477,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "        mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1479,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1486,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "    mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1489,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, dflt_gen()}, c) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1491,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kCh1, dflt_gen()}, dflt_cat()) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1492,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::channel_canned, 0, kDm1, dflt_gen()}, dflt_cat()) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1494,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::dm, 7, mrnv::kUiPresets, dflt_gen()}, dflt_cat()) == SendGate::preset_changed);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1499,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, 0};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1500,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(alarm, dflt_cat()) == SendGate::send);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1501,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "    mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1505,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "        CHECK(send_gate_of(alarm, c) == SendGate::send);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1512,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1528,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(0);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1543,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1556,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1569,
+    "symbols": [
+      "send_gate_of"
+    ],
+    "text": "//   fence EARLIER, by `send_gate_of`, so the arm that still belongs to the COMPOSER is a slot the record calls"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1573,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob c{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1574,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1577,
+    "symbols": [
+      "SendReq",
+      "SendKind",
+      "send_gate_of"
+    ],
+    "text": "    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, c.generation}, c) == SendGate::send);   // the gate passes it"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1578,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 7, kDm1, c.generation}, c, 0, false,"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1591,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "        mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1594,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "        const SendReq sealed = dm ? SendReq{SendKind::dm, 7, kDm1, dflt_gen()}"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1595,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "                                  : SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1612,
+    "symbols": [
+      "UiPresetBlob",
+      "preset_defaults"
+    ],
+    "text": "    mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1615,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1627,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1664,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1666,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(req.kind == SendKind::channel_canned);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1698,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg_a, normal_a, dm_only, SendReq{SendKind::dm, 11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fa, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1702,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel alarm = armed_and_fired(); SendReq req{}; SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(77);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1718,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg_a, normal_a, held, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fa, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1720,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg_b, normal_b, handleless, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), 0, false,"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1753,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1767,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1780,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    normal.submit(SendKind::channel_canned, 0, 0, 5000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1809,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1855,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1885,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f2,"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1932,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1933,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    CHECK(r1.kind == SendKind::emergency);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1948,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1961,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r3{}; const bool got3 = m.take_send_request(r3); CHECK(got3 == true); if (!got3) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1975,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r4{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1986,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2013,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2022,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2034,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2047,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2086,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2105,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2119,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, /*slot=*/kCh1, dflt_gen()}, dflt_cat(), /*ch=*/0, false, fake_exec, &f, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2139,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2165,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "// and \"the model's own `SendKind::emergency` refusal is dropped\" leave every assertion above green \u2014 the promotion"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2170,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal;"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2173,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "      ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), /*ch=*/0, false, fake_exec, &fc, 5900); }"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2194,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "// \u2605\u2605 The MODEL-level twin of the case above: the same crossover, one layer in, so the `SendKind::emergency` refusal"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2198,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_accepted(SendKind::channel_canned, 5900);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2200,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_aired(SendKind::emergency, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2202,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    m.on_send_aired(SendKind::channel_canned, 6100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2214,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_outcome(SendOutcome::dm_acked(), 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2216,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2218,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_outcome(SendOutcome::dm_timeout(), 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2220,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2222,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_outcome(SendOutcome::dm_no_key(), 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2224,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2226,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2229,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2232,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2235,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2237,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2240,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2242,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2245,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2247,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2250,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2255,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::dm, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2257,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2259,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2261,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2263,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2265,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1200);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2270,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::dm, 1000);            CHECK(m.dm_state()   == DmState::idle);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2271,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::channel_canned, 1000); CHECK(m.chan_state() == ChanState::idle); }"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2275,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "      m.on_send_aired(SendKind::emergency, 1000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2283,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_send_aired(SendKind::dm, 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2287,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000); m.on_send_aired(SendKind::channel_canned, 1100);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2622,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fx, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2636,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fx, 6000);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2798,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "mrnv::UiPresetBlob located_cat() {"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2799,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob c{};"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2800,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    mrfw::preset_defaults(c);"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2816,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, c.generation}, c,"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2836,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, c.generation}, c,"
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2851,
+    "symbols": [
+      "SendReq",
+      "SendKind"
+    ],
+    "text": "    ui_perform_send(e2, n2, ok, SendReq{SendKind::dm, 11, kDm1, c.generation}, c,"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 159,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "    (\"mrnv::UiPresetSlot\",     \"1\"),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 160,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    (\"mrnv::UiPresetBlob\",     \"1\"),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 179,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "    (\"mrui::ComposeSlot\",      \"MR_FEAT_OLED\"),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 180,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "    (\"mrui::ComposeList\",      \"MR_FEAT_OLED\"),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 181,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "    (\"mrui::SendReq\",          \"MR_FEAT_OLED\"),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 189,
+    "symbols": [
+      "UiPresetSlot",
+      "UiPresetBlob"
+    ],
+    "text": "#   `mrnv::UiPresetSlot` / `UiPresetBlob` ARE in the set above even though `device_nv.h:381-386` asserts them:"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 323,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "        \"mrnv::UiPresetSlot\":      (21, 1, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 324,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        \"mrnv::UiPresetBlob\":      (372, 4, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 337,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "        \"mrui::ComposeSlot\":       (20, 1, False),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 338,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        \"mrui::ComposeList\":       (161, 1, False),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 339,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        \"mrui::SendReq\":           (8, 4, False),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 355,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "        \"mrnv::UiPresetSlot\":      (21, 1, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 356,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        \"mrnv::UiPresetBlob\":      (372, 4, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 369,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "        \"mrui::ComposeSlot\":       (20, 1, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 370,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        \"mrui::ComposeList\":       (161, 1, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 371,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        \"mrui::SendReq\":           (8, 4, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 390,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "        \"mrnv::UiPresetSlot\":      (21, 1, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 391,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "        \"mrnv::UiPresetBlob\":      (372, 4, True),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 404,
+    "symbols": [
+      "ComposeSlot"
+    ],
+    "text": "        \"mrui::ComposeSlot\":       (20, 1, False),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 405,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "        \"mrui::ComposeList\":       (161, 1, False),"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 406,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "        \"mrui::SendReq\":           (8, 4, False),"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 57,
+    "symbols": [
+      "preset_boot_restore"
+    ],
+    "text": "//     rediscovered: P26b's four boot-line checks drive `mrfw::preset_boot_restore` \u2014 a PURE unit in"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 67,
+    "symbols": [
+      "preset_emit_list"
+    ],
+    "text": "//     would move it is a `preset_emit_list` mutation, i.e. `--target=uipresetverbs` V03/V05. \u26d4 Recorded rather than"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 745,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    mrnv::UiPresetBlob rec{};"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 747,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "    ShippedPresetStore() { mrfw::preset_defaults(rec); }"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 748,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override { ++loads; out = rec; return mrnv::UiPresetRead::ok; }"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 749,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "    bool save(const mrnv::UiPresetBlob& b) override { ++saves; rec = b; return true; }"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7597,
+    "symbols": [
+      "UiPresetBlob"
+    ],
+    "text": "            mrnv::UiPresetBlob rec{};"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7598,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "            mrnv::UiPresetRead state = mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7600,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "            mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override {"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7602,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "                if (state != mrnv::UiPresetRead::ok) { memset(&out, 0xA5, sizeof out); return state; }"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7603,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "                out = rec; return mrnv::UiPresetRead::ok;"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7605,
+    "symbols": [
+      "UiPresetBlob",
+      "UiPresetRead"
+    ],
+    "text": "            bool save(const mrnv::UiPresetBlob& b) override { ++saves; rec = b; state = mrnv::UiPresetRead::ok; return true; }"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7632,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "            mrfw::preset_defaults(ps.rec);"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7657,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "            struct { mrnv::UiPresetRead st; const char* expect; const char* label; } arms[] = {"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7658,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "                { mrnv::UiPresetRead::ok,        nullptr,                    \"ok\" },"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7659,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "                { mrnv::UiPresetRead::absent,    nullptr,                    \"absent\" },"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7660,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "                { mrnv::UiPresetRead::invalid,   mrfw::kPresetInvalidLine,   \"invalid\" },"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7661,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "                { mrnv::UiPresetRead::io_failed, mrfw::kPresetIoFailedLine,  \"io_failed\" },"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7666,
+    "symbols": [
+      "preset_defaults"
+    ],
+    "text": "                mrfw::preset_defaults(ps.rec);"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7668,
+    "symbols": [
+      "UiPresetRead",
+      "preset_boot_restore"
+    ],
+    "text": "                const mrnv::UiPresetRead got = mrfw::preset_boot_restore(cat, dg, out);"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1384,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "      's|    const mrui::ComposeList\\& list = dm ? s.preset_dm : s.preset_ch;|    const mrui::ComposeList\\& list = s.preset_ch;|'"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1487,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": "                                         # live `/mrui` record, `SendReq` carries `{slot, generation}`, and the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4439,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "  \"inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4440,
+    "symbols": [
+      "ComposeList"
+    ],
+    "text": "  \"inline const char* compose_empty_note(const ComposeList& l) { (void)l; return nullptr; }\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4443,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "  \"        if (k == SendKind::dm)                   _dm   = DmState::preset_changed;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4444,
+    "symbols": [
+      "SendKind"
+    ],
+    "text": "  \"        if (k == SendKind::dm)                   _dm   = DmState::failed;\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5133,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": " (\"N23 \u2605\u2605 the /mrui seed stamps generation ZERO \u2014 the value reserved for 'no generation', which a SendReq can never seal\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5137,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    return blob_valid_exact(b, n, kUiPresetMagic, kUiPresetVersion) ? UiPresetRead::ok : UiPresetRead::invalid;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5138,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    return blob_valid_range(b, n, kUiPresetMagic, 1, 0xFFFFu) ? UiPresetRead::ok : UiPresetRead::invalid;\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5140,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    if (io.backend_failed) return UiPresetRead::io_failed;\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5141,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    if (io.oversize)       return UiPresetRead::invalid;\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5142,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    if (n == kSlotAbsent)  return UiPresetRead::absent;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5143,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    if (n == kSlotAbsent)  return UiPresetRead::absent;\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5144,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    if (io.backend_failed) return UiPresetRead::io_failed;\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5145,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"    if (io.oversize)       return UiPresetRead::invalid;\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 6782,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": " #     and the WIRING is the probe's (C137-C141), but what a `SendReq` is checked against at EXECUTION, and whether"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7416,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"inline bool preset_read_refuses_writes(mrnv::UiPresetRead st) { return st == mrnv::UiPresetRead::io_failed; }\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7417,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"inline bool preset_read_refuses_writes(mrnv::UiPresetRead) { return false; }\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7419,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::ok && !presets_canonical(_cur)) st = mrnv::UiPresetRead::invalid;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7422,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::invalid)   ++_invalid_loads;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7425,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        case mrnv::UiPresetRead::io_failed: return kPresetIoFailedLine;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7426,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        case mrnv::UiPresetRead::io_failed: return kPresetInvalidLine;\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7428,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        case mrnv::UiPresetRead::absent:    return nullptr;   // \u2605 a first boot is SILENT (owner-ruled)\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7429,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        case mrnv::UiPresetRead::absent:    return kPresetInvalidLine;\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7435,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "  \"    s = mrnv::UiPresetSlot{};                       // \u2605 zeroes text, len, loc and enabled \u2014 see the block above\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7460,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::ok &&\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7464,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::absent &&\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7474,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::absent &&\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7476,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st != mrnv::UiPresetRead::ok &&\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7479,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::absent &&\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7481,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::absent &&\\n\""
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7484,
+    "symbols": [
+      "UiPresetRead",
+      "preset_defaults"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::absent) preset_defaults(_cur);\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7485,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        if (st == mrnv::UiPresetRead::absent) mrnv::ui_preset_blob_init(_cur);\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7496,
+    "symbols": [
+      "SendReq"
+    ],
+    "text": " (\"U21 \u2605 `reset all` resets the GENERATION to the compiled 1 \u2014 a SendReq sealed under an OLD catalog compares EQUAL again\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7506,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "  \"        const PresetErr ve = validate_preset_text(text, len);\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7508,
+    "symbols": [
+      "validate_preset_text"
+    ],
+    "text": "  \"        const PresetErr ve = validate_preset_text(text, len);\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7511,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        const mrnv::UiPresetRead st = read_store();\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7512,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  \"        const mrnv::UiPresetRead st = read_store();\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7515,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "  \"    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7531,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "  \"    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7533,
+    "symbols": [
+      "kUiPresetTextMax"
+    ],
+    "text": "  \"    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;\"),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7575,
+    "symbols": [
+      "preset_emit_list"
+    ],
+    "text": "  '            if (whole_list) preset_emit_list(cat, out);\\n            else            preset_emit_record(cat, static_cast<uint8_t>(slot), out);',"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7576,
+    "symbols": [
+      "preset_emit_list"
+    ],
+    "text": "  '            preset_emit_list(cat, out);'),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7587,
+    "symbols": [
+      "UiPresetSlot"
+    ],
+    "text": "  '        PresetResult r{};\\n        const mrnv::UiPresetSlot& cs = cat.slot(static_cast<uint8_t>(slot));\\n        if (cs.enabled && cs.loc == (loc ? 1 : 0) && cs.len == xn && memcmp(cs.text, xt, xn) == 0)\\n            r.verdict = PresetVerdict::unchanged;\\n        else r = cat.set(slot, loc, xt, xn);'),"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7596,
+    "symbols": [
+      "UiPresetRead"
+    ],
+    "text": "  '    void on_result(const PresetResult& r) { if (r.verdict == PresetVerdict::ok) boot = mrnv::UiPresetRead::ok; }',"
+  }
+]

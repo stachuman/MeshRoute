@@ -1,0 +1,32 @@
+{
+  "scope": "Independent specification arithmetic and word-wrap reference. Not product implementation or a product test gate.",
+  "property_checks": 4236928,
+  "worst_case_witness": " XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX XX",
+  "worst_case_line_lengths": [
+    1,
+    19,
+    1,
+    19,
+    1,
+    19,
+    1,
+    19,
+    1,
+    19,
+    1,
+    19,
+    1,
+    19,
+    1,
+    19,
+    3
+  ],
+  "pages": 6,
+  "send_line": {
+    "promoted_channel_digits": 10,
+    "derived_storage": 199,
+    "actual_255_storage": 192
+  },
+  "default_len": 18,
+  "default_projection_hex": "52657475726e20746f2062617365206ebb"
+}

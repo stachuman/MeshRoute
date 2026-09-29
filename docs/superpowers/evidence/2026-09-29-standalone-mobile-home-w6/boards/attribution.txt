@@ -1,0 +1,110 @@
+# W6 board attribution — base-1 (pre-edit baseline) vs final-1 (the frozen tree), stock measure_board manifests
+
+## gateway
+  source.file_count: 2051 -> 2054
+  source.git_status_sha256: "9242ee03fc28413ea30f4e2e7c39ec4de67573076e519fba310f3e2e57121a9b" -> "6b86a2c34bcb310194152d4533abd33ca06250153ecac40b2c0d012abaa51f3a"
+  source.tree_sha256: "601098b99242b717bbae76eeb3de1730966828e51ed2d212efa7a51f6c3bd134" -> "8053128dee7d21a4044440ee107a03d126e9d09f671329a13af207a4813b9cd9"
+  normal_pio_metadata.sha256: "fb14639d95fc5b0f38ccfc1c37b68790191c8fa14db36681f0160b0b80e50e04" -> "78dd26ea7f7a70b034e5d20a9bfa93b32c74ce6a56d07243101f966773d4ea6e"
+
+## heltec_mobile
+  measurements.flash_bytes: 1397696 -> 1400276
+  measurements.loadable_sections: {".dram0.data": 25324, ".flash.appdesc": 256, ".flash.rodata": 218180, ".flash.text": 1075322, ".iram0.text": 77843, ".iram0.vectors": 1027, ".rtc.force_fast": 8, ".rtc.text": 256} -> {".dram0.data": 25436, ".flash.appdesc": 256, ".flash.rodata": 218436, ".flash.text": 1077534, ".iram0.text": 77843, ".iram0.vectors": 1027, ".rtc.force_fast": 8, ".rtc.text": 256}
+  measurements.ram_bytes: 211788 -> 219540
+  measurements.symbol_count: 13311 -> 13336
+  measurements.symbol_size_total: 1498867 -> 1509129
+  measurements.symbols_sha256: "85fce380ad0a19c1689c5e08bdbe0e2e9db5f2b83330930db5d84545668d827b" -> "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e"
+  artifacts.elf: {"bytes": 21630900, "filename": "firmware.elf", "sha256": "66d2ac0636b50bc5a317a09842aa13ad286a2ad94691b5c6d66a2a01f629b33a"} -> {"bytes": 21659708, "filename": "firmware.elf", "sha256": "b2ccef33d8ba7f77403e7b034d8aee19517e2cf103768326e401e0946f69734d"}
+  artifacts.payload: {"bytes": 1398336, "filename": "firmware.bin", "sha256": "6a7250e6e0a1f5ca08ee7d7385eeeabfeb07373a7bc785456267275d0a999b14"} -> {"bytes": 1400912, "filename": "firmware.bin", "sha256": "6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998"}
+  source.file_count: 2051 -> 2054
+  source.git_status_sha256: "9242ee03fc28413ea30f4e2e7c39ec4de67573076e519fba310f3e2e57121a9b" -> "6b86a2c34bcb310194152d4533abd33ca06250153ecac40b2c0d012abaa51f3a"
+  source.tree_sha256: "601098b99242b717bbae76eeb3de1730966828e51ed2d212efa7a51f6c3bd134" -> "8053128dee7d21a4044440ee107a03d126e9d09f671329a13af207a4813b9cd9"
+  normal_pio_metadata.sha256: "fb14639d95fc5b0f38ccfc1c37b68790191c8fa14db36681f0160b0b80e50e04" -> "78dd26ea7f7a70b034e5d20a9bfa93b32c74ce6a56d07243101f966773d4ea6e"
+
+## heltec_mobile RAM sections (sections.txt)
+  .dram0.data: 25324 -> 25436  +112
+  .dram0.bss: 186464 -> 194104  +7640
+  .noinit: 0 -> 0  +0
+
+## heltec_mobile RAM OBJECT symbols (.dram0.data + .dram0.bss) that changed
+   +7440    1132 ->   8572  mrfw::preset_catalog()::cat
+    +199       0 ->    199  (anonymous namespace)::s_send_line
+     +64     936 ->   1000  (anonymous namespace)::s_model
+     +40     520 ->    560  (anonymous namespace)::s_frame_state
+  sum +7743; section growth +7752; alignment padding +9
+
+## heltec_mobile FUNC .flash.text: 59 symbols changed, net +2131 (symbol sizes; the section also holds literal pools/alignment)
+    +927  mr_ui_tick(unsigned long)
+    -518  mrui::ui_perform_send(mrui::SendTracker&, mrui::SendTracker&, mrui::UiModel&, mrui::SendReq const&, mrnv::UiPresetBlob const&, unsigned char
+    +448  (anonymous namespace)::ui_perform_send(mrui::SendReq const&, unsigned long)
+    +284  mrfw::preset_emit_list(mrfw::PresetCatalog const&, mrfw::IPresetLines&, unsigned char)
+    +251  mrui::UiModel::review_check(mrui::UiSnapshot const&)
+    -190  mrfw::preset_emit_list(mrfw::PresetCatalog const&, mrfw::IPresetLines&)
+    +137  mrui::UiModel::refresh_review_page()
+    +120  mrui::UiModel::compose_gesture(mrui::Gesture, mrui::UiSnapshot const&)
+    +118  mrui::send_gate_of(mrui::SendReq const&, mrnv::UiPresetBlob const&, mrui::SendLive const&)
+     +84  mrui::UiModel::review_close_with(mrui::ReviewPhase, mrui::UiSnapshot const&, unsigned long)
+     +66  (anonymous namespace)::ui_send_live(mrui::SendReq const&)
+     +66  mrfw::preset_verb(mrfw::PresetCatalog&, mrfw::PresetDiag&, char const*, unsigned int, mrfw::IPresetLines&)
+     +62  mrui::review_wrap_line(char const*, unsigned char, unsigned char)
+     +56  mrui::team_member_hash_of(mrui::InviteMember const*, unsigned char, unsigned char)
+     -53  mrui::UiModel::activate(mrui::UiSnapshot const&)
+     +52  mrui::compose_project(mrnv::UiPresetBlob const&, mrfw::PresetKind, mrui::ComposeList&)
+     +51  mrui::UiModel::open_send_list(mrui::UiSnapshot const&)
+     +45  mrui::UiModel::close_review()
+     +32  mrfw::(anonymous namespace)::DeviceUiPresetStore::load(mrnv::UiPresetBlob&)
+     +31  mrui::review_note_text(mrui::ReviewPhase)
+     +31  mrfw::preset_boot_line(mrnv::UiPresetRead)
+     +28  mrui::UiModel::on_gesture(mrui::Gesture, mrui::UiSnapshot const&)
+     -18  mrfw::dump_cfg(Print&)
+     +17  mrui::UiModel::close_compose()
+     -17  mrfw::preset_boot_restore_console()
+     +16  mrui::UiModel::take_send_request(mrui::SendReq&)
+     +13  mrfw::PresetCatalog::commit(mrnv::UiPresetRead)
+     +12  mrui::UiModel::on_tick(mrui::UiSnapshot const&)
+     -12  mrui::UiModel::home_gesture(mrui::Gesture, mrui::UiSnapshot const&, bool)
+      +8  mrfw::admin_target_verb(mrfw::TargetService&, mrnv::TargetBlob&, char const*, unsigned int, mrfw::IAdminLines&)
+      +8  mrfw::dispatch(char const*, unsigned int, Print&, mrfw::CommandTransport)
+      +4  mrfw::preset_emit_record(mrfw::PresetCatalog const&, unsigned char, mrfw::IPresetLines&)
+      -4  mrfw::ui_prov_join_team(mrfw::ITeamCreateDevice&, unsigned long)
+      -4  mrfw::presets_canonical(mrnv::UiPresetBlob const&)
+      -4  mrfw::preset_emit_err(mrfw::PresetErr, mrfw::IPresetLines&)
+      -4  _ZN4mrui18ui_route_recv_pushERNS_15UiInboxCountersERNS_7UiModelERKN9meshroute4PushEhbPKcm$isra$0
+      +4  _ZN12_GLOBAL__N_121draw_provision_screenERKN4mrui7UiStateERKNS0_10UiSnapshotE$constprop$0
+      -4  mrui::UiModel::provision_gesture(mrui::Gesture, mrui::UiSnapshot const&)
+      -4  mrui::UiModel::sync_home(mrui::UiSnapshot const&)
+      -3  mrui::UiModel::home_return()
+      -3  _ZN4mrui7UiModel20on_invite_grant_pushERKN9meshroute4PushE$isra$0
+      +3  mrfw::preset_catalog()
+      -3  mrfw::admin_key_verb(mrfw::MgmtKeyService&, char const*, unsigned int, mrfw::IAdminLines&)
+      +3  mrfw::PresetCatalog::enabled_count(mrfw::PresetKind) const
+      +3  mrfw::preset_defaults(mrnv::UiPresetBlob&)
+      -2  mrfw::PresetCatalog::read_store()
+      -2  mrui::UiModel::enter_provision(mrui::Provision)
+      +1  mrfw::admin_hex_lower(unsigned char const*, unsigned int, char*)
+      -1  mrfw::preset_render(mrfw::PresetCatalog const&, long, bool, mrfw::PresetResult const&, mrfw::IPresetLines&)
+      +1  (anonymous namespace)::inbox_row_cb(void*, meshroute::InboxEntry const&)
+      -1  mrui::UiModel::on_outcome(mrui::SendOutcome const&, unsigned long)
+      -1  mrui::UiModel::settings_activate(mrui::UiSnapshot const&)
+      -1  mrui::ui_team_age_bucket(unsigned long)
+      -1  mrfw::parse_confirm_token(char const*, unsigned int)
+      +1  mrfw::MgmtKeyService::mint_(unsigned char, unsigned char const*)
+      -1  _ZN4mrfw13TargetService15load_for_write_ERN4mrnv10TargetBlobE$isra$0
+      -1  mrfw::(anonymous namespace)::DeviceUiPresetStore::save(mrnv::UiPresetBlob const&)
+      -1  mrui::home_capture_refresh(mrui::HomeCapture&, mrui::UiSnapshot const&, bool, mrui::HomeItem)
+      +1  mrui::UiModel::note_team_cursor(mrui::UiSnapshot const&)
+
+## heltec_mobile OBJECT .flash.rodata: 14 symbols changed, net +388 (symbol sizes; the section also holds literal pools/alignment)
+     +80  mrfw::kPresetInvalidLine
+     +68  mrfw::kPresetOldV1Line
+     +64  mrfw::kPresetIoFailedLine
+     +35  mrfw::kPresetEndHead
+     +27  mrfw::kPresetRecHead
+     +19  mrfw::kPresetEndChannel
+     +15  mrfw::kPresetEndGen
+     +14  mrfw::kPresetEndDm
+     +13  mrfw::kPresetRecLocation
+     +13  mrfw::kPresetEndTextMax
+     +12  mrfw::kPresetRecEnabled
+     +10  mrfw::kPresetEndPages
+      +9  mrfw::kPresetRecText
+      +9  mrfw::kPresetEndPage

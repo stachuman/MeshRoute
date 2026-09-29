@@ -17,9 +17,11 @@
 // cases all but one assertion each). One call, into a local, then CHECK the local and guard on the local.
 #include "doctest.h"
 #include "firmware_ui_model.h"
+#include "firmware_ui_send.h"   // ★ W6: `ui_review_capture` — the shipped review capture, driven as the tick drives it
 #include <cstdint>
 #include <cstring>   // strlen/strncmp — the UI-3 reply-clamping case checks copy_clamped's exact result
 #include <initializer_list>   // §UI-14: the range-for over a braced CfgSave list (not dragged in transitively)
+#include <string>             // ★ W6: the review's word-wrap properties compare whole lines
 
 using namespace mrui;
 
@@ -93,6 +95,24 @@ static void to_inbox(UiModel& m, const UiSnapshot& s) {
     m.on_gesture(Gesture::double_press, s);
 }
 
+// ★★★★ W6 (design r2.23 §7.3, owner-ruled D5) — A SAVED PHRASE IS SENT THROUGH ITS REVIEW. A double on a phrase row
+//      REQUESTS the review and queues nothing; the tick's capture (`ui_review_capture`, the shipped pure answer) copies
+//      the exact bytes; only `short` (to SEND) + `double` queues. ⇒ every landed case that sent on ONE double now
+//      enters the review and confirms deliberately (brief §2.8) — its subject is unchanged, its prefix is not.
+// ⓘ The live answers are the snapshot's own team with NO resolved peer: a DM binds UNVERIFIED and is sent by ID
+//   exactly as the landed cases always sent it; the `w6-` cases below name known hashes.
+static void review_capture(UiModel& m, const UiSnapshot& s, const mrnv::UiPresetBlob& cat = preset_defaults_blob()) {
+    CHECK(m.state().review_phase == ReviewPhase::requested);
+    CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, 0}, nullptr, 0, s, s.now_ms));
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    CHECK(m.state().review_send == false);                 // ★ BACK preselected
+}
+static void review_confirm(UiModel& m, const UiSnapshot& s, const mrnv::UiPresetBlob& cat = preset_defaults_blob()) {
+    review_capture(m, s, cat);
+    m.on_gesture(Gesture::short_press, s);                 // BACK -> SEND
+    m.on_gesture(Gesture::double_press, s);                // SEND queues, exactly once
+}
+
 // ---------------------------------------------------------------- the plan's seven cases
 
 // ★★★★ REWRITTEN IN PLACE BY §UI-17 S1 (the §B101/[[B232]] precedent: a case whose behaviour a slice changes is
@@ -137,7 +157,9 @@ TEST_CASE("ui-model: double on TEAM opens the DM sub-view bound to the highlight
 TEST_CASE("ui-model: sub-view: `back` leaves without sending") {
     UiModel m; const auto s = snap(); SendReq req{};
     to_team(m, s); m.on_gesture(Gesture::double_press, s);
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);    // -> back
+    // ⓘ W6 (D9): `dm3` `Where are you?` joins the compiled DM list, so `back` is the FOURTH row — three shorts.
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s);                                            // -> back
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
     CHECK(m.state().screen  == Screen::team);
@@ -148,6 +170,8 @@ TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bo
     UiModel m; const auto s = snap(); SendReq req{};
     to_team(m, s); m.on_gesture(Gesture::double_press, s);
     m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_send_request(req) == false);           // ★ W6 (D5): the double opened the REVIEW, it queued nothing
+    review_confirm(m, s);                               // ...and only the review's SEND queues
     CHECK(m.take_send_request(req) == true);            // plan wrote REQUIRE: unavailable (-fno-exceptions)
     CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id);
     CHECK(req.slot == mrfw::kPresetDmFirst);            // ★ §UI-10/11 P3 — the STABLE slot `dm1`, ⛔ not a row index
@@ -291,6 +315,8 @@ TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 send
     CHECK(m.state().cursor == 0);
     m.on_gesture(Gesture::short_press, s);       // -> "All good"
     m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_send_request(req) == false);    // ★ W6 (D5): the double opened the REVIEW, it queued nothing
+    review_confirm(m, s);                        // ...and only the review's SEND queues
     CHECK(m.take_send_request(req) == true);
     CHECK(req.kind == SendKind::channel_canned);
     CHECK(req.slot == uint8_t(mrfw::kPresetChannelFirst + 1));   // ★ §UI-10/11 P3 — `channel2`, the second row
@@ -317,8 +343,9 @@ TEST_CASE("ui-model: the channel list's last row is `back` — MENU since W4b �
     to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // -> SEND, one press per screen
     m.on_gesture(Gesture::double_press, s);
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> back (index 2)
-    CHECK(m.state().cursor == 2);
+    // ⓘ W6 (D9): `channel3` / `channel4` join the compiled list, so the exit row is index 4 (was 2).
+    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);             // -> back (index 4)
+    CHECK(m.state().cursor == 4);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
     CHECK(m.take_send_request(req) == false);
@@ -331,8 +358,9 @@ TEST_CASE("ui-model: the channel list's last row is `back` — MENU since W4b �
 TEST_CASE("ui-model: the compose cursor wraps within the list, so `back` is always reachable") {
     UiModel m; const auto s = snap();
     to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then the DM list, cursor 0
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
-    CHECK(m.state().cursor == 2);
+    // ⓘ W6 (D9): `dm3` joins the compiled list — four rows, so `back` is index 3 (was 2).
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 3);
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().cursor == 0);                // wrapped, still inside the list
     CHECK(m.state().compose == Compose::dm);     // and the modal did NOT close on the wrap
@@ -345,10 +373,27 @@ TEST_CASE("ui-model: the bound peer survives a roster REORDER under the open mod
     to_team(m, s); m.on_gesture(Gesture::short_press, s);   // §UI-17 S1: enter, then TEAM cursor 1 -> id 11
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose_peer == 11);
-    s.team[0].id = 77; s.team[1].id = 88; s.team[2].id = 99;                        // roster churn
-    m.on_gesture(Gesture::double_press, s);                                         // send text 0
+    // ★ W6 — THE CHURN IS NOW A TRUE REORDER. It used to be `77 / 88 / 99`, which REMOVES teammate 11 — and a removed
+    //   teammate is a REFUSAL since W6 (design r2.23 §7.4.1: the review closes to the Team list, `TEAMMATE GONE,
+    //   pick`), asserted in its own branch below. The property here is unchanged: row 1 now holds somebody else, and
+    //   the send still goes to the peer bound at entry.
+    s.team[0].id = 11; s.team[1].id = 12; s.team[2].id = 10;                        // roster reorder
+    m.on_gesture(Gesture::double_press, s);                                         // review text 0
+    review_confirm(m, s);                                                           // ...and SEND it
     CHECK(m.take_send_request(req) == true);
-    CHECK(req.peer_id == 11);                                                       // NOT 88
+    CHECK(req.peer_id == 11);                                                       // NOT 12 (row 1 now)
+    // ...and the REMOVAL-shaped churn the case used to use now refuses rather than sends (W6 §7.4.1).
+    UiModel g; auto t = snap(); SendReq none{};
+    to_team(g, t); g.on_gesture(Gesture::short_press, t); g.on_gesture(Gesture::double_press, t);
+    g.on_gesture(Gesture::double_press, t);                                         // review requested for id 11
+    review_capture(g, t);
+    t.team[0].id = 77; t.team[1].id = 88; t.team[2].id = 99;                        // teammate 11 is GONE
+    g.on_gesture(Gesture::short_press, t);                                          // the press that finds it broken
+    CHECK(g.state().review_phase == ReviewPhase::none);
+    CHECK(g.state().compose == Compose::none);
+    CHECK(g.state().screen == Screen::team);
+    CHECK(g.state().team_pick_gone == true);                                        // `TEAMMATE GONE, pick`
+    CHECK(g.take_send_request(none) == false);                                      // ⛔ nothing queued, ever
 }
 
 // ★★★★ §B64 — REWRITTEN, NOT DELETED, BY THE UI-7 QA FIX SLICE (the §B101 precedent: a test that pinned a
@@ -416,7 +461,8 @@ TEST_CASE("ui-model: B64 — a roster REORDER follows the TEAMMATE, so the send 
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().compose_peer == 12);
-    m.on_gesture(Gesture::double_press, s);                              // send the first canned text
+    m.on_gesture(Gesture::double_press, s);                              // review the first canned text...
+    review_confirm(m, s);                                                // ...and SEND it (W6, D5)
     const bool queued = m.take_send_request(req);
     CHECK(queued == true);
     if (queued) CHECK(req.peer_id == 12);                                // ★ NOT 13 (the row) and NOT 11 (a clamp)
@@ -432,6 +478,8 @@ TEST_CASE("ui-model: B64 — a roster REORDER follows the TEAMMATE, so the send 
 // ⇒ teammate 11 MOVES to row 2 instead. The unguarded resync then drags the modal's cursor from 1 to 2, and row 2 of a
 //   3-row canned list is `back, don't send` — so the harm it produces is that "I'm OK" SENDS NOTHING AT ALL, which the
 //   `queued` assertion catches directly.
+//   ⓘ W6 (D9): the compiled DM list is FOUR rows now and row 2 is `dm3` `Where are you?` — so the unguarded resync
+//     now SENDS THE WRONG PHRASE rather than nothing, and the `slot` assertion below is the one that catches it.
 TEST_CASE("ui-model: B64 — the roster resync must NOT touch an open compose modal's cursor") {
     UiModel m; auto s = snap(); SendReq req{};
     to_team(m, s); m.on_gesture(Gesture::short_press, s);   // §UI-17 S1: enter, then TEAM cursor 1 -> id 11
@@ -443,6 +491,7 @@ TEST_CASE("ui-model: B64 — the roster resync must NOT touch an open compose mo
     m.on_tick(s);
     CHECK(m.state().cursor == 1);                                        // ★ the modal's selection is untouched
     m.on_gesture(Gesture::double_press, s);
+    review_confirm(m, s);                                                // W6 (D5): the review's SEND queues
     const bool queued = m.take_send_request(req);
     CHECK(queued == true);                                               // ★ it really SENT — not `back`
     if (queued) {
@@ -467,6 +516,7 @@ TEST_CASE("ui-model: B64 — after a refusal the user re-picks by walking, and t
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::dm);
     m.on_gesture(Gesture::double_press, s);
+    review_confirm(m, s);                                                // W6 (D5): the review's SEND queues
     const bool queued = m.take_send_request(req);
     CHECK(queued == true);
     if (queued) CHECK(req.peer_id == 13);                                // the teammate now under the cursor
@@ -518,6 +568,7 @@ TEST_CASE("ui-model: a send request is drained exactly once") {
     UiModel m; const auto s = snap(); SendReq req{};
     to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then open the DM sub-view
     m.on_gesture(Gesture::double_press, s);
+    review_confirm(m, s);                        // W6 (D5): the review's SEND is what queues
     CHECK(m.take_send_request(req) == true);
     CHECK(m.take_send_request(req) == false);    // no duplicate send on the next service pass
 }
@@ -695,8 +746,11 @@ TEST_CASE("ui-model: the model's declared bounds are the ones the spec fixed") {
         ComposeList dm{}, ch{};
         compose_project(preset_defaults_blob(), mrfw::PresetKind::dm,      dm);
         compose_project(preset_defaults_blob(), mrfw::PresetKind::channel, ch);
-        CHECK(compose_row_count(dm, /*grant=*/false) == 3);   // "Are you OK?", "I'm OK", back, don't send
-        CHECK(compose_row_count(ch, /*grant=*/false) == 3);   // "Got your message", "All good", back, don't send
+        // ⓘ W6 (owner-ruled D9): three DM and four channel phrases now — `dm3` `Where are you?`, `channel3`
+        //   `Return to base now`, `channel4` `On my way` join the landed five (was 3 / 3 rows with `back`).
+        CHECK(compose_row_count(dm, /*grant=*/false) == 4);   // "Are you OK?", "I'm OK", "Where are you?", back
+        CHECK(compose_row_count(ch, /*grant=*/false) == 5);   // "Got your message", "All good", "Return to base n»",
+                                                              // "On my way", back
     }
     CHECK(uint8_t(Screen::count) == 5);              // §UI-14: STATUS/TEAM/INBOX/SEND/SETTINGS (spec §3.1)
     UiSnapshot s{};
@@ -1095,7 +1149,8 @@ TEST_CASE("ui-model: cancelled returns to idle and a later arm works normally") 
 TEST_CASE("ui-model: a queued alarm drains BEFORE a queued DM and neither is lost") {
     UiModel m; const auto s = snap(); SendReq req{};
     to_team(m, s); m.on_gesture(Gesture::double_press, s);                           // DM modal
-    m.on_gesture(Gesture::double_press, s);                                          // queue the canned DM
+    m.on_gesture(Gesture::double_press, s);                                          // review the canned DM...
+    review_confirm(m, s);                                                            // ...queue it (W6: SEND)
     m.on_gesture(Gesture::long_arm,  s);
     m.on_gesture(Gesture::long_fire, s);                                             // queue the alarm
     const bool first = m.take_send_request(req);
@@ -1252,7 +1307,8 @@ TEST_CASE("ui-model: draining a DM request enters SUBMITTING, and only a DM does
     UiModel m; const auto s = snap(); SendReq req{};
     to_team(m, s);                                               // -> TEAM, and ENTER the list (§UI-17 S1)
     m.on_gesture(Gesture::double_press, s);                      // -> DM modal, bound to row 0
-    m.on_gesture(Gesture::double_press, s);                      // queue "Are you OK?"
+    m.on_gesture(Gesture::double_press, s);                      // review "Are you OK?"...
+    review_confirm(m, s);                                        // ...and queue it (W6: only SEND queues)
     CHECK(m.dm_state() == DmState::idle);                        // QUEUED is not yet submitted
     m.clear_dirty();                                             // so the repaint below is the DRAIN's, not the gesture's
     const bool got = m.take_send_request(req);
@@ -1778,6 +1834,9 @@ TEST_CASE("ui-model: R2 — two DOUBLES under the overlay cannot open and then S
     SendReq mis{};
     const bool queued = m.take_send_request(mis);
     CHECK(queued == false);                                     // ← true, a real DM, against the shipped code
+    // ★ W6: a phrase double now opens a REVIEW rather than queueing, so `queued` alone would go VACUOUS against a
+    //   leaking overlay — the review must not have opened under it either.
+    CHECK(m.state().review_phase == ReviewPhase::none);
     CHECK(m.emergency()    == Emergency::firing);               // ...and no emergency job either (§B71)
     CHECK(m.state().screen == Screen::team);                    // ...and the screen underneath never moved
 }
@@ -1799,6 +1858,9 @@ TEST_CASE("ui-model: R2 — a DOUBLE cannot SEND from a compose modal left open 
     SendReq mis{};
     const bool queued = m.take_send_request(mis);
     CHECK(queued == false);                                     // ← true, a real DM, against the shipped code
+    // ★ W6: the double that leaked through would now open a REVIEW (compose stays `dm`, nothing queued), so the two
+    //   landed assertions would both pass against a leaking overlay — this one is what still discriminates.
+    CHECK(m.state().review_phase == ReviewPhase::none);
     CHECK(m.emergency()     == Emergency::arming);              // no emergency job
     CHECK(m.state().compose == Compose::dm);                    // ← `none` against the shipped code: it SENT and closed
 }
@@ -1968,6 +2030,7 @@ TEST_CASE("ui7-chan: a refused canned post is TERMINAL, not a permanent SENDING.
     m.on_gesture(Gesture::double_press, snap(1000));
     CHECK(m.state().compose == Compose::channel);
     m.on_gesture(Gesture::double_press, snap(1100));
+    review_confirm(m, snap(1100));                              // W6 (D5): the review's SEND queues
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     CHECK(m.chan_state() == ChanState::submitting);
     m.on_send_refused(SendKind::channel_canned, RefuseReason::other, MESHROUTE_NS::CmdCode::err_no_binding, 1200);
@@ -1992,7 +2055,8 @@ static UiModel dm_sent() {
     UiModel m; SendReq req{};
     to_team(m, snap(1000));                                     // -> TEAM, and ENTER the list (§UI-17 S1)
     m.on_gesture(Gesture::double_press, snap(1000));            // -> DM compose for team[0]
-    m.on_gesture(Gesture::double_press, snap(1000));            // -> send "Are you OK?"
+    m.on_gesture(Gesture::double_press, snap(1000));            // -> review "Are you OK?"...
+    review_confirm(m, snap(1000));                              // ...and SEND it (W6, D5)
     const bool got = m.take_send_request(req); CHECK(got == true);
     return m;
 }
@@ -8285,13 +8349,13 @@ TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserve
     //   above and `InviteGrantResult`'s size are the ones those slices landed with, and `UiSnapshot` is untouched
     //   because K7's one published field lands in an existing pad (the full K7 arithmetic is in
     //   `ui16-k7-resources`).
-    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u
+    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u
     // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
     CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u          // ⛔ UNCHANGED BY N6 ITSELF — see the note above
-    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u
+    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u
 }
 
 // ================================================= §UI-16 N6 — THE GRANT ACT's MODEL HALF (the pure unit's own
@@ -8602,7 +8666,9 @@ TEST_CASE("ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row an
     // ⓘ §UI-10/11 P3 / R-1 — RE-EXPRESSED, ⛔ NOT WEAKENED: the bound was `kDmTextCount` (a table's `sizeof`) and is
     //   now the projection's own `n`. With the compiled catalog that is the SAME 2, so this case describes exactly
     //   the list it always did — and it now also proves the row sits at `n` for a catalog of ANY size.
-    CHECK(s.preset_dm.n == 2);
+    // ⓘ W6 (owner-ruled D9): the compiled catalog has THREE DM phrases now (`dm3` `Where are you?`), so `n` is 3;
+    //   every assertion below is already expressed through `n` and is unchanged.
+    CHECK(s.preset_dm.n == 3);
     CHECK(mrui::compose_row_count(s.preset_dm, true) == uint8_t(s.preset_dm.n + 2));
     CHECK(mrui::compose_row_kind(s.preset_dm.n, s.preset_dm, true) == mrui::ComposeRow::grant);
     CHECK(mrui::compose_row_kind(uint8_t(s.preset_dm.n + 1), s.preset_dm, true) == mrui::ComposeRow::back);
@@ -9237,8 +9303,8 @@ TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and 
     CHECK(offsetof(mrui::UiState, compose_gen) == 8u);             // ★ §UI-10/11 P3 — 4-aligned, and FREE
     CHECK(offsetof(mrui::UiState, compose_grant_row) == 12u);      // ★ ...and the flag costs NOTHING on top
     CHECK(offsetof(mrui::UiState, compose_result) == 13u);         // pushed by the 4-alignment above
-    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u                          // 496 + 8, and ⛔ UNMOVED by P3's uint32
-    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u                          // 920 + the same 8, likewise UNMOVED
+    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u                // 496 + 8, and ⛔ UNMOVED by P3's uint32
+    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u                // 920 + the same 8, likewise UNMOVED
     // ---- and K7 adds NO carrier to the chain it enters ------------------------------------------------------------
     CHECK(sizeof(mrui::InviteWindow) == 104u);                     // ⛔ UNCHANGED
     CHECK(sizeof(mrui::InviteGrantResult) == 8u);                  // ⛔ UNCHANGED
@@ -9545,15 +9611,17 @@ TEST_CASE("ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both la
     //   `UiState` (beside `compose_peer`, where the act's target belongs) rather than appended. ⛔ K5's CLAIM is
     //   unaffected and is what this case is about: its field still sits in the 4 bytes immediately after
     //   `nearby_sel_id`, with ⛔ not one padding byte between them.
-    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u
-    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u
+    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u
+    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u
     // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
     CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u                 // ⛔ UNCHANGED BY K5 ITSELF
-    CHECK(offsetof(mrui::UiState, nearby_sel_id) == 344u);    // 336 + 8 (K7's head insert)
-    CHECK(offsetof(mrui::UiState, saved_key_team) == 348u);   // ★ K5's field, still in the 4 bytes after it
+    // ⓘ W6 (owner-ruled D15): the review's page rows share `detail_line`'s storage through a union 20 B wider, so
+    //   every member after it moves +24 on the host (was 344 / 348). K5's claim is the ADJACENCY, unchanged.
+    CHECK(offsetof(mrui::UiState, nearby_sel_id) == 368u);    // 336 + 8 (K7's head insert) + 24 (W6's union)
+    CHECK(offsetof(mrui::UiState, saved_key_team) == 372u);   // ★ K5's field, still in the 4 bytes after it
 }
 
 // ============================================== §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT, THE MODEL'S HALF
@@ -9995,12 +10063,14 @@ TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, an
     //   them, because K7 inserts its two frozen compose fields at the HEAD of `UiState`. ⛔ K6's CLAIM — its two
     //   carriers cost EXACTLY themselves, contiguously, with no padding wasted — is what these lines measure, and
     //   the arithmetic below still closes: 348 + 4 = 352, 352 + 4 = 356, 356 + 36 = 392.
-    CHECK(offsetof(mrui::UiState, saved_key_team) == 348u);    // ⛔ K5's field (340 + 8)
-    CHECK(offsetof(mrui::UiState, forget_team)    == 352u);    // ★ 4 B, immediately after it
-    CHECK(offsetof(mrui::UiState, saved_keys)     == 356u);    // ★ 36 B, immediately after THAT
-    CHECK(offsetof(mrui::UiState, invite)         == 392u);    // = 356 + 36, i.e. ⛔ not one padding byte between
-    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u                      // 456 + 4 + 36 + K7's 8 = 504 ✓
-    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u                      // 880 + the same 40 + K7's 8
+    // ⓘ W6 (owner-ruled D15): +24 again, for the review's wider union over `detail_line` — the arithmetic still
+    //   closes at the new base: 372 + 4 = 376, 376 + 4 = 380, 380 + 36 = 416.
+    CHECK(offsetof(mrui::UiState, saved_key_team) == 372u);    // ⛔ K5's field (340 + 8 + 24)
+    CHECK(offsetof(mrui::UiState, forget_team)    == 376u);    // ★ 4 B, immediately after it
+    CHECK(offsetof(mrui::UiState, saved_keys)     == 380u);    // ★ 36 B, immediately after THAT
+    CHECK(offsetof(mrui::UiState, invite)         == 416u);    // = 380 + 36, i.e. ⛔ not one padding byte between
+    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u            // 456 + 4 + 36 + K7's 8 = 504 ✓
+    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u            // 880 + the same 40 + K7's 8
 }
 
 // ============== §UI-16 K6 (QG blocker, 2026-08-25) — THE **RECEIVED** GRANT'S FULL-KEYRING ACKNOWLEDGEMENT
@@ -10191,6 +10261,8 @@ TEST_CASE("ui10-p3-slot: the PRESS seals the row's stable slot — a gapped list
     m.on_gesture(Gesture::short_press, s);                 // walk to ROW 1, which is `dm4`
     CHECK(m.state().cursor == 1);
     m.on_gesture(Gesture::double_press, s);
+    CHECK(m.review_binding().slot == uint8_t(mrfw::kPresetDmFirst + 3));   // ★ W6: the REVIEW binds dm4 at the press
+    review_confirm(m, s, cat);                             // ...and its SEND queues exactly that binding (D5)
     const bool got = m.take_send_request(req);
     CHECK(got == true);
     if (!got) return;
@@ -10344,9 +10416,10 @@ TEST_CASE("ui10-p3-modal: a NO-OP and a FAILURE leave the compose open — the t
     m.on_tick(snap_with(cat, 1200));
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().cursor == 1);
-    // (c) and a press still SENDS the row it was standing on.
+    // (c) and a press still SENDS the row it was standing on (W6, D5: through its review's SEND).
     SendReq req{};
     m.on_gesture(Gesture::double_press, s);
+    review_confirm(m, s, cat);
     const bool got = m.take_send_request(req);
     CHECK(got == true);
     if (got) CHECK(req.slot == uint8_t(mrfw::kPresetDmFirst + 3));
@@ -10358,7 +10431,8 @@ TEST_CASE("ui10-p3-modal: an ALREADY-DISPLAYED OUTCOME may finish — a mutation
     UiModel m; SendReq req{};
     to_team(m, s);
     m.on_gesture(Gesture::double_press, s);
-    m.on_gesture(Gesture::double_press, s);                 // send row 0 -> the RESULT phase
+    m.on_gesture(Gesture::double_press, s);                 // review row 0...
+    review_confirm(m, s, cat);                              // ...SEND it -> the RESULT phase (W6, D5)
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().compose_result == true);
     CHECK(m.take_send_request(req) == true);
@@ -10446,16 +10520,20 @@ TEST_CASE("ui10-p3-freeze: a frozen snapshot keeps its whole list and generation
 //      equivalence the reconciliation asks for.
 TEST_CASE("ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index the one K7 landed against") {
     const auto s = k7_snap(2);
-    CHECK(s.preset_dm.n == 2);                              // the two compiled DM presets
+    // ⓘ W6 (owner-ruled D9): the compiled DM list gains `dm3` `Where are you?` AFTER K7's two rows — those keep their
+    //   indices 0 and 1 exactly; the grant/back rows move one down (was n = 2, grant at 2, back at 3).
+    CHECK(s.preset_dm.n == 3);                              // the three compiled DM presets
     CHECK(std::strcmp(s.preset_dm.row[0].text, "Are you OK?") == 0);
     CHECK(std::strcmp(s.preset_dm.row[1].text, "I'm OK") == 0);
+    CHECK(std::strcmp(s.preset_dm.row[2].text, "Where are you?") == 0);
     for (bool grant : { false, true }) {
-        CHECK(compose_row_count(s.preset_dm, grant) == uint8_t(2 + (grant ? 1 : 0) + 1));
+        CHECK(compose_row_count(s.preset_dm, grant) == uint8_t(3 + (grant ? 1 : 0) + 1));
         CHECK(compose_row_kind(0, s.preset_dm, grant) == ComposeRow::text);
         CHECK(compose_row_kind(1, s.preset_dm, grant) == ComposeRow::text);
-        CHECK(compose_row_kind(2, s.preset_dm, grant) == (grant ? ComposeRow::grant : ComposeRow::back));
+        CHECK(compose_row_kind(2, s.preset_dm, grant) == ComposeRow::text);
+        CHECK(compose_row_kind(3, s.preset_dm, grant) == (grant ? ComposeRow::grant : ComposeRow::back));
     }
-    CHECK(compose_row_kind(3, s.preset_dm, true) == ComposeRow::back);
+    CHECK(compose_row_kind(4, s.preset_dm, true) == ComposeRow::back);
     // ★ THE ROW'S POSITION IS THE LIST'S LENGTH, at EVERY catalog size — that is what "between the slots and the
     //   back row" means once the list is configurable, and it is R-1 stated for the general case.
     for (uint8_t k = 0; k <= mrfw::kPresetPerKind; ++k) {
@@ -10507,11 +10585,12 @@ TEST_CASE("ui10-p3-resources: the list projection costs 328 B of UiSnapshot and 
     // ⇒ these three lines pin the HOST shape, which is all a native case can see; the SYMBOL figures need the board
     //   ABI compiler, and the RAM figure needs a LINK — i.e. the per-board `RAM_used` diff, which is the board gate's.
     CHECK(offsetof(mrui::UiState, compose_gen) == 8u);
-    CHECK(sizeof(mrui::UiState) == 520u);   // W4b re-sync (owner-ruled §11.1), was 504u
-    CHECK(sizeof(mrui::UiModel) == 944u);   // W4b re-sync (owner-ruled §11.1), was 928u
+    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u
+    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u
     // ★ `SendReq` gains 4 bytes over the withdrawn `{kind, peer, text_index}` — it is a by-value request, held in
     //   ONE model member and one tick local, so this is 4 bytes of `UiModel` that measured ZERO above.
-    CHECK(sizeof(mrui::SendReq) == 8u);
+    // ⓘ W6 (owner-ruled D15): 16 B — `peer_known` in the old padding byte, then `team_id` and `peer_hash` (was 8u).
+    CHECK(sizeof(mrui::SendReq) == 16u);
 }
 
 // ==================================================================================================================
@@ -10790,8 +10869,9 @@ TEST_CASE("w4b-menu: the MENU row of every top-level list lands in MENU MODE on 
             case 2: to_menu_home(f.m, s);
                     for (int i = 0; i < 3; ++i) f.m.on_gesture(Gesture::short_press, s);
                     f.m.on_gesture(Gesture::double_press, s);
-                    f.m.on_gesture(Gesture::short_press, s); f.m.on_gesture(Gesture::short_press, s);
-                    CHECK(f.m.state().cursor == 2); break;                          // the channel list's last row
+                    // ⓘ W6 (D9): four compiled channel phrases, so MENU is index 4 (was 2).
+                    for (int i = 0; i < 4; ++i) f.m.on_gesture(Gesture::short_press, s);
+                    CHECK(f.m.state().cursor == 4); break;                          // the channel list's last row
             case 3: to_settings_menu(f.m, s);
                     CHECK(cursor_to(f.m, s, CfgRow::back)); break;
         }
@@ -10833,7 +10913,7 @@ TEST_CASE("w4b-wrap: list focus WRAPS on every top-level list — Settings inclu
     UiModel n; n.on_tick(s); to_menu_home(n, s);
     for (int i = 0; i < 3; ++i) n.on_gesture(Gesture::short_press, s);
     n.on_gesture(Gesture::double_press, s);
-    for (int i = 0; i < 3; ++i) n.on_gesture(Gesture::short_press, s);
+    for (int i = 0; i < 5; ++i) n.on_gesture(Gesture::short_press, s);   // ⓘ W6 (D9): 4 phrases + MENU = 5 rows (was 3)
     CHECK(n.state().screen == Screen::send); CHECK(n.state().cursor == 0);
     CHECK(n.state().compose == Compose::channel);
 }
@@ -11619,6 +11699,7 @@ TEST_CASE("w4b-send: acknowledging a result — either press — returns to the 
         CHECK(m.state().compose == Compose::channel);
         m.on_gesture(Gesture::short_press, s);                  // the SECOND phrase
         m.on_gesture(Gesture::double_press, s);
+        review_confirm(m, s);                                   // W6 (D5): its review's SEND queues
         const bool got = m.take_send_request(req);
         CHECK(got == true);
         CHECK(m.state().compose_result == true);
@@ -11655,8 +11736,9 @@ TEST_CASE("w4b-send: a catalog change under the open list RE-READS it, arrow to 
     CHECK(m.state().home.changed == false);
     CHECK(m.state().compose == Compose::channel);
     CHECK(m.state().cursor == 0);
-    // ...and the press after that sends item 1 of the NEW list, sealed with its generation
+    // ...and the press after that sends item 1 of the NEW list, sealed with its generation (W6: through its review)
     m.on_gesture(Gesture::double_press, s);
+    review_confirm(m, s, moved);
     const bool got = m.take_send_request(req);
     CHECK(got == true);
     if (got) { CHECK(req.slot == uint8_t(mrfw::kPresetChannelFirst + 0)); CHECK(req.generation == moved.generation); }
@@ -11712,11 +11794,13 @@ TEST_CASE("w4b-send: the Send list's labels — PRESET CHANGED on item 1 while n
     CHECK(std::strlen(l) <= kDetailCols);
     CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, false) == false);   // an ordinary phrase row
     CHECK(send_list_row_override(l, sizeof l, 1, s.preset_ch, true, true) == false);    // ⛔ item 1 only
-    CHECK(send_list_row_override(l, sizeof l, 2, s.preset_ch, true, false));
+    // ⓘ W6 (D9): four compiled channel phrases, so the exit row is index 4 (was 2) — and index 2 is now a PHRASE.
+    CHECK(send_list_row_override(l, sizeof l, 2, s.preset_ch, true, false) == false);   // `Return to base n»`
+    CHECK(send_list_row_override(l, sizeof l, 4, s.preset_ch, true, false));
     CHECK(std::strcmp(l, ">MENU") == 0);                        // ⛔ never `back, don't send` at the top level
-    CHECK(send_list_row_override(l, sizeof l, 2, s.preset_ch, false, true));
+    CHECK(send_list_row_override(l, sizeof l, 4, s.preset_ch, false, true));
     CHECK(std::strcmp(l, " MENU") == 0);
-    CHECK(send_list_row_override(nullptr, 0, 2, s.preset_ch, true, false) == false);    // fails closed
+    CHECK(send_list_row_override(nullptr, 0, 4, s.preset_ch, true, false) == false);    // fails closed
 }
 
 // ------------------------------------------------------------------------------------------ Inbox watermarks
@@ -11786,20 +11870,20 @@ TEST_CASE("w4b-freeze: the frame's COPY of the state carries focus, capture and 
 }
 
 // ------------------------------------------------------------------------------------------ resources (§2.2)
-TEST_CASE("w4b-resources: the owner-ruled shape — HomeCapture 9, UiState 520, UiSnapshot 1368, UiModel 944") {
+TEST_CASE("w4b-resources: the owner-ruled shape — HomeCapture 9, UiState 568, UiSnapshot 1368, UiModel 1016") {
     CHECK(sizeof(HomeCapture) == 9u);
     CHECK(alignof(HomeCapture) == 1u);
     CHECK(sizeof(HomeView) == 1u);
     CHECK(sizeof(HomeItem) == 1u);
     CHECK(sizeof(SetupOrigin) == 1u);
-    CHECK(sizeof(mrui::UiState) == 520u);
+    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u
     CHECK(offsetof(mrui::UiState, home_view) == offsetof(mrui::UiState, home) + sizeof(HomeCapture));
     CHECK(offsetof(mrui::UiState, home) > offsetof(mrui::UiState, grant));   // appended after the grant verdict
     CHECK(sizeof(mrui::UiSnapshot) == 1368u);
     CHECK(sizeof(mrui::UiSnapshot::own_name) == 32u);
     CHECK(offsetof(mrui::UiSnapshot, own_name_len) == offsetof(mrui::UiSnapshot, own_name) + 32u);
     CHECK(offsetof(mrui::UiSnapshot, own_name) > offsetof(mrui::UiSnapshot, preset_ch));   // appended
-    CHECK(sizeof(mrui::UiModel) == 944u);
+    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u
     // ⓘ UiChrome's 20 / align 2 (the cue in existing padding) is pinned beside its projection: test_firmware_ui_chrome.cpp.
     // ProvBlock gained `unavailable` with no byte growth
     CHECK(sizeof(ProvBlock) == 1u);
@@ -11941,4 +12025,503 @@ TEST_CASE("w4b-send: with NO phrases, PRESET CHANGED covers the Send list's MENU
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().screen == Screen::status);                // the NEXT press is the exit
     CHECK(m.state().list_view == ListView::passive);
+}
+
+// ==================================================================================================================
+// ★★★★ W6 — THE SAVED-PHRASE REVIEW (design r2.23 §7.2-§7.4.1, owner-ruled D5/D15; brief §2.3-§2.5, pre-check §7's
+//      table). Driven through the REAL `on_gesture` / `on_tick` and the shipped pure capture (`ui_review_capture`);
+//      the renderer's frozen frames are the firmware-UI probe's (the review's rows reach it only through `UiState`).
+// ==================================================================================================================
+namespace w6 {
+constexpr uint32_t kTeam = 0x66C0FFEEu;
+// A 3-member team with an ID and KNOWN member hashes, publishing `cat`.
+UiSnapshot tsnap(uint32_t now_ms = 1000, uint32_t team = kTeam, const mrnv::UiPresetBlob& cat = preset_defaults_blob()) {
+    UiSnapshot s = snap(now_ms);
+    ui_snapshot_publish_presets(s, cat);
+    s.team_id = team;
+    for (uint8_t i = 0; i < 3; ++i) { s.member[i].id = s.team[i].id; s.member[i].key_hash32 = 0xA0000010u + i; }
+    return s;
+}
+// The resolver's answer as the device builds it (`team_key_of_id`'s boolean + hash), from this snapshot's members.
+SendLive live(const UiSnapshot& s, uint8_t peer) {
+    const uint32_t h = team_member_hash_of(s.member, s.team_shown, peer);
+    return SendLive{s.team_id, h != 0, h};
+}
+// Team row `row` -> its DM phrase list -> phrase `phrase` -> DOUBLE (the review is REQUESTED).
+void dm_double(UiModel& m, const UiSnapshot& s, uint8_t row = 0, uint8_t phrase = 0) {
+    to_team(m, s);
+    for (uint8_t i = 0; i < row; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    for (uint8_t i = 0; i < phrase; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+}
+bool capture(UiModel& m, const UiSnapshot& s, const mrnv::UiPresetBlob& cat = preset_defaults_blob(),
+             const char* name = nullptr) {
+    const SendReq b = m.review_binding();
+    const SendLive l = (b.kind == SendKind::dm) ? live(s, b.peer_id) : SendLive{s.team_id, false, 0};
+    return ui_review_capture(m, cat, l, name, name ? uint8_t(std::strlen(name)) : uint8_t(0), s, s.now_ms);
+}
+// The wrapped lines of `body`, as the review would lay them out, each as a string.
+int lines_of(const char* body, uint8_t len, std::string (&out)[24]) {
+    int k = 0;
+    for (uint8_t st = 0; st < len && k < 24; ) { const uint8_t n = review_wrap_line(body, len, st);
+                                                  out[k++] = std::string(body + st, n); st = uint8_t(st + n); }
+    return k;
+}
+// The pre-check's 163-byte witness: lines alternate 1 and 19 bytes, so 17 lines / 6 pages.
+std::string witness163() {
+    std::string w;
+    for (int i = 0; i < 8; ++i) w += " " + std::string(19, 'y');
+    w += " yy";
+    return w;
+}
+}  // namespace w6
+
+TEST_CASE("w6-wrap: §7.2's four branches, IN ORDER, over counted bytes") {
+    std::string l[24];
+    // (1) the remainder fits in 19 -> it is the last line
+    CHECK(w6::lines_of("hello world", 11, l) == 1); CHECK(l[0] == "hello world");
+    // (2) byte s+19 is a space -> the 19 bytes s..s+18; the space begins the next line
+    // ⓘ Both (2) witnesses carry an EARLIER space too, so the ORDER is what they measure: were (3) asked first, the
+    //   line would end after `abc ` (the union's W6-M24 survived witnesses without one — measured, 2026-09-29).
+    const char* b2 = "abc efghijklmnopqrs tuv";
+    CHECK(w6::lines_of(b2, uint8_t(std::strlen(b2)), l) == 2); CHECK(l[0] == "abc efghijklmnopqrs"); CHECK(l[1] == " tuv");
+    // (2') byte s+18 is a space -> the 19 bytes s..s+18, the space ENDING the line
+    const char* b2b = "abc efghijklmnopqr stuvw";
+    CHECK(w6::lines_of(b2b, uint8_t(std::strlen(b2b)), l) == 2); CHECK(l[0] == "abc efghijklmnopqr "); CHECK(l[1] == "stuvw");
+    // (3) the window contains a space -> the line ends AFTER the LAST such space
+    const char* b3 = "aaaa bbbb cccccccccccccccc";
+    CHECK(w6::lines_of(b3, uint8_t(std::strlen(b3)), l) == 2); CHECK(l[0] == "aaaa bbbb "); CHECK(l[1] == "cccccccccccccccc");
+    // (4) no space -> split after 19
+    const std::string x(25, 'x');
+    CHECK(w6::lines_of(x.c_str(), uint8_t(x.size()), l) == 2); CHECK(l[0] == std::string(19, 'x')); CHECK(l[1] == "xxxxxx");
+    // the witness: 17 lines, 6 pages — the design's "≤ 6 pages for 163 bytes" at its bound
+    const std::string w = w6::witness163();
+    CHECK(w.size() == 163);
+    CHECK(w6::lines_of(w.c_str(), uint8_t(w.size()), l) == 17);
+    CHECK(review_page_count(w.c_str(), uint8_t(w.size())) == 6);
+    CHECK(review_page_count("", 0) == 1);                  // never 0 pages
+}
+
+TEST_CASE("w6-wrap: every byte in ONE cell, in order — concatenation reproduces the payload; ≤ 19 per line, ≤ 6 pages") {
+    uint32_t x = 0x1234567u;
+    auto rnd = [&x]() { x = x * 1103515245u + 12345u; return (x >> 16) & 0x7FFFu; };
+    int bodies = 0;
+    for (int trial = 0; trial < 3000; ++trial) {
+        char body[mrnv::kUiPresetTextMax];
+        const uint8_t len = uint8_t(1 + rnd() % mrnv::kUiPresetTextMax);
+        const unsigned space_one_in = 2 + rnd() % 12;     // from dense to rare spaces
+        for (uint8_t i = 0; i < len; ++i) body[i] = (rnd() % space_one_in == 0) ? ' ' : char('a' + rnd() % 26);
+        std::string l[24];
+        const int n = w6::lines_of(body, len, l);
+        std::string cat;
+        bool ok = n <= 17;
+        for (int i = 0; i < n; ++i) { ok = ok && !l[i].empty() && l[i].size() <= kReviewCols; cat += l[i]; }
+        ok = ok && cat == std::string(body, len);
+        const uint8_t pages = review_page_count(body, len);
+        ok = ok && pages == uint8_t((n + 2) / 3) && pages <= kReviewPagesMax;
+        // the page rows reproduce the same lines, three per page, rows past the text EMPTY
+        for (uint8_t pg = 0; pg < pages && ok; ++pg) {
+            char rows[kReviewBodyRows][kReviewCols + 1];
+            review_page_rows(body, len, pg, rows);
+            for (uint8_t r = 0; r < kReviewBodyRows; ++r) {
+                const int li = pg * 3 + r;
+                ok = ok && std::string(rows[r]) == (li < n ? l[li] : std::string());
+            }
+        }
+        if (!ok) { CAPTURE(trial); CHECK(ok); break; }
+        ++bodies;
+    }
+    CHECK(bodies == 3000);
+}
+
+TEST_CASE("w6-project: a compose row copies ≤ 17 bytes whole, else 16 + the generated 0xBB — still 17 cells, 20 B") {
+    mrnv::UiPresetBlob c = preset_defaults_blob();
+    const std::string p17(17, 'q'), p18 = "Return to base now", p163(163, 'z');
+    mrfw::preset_slot_put(c.slot[mrfw::kPresetDmFirst + 3], true, false, p17.c_str(), p17.size());
+    mrfw::preset_slot_put(c.slot[mrfw::kPresetDmFirst + 4], true, false, p163.c_str(), p163.size());
+    ComposeList dm{};
+    compose_project(c, mrfw::PresetKind::dm, dm);
+    CHECK(dm.n == 5);
+    CHECK(std::strcmp(dm.row[3].text, p17.c_str()) == 0);                       // exactly 17: whole, no marker
+    CHECK(std::strcmp(dm.row[4].text, (std::string(16, 'z') + "\xBB").c_str()) == 0);   // 163: 16 + `»`
+    CHECK(std::strlen(dm.row[4].text) == kComposeTextCols);
+    ComposeList ch{};
+    compose_project(c, mrfw::PresetKind::channel, ch);
+    CHECK(std::strcmp(ch.row[2].text, "Return to base n" "\xBB") == 0);   // D9's 18-byte default
+    CHECK(sizeof(ComposeSlot) == 20u);
+    CHECK(sizeof(ComposeList) == 161u);
+    CHECK(uint8_t(kIdentityMarker) == 0xBBu);
+}
+
+TEST_CASE("w6-review: a double on a phrase REQUESTS its review — BACK selected, NOTHING queued, the binding complete") {
+    UiModel m; SendReq req{};
+    const UiSnapshot s = w6::tsnap();
+    to_send_list(m, s);
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // channel3, 18 bytes
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().review_phase == ReviewPhase::requested);
+    CHECK(m.take_send_request(req) == false);              // ⛔ the double queues NOTHING
+    CHECK(m.state().compose_result == false);
+    const SendReq b = m.review_binding();
+    CHECK(b.kind == SendKind::channel_canned);
+    CHECK(b.slot == uint8_t(mrfw::kPresetChannelFirst + 2));
+    CHECK(b.generation == s.preset_generation);
+    CHECK(b.team_id == w6::kTeam);
+    CHECK(b.peer_known == false);
+    CHECK(w6::capture(m, s));
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    CHECK(m.state().review_send == false);                 // ★ BACK — sending costs short + double
+    CHECK(m.state().review_loc == false);
+    CHECK(std::strcmp(m.state().review_header, "TO TEAM 66C0FFEE") == 0);
+    CHECK(std::strcmp(m.state().review_line[0], "Return to base now") == 0);   // ★ the WHOLE phrase, never the `»` row
+    CHECK(std::strlen(m.state().review_line[1]) == 0u);
+    CHECK(m.state().detail_pages == 1);
+    CHECK(m.take_send_request(req) == false);              // ⛔ the capture never queues either
+    CHECK(m.state().cursor == 2);                          // the arrow stays on the phrase
+}
+
+TEST_CASE("w6-review: row 0 names the destination — team, a verified DM (name ≤ 7 + hash), or UNVERIFIED") {
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0);                          // teammate 11, `dm1`
+        CHECK(w6::capture(m, s, preset_defaults_blob(), "STANISLAW"));
+        CHECK(std::strcmp(m.state().review_header, "TO STANIS" "\xBB" " A0000011") == 0);   // 7 cells + the full hash = 19
+        CHECK(m.review_binding().peer_known == true);
+        CHECK(m.review_binding().peer_hash == 0xA0000011u); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0);
+        CHECK(w6::capture(m, s));                           // unnamed, known hash -> the member token at 7 cells
+        char tok[8]; ui_fmt_identity(tok, sizeof tok, nullptr, 0, 0xA0000011u, 7);
+        CHECK(std::strcmp(m.state().review_header, (std::string("TO ") + tok + " A0000011").c_str()) == 0); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0);
+        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, false, 0}, nullptr, 0, s, s.now_ms));
+        CHECK(std::strcmp(m.state().review_header, "TO T11 UNVERIFIED") == 0);
+        CHECK(m.review_binding().peer_known == false); }
+    {   // ★ a KNOWN ZERO (labelled synthetic — the resolver never yields one) stays KNOWN, never "unverified"
+        UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0);
+        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, true, 0}, nullptr, 0, s, s.now_ms));
+        CHECK(std::strcmp(m.state().review_header, "TO T11 00000000") == 0);
+        CHECK(m.review_binding().peer_known == true);
+        CHECK(m.review_binding().peer_hash == 0u); }
+    // ⓘ every form fits the 19-column body
+    for (const char* h : { "TO TEAM 66C0FFEE", "TO STANIS\xBB A0000011", "TO T255 UNVERIFIED" }) CHECK(std::strlen(h) <= kReviewCols);
+}
+
+TEST_CASE("w6-review: short toggles SEND/BACK only; double BACK returns to the phrase; double SEND queues EXACTLY once") {
+    UiModel m; SendReq req{};
+    const UiSnapshot s = w6::tsnap();
+    w6::dm_double(m, s, 0, 1);                              // teammate 10, `dm2`
+    CHECK(w6::capture(m, s));
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().review_send == true);
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().review_send == false);
+    CHECK(m.take_send_request(req) == false);
+    // double on BACK: the list, arrow on that phrase, nothing queued
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().review_phase == ReviewPhase::none);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_result == false);
+    CHECK(m.state().cursor == 1);
+    CHECK(m.take_send_request(req) == false);
+    // again, and SEND
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(w6::capture(m, s));
+    const SendReq bound = m.review_binding();
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().review_phase == ReviewPhase::none);
+    CHECK(m.state().compose_result == true);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == 10); CHECK(req.slot == uint8_t(mrfw::kPresetDmFirst + 1));
+    CHECK(req.generation == bound.generation); CHECK(req.team_id == w6::kTeam);
+    CHECK(req.peer_known == true); CHECK(req.peer_hash == 0xA0000010u);   // ★ the WHOLE binding, never rebuilt (U2)
+    CHECK(m.take_send_request(req) == false);              // exactly once
+    m.on_gesture(Gesture::double_press, s);                // the result's acknowledgement
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("w6-review: pages turn on the kDetailPageMs cadence ONLY — never by a press, never a send; they cycle") {
+    mrnv::UiPresetBlob cat = preset_defaults_blob();
+    const std::string w = w6::witness163();
+    mrfw::preset_slot_put(cat.slot[mrfw::kPresetDmFirst], true, true, w.c_str(), w.size());
+    cat.generation = mrfw::preset_generation_next(cat.generation);
+    UiModel m; SendReq req{};
+    const UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+    w6::dm_double(m, s, 0, 0);
+    CHECK(w6::capture(m, s, cat));
+    CHECK(m.state().review_loc == true);                   // the phrase requests location -> `LOC`
+    CHECK(m.state().detail_pages == 6);
+    CHECK(m.state().detail_page == 0);
+    CHECK(std::strcmp(m.state().review_line[0], " ") == 0);
+    CHECK(std::strcmp(m.state().review_line[1], std::string(19, 'y').c_str()) == 0);
+    m.on_tick(w6::tsnap(1000 + kDetailPageMs - 1, w6::kTeam, cat));
+    CHECK(m.state().detail_page == 0);
+    m.on_tick(w6::tsnap(1000 + kDetailPageMs, w6::kTeam, cat));
+    CHECK(m.state().detail_page == 1);                     // ★ time alone turned it
+    CHECK(m.take_send_request(req) == false);              // ⛔ a page change is never a send
+    m.on_gesture(Gesture::short_press, w6::tsnap(1000 + kDetailPageMs + 10, w6::kTeam, cat));
+    CHECK(m.state().detail_page == 1);                     // ⛔ a press is never a page turn
+    uint32_t t = 1000 + kDetailPageMs + 10;
+    for (int i = 0; i < 5; ++i) { t += kDetailPageMs; m.on_tick(w6::tsnap(t, w6::kTeam, cat)); }
+    CHECK(m.state().detail_page == 0);                     // ★ it CYCLES
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("w6-review: the blank keeps the review and its page, resets to BACK, suspends the cadence; the wake only wakes") {
+    mrnv::UiPresetBlob cat = preset_defaults_blob();
+    const std::string w = w6::witness163();
+    mrfw::preset_slot_put(cat.slot[mrfw::kPresetDmFirst], true, false, w.c_str(), w.size());
+    cat.generation = mrfw::preset_generation_next(cat.generation);
+    UiModel m; SendReq req{};
+    UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+    m.on_tick(s);
+    w6::dm_double(m, s, 0, 0);
+    CHECK(w6::capture(m, s, cat));
+    m.on_tick(w6::tsnap(1000 + kDetailPageMs, w6::kTeam, cat));
+    CHECK(m.state().detail_page == 1);
+    m.on_gesture(Gesture::short_press, w6::tsnap(1000 + kDetailPageMs + 5, w6::kTeam, cat));   // SEND selected
+    CHECK(m.state().review_send == true);
+    const uint32_t dark = 1000 + kDetailPageMs + 5 + kBlankMs;
+    m.on_tick(w6::tsnap(dark, w6::kTeam, cat));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().review_phase == ReviewPhase::open);    // ★ kept
+    CHECK(m.state().review_send == false);                 // ★ reset to BACK
+    const uint8_t page = m.state().detail_page;
+    m.on_tick(w6::tsnap(dark + 5 * kDetailPageMs, w6::kTeam, cat));
+    CHECK(m.state().detail_page == page);                  // ★ suspended in the dark
+    const uint32_t wake = dark + 6 * kDetailPageMs;
+    m.on_gesture(Gesture::double_press, w6::tsnap(wake, w6::kTeam, cat));   // the WAKE press is consumed
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    CHECK(m.state().review_send == false);
+    CHECK(m.take_send_request(req) == false);
+    m.on_tick(w6::tsnap(wake + kDetailPageMs - 1, w6::kTeam, cat));
+    CHECK(m.state().detail_page == page);                  // the cadence RESTARTED at the wake, on the same page
+    m.on_tick(w6::tsnap(wake + kDetailPageMs, w6::kTeam, cat));
+    CHECK(m.state().detail_page == uint8_t((page + 1) % 6));
+}
+
+TEST_CASE("w6-review: long_arm keeps it at BACK; long_fire closes ONLY the review — after the alarm, the phrase list") {
+    UiModel m; SendReq req{};
+    const UiSnapshot s = w6::tsnap();
+    w6::dm_double(m, s, 0, 0);
+    CHECK(w6::capture(m, s));
+    m.on_gesture(Gesture::short_press, s);                 // SEND selected
+    m.on_gesture(Gesture::long_arm, w6::tsnap(1100));
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.state().review_phase == ReviewPhase::open);    // kept...
+    CHECK(m.state().review_send == false);                 // ...at BACK
+    m.on_gesture(Gesture::long_cancel, w6::tsnap(1200));
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    m.on_gesture(Gesture::long_arm, w6::tsnap(1300));
+    m.on_gesture(Gesture::long_fire, w6::tsnap(4900));
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.state().review_phase == ReviewPhase::none);    // ★ the review closed...
+    CHECK(m.state().compose == Compose::dm);               // ...and the PHRASE LIST stays under the alarm
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    CHECK(req.kind == SendKind::emergency);
+    CHECK(m.take_send_request(req) == false);              // ⛔ no ordinary request was created
+}
+
+TEST_CASE("w6-review: a later review NEVER overwrites a request still owed — the binding is not `_req`") {
+    UiModel m; SendReq req{};
+    const UiSnapshot s = w6::tsnap();
+    w6::dm_double(m, s, 0, 0);                              // teammate 10, dm1
+    CHECK(w6::capture(m, s));
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);   // SEND: owed, not drained
+    m.on_gesture(Gesture::double_press, s);                 // acknowledge the result (the view closes)
+    CHECK(m.state().compose == Compose::none);
+    m.on_gesture(Gesture::short_press, s);                  // teammate 11
+    m.on_gesture(Gesture::double_press, s);                 // its DM list
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);                 // review dm2 for teammate 11
+    CHECK(m.state().review_phase == ReviewPhase::requested);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    CHECK(req.peer_id == 10);                               // ★ the OWED request, untouched
+    CHECK(req.slot == mrfw::kPresetDmFirst);
+    CHECK(m.review_binding().peer_id == 11);
+}
+
+TEST_CASE("w6-race: a team change closes the review to its list with TEAM CHANGED — tick-only and same-tick press") {
+    SendReq req{};
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 0, 1); CHECK(w6::capture(m, s));
+        m.on_tick(w6::tsnap(1100, w6::kTeam + 1));
+        CHECK(m.state().review_phase == ReviewPhase::note_team);
+        CHECK(m.state().compose == Compose::dm);
+        CHECK(m.state().cursor == 0);
+        char l[24]; CHECK(review_note_row(l, sizeof l, 0, m.state().review_phase, true));
+        CHECK(std::strcmp(l, ">TEAM CHANGED") == 0);
+        m.on_gesture(Gesture::double_press, w6::tsnap(1200, w6::kTeam + 1));   // clears it, does NOTHING else
+        CHECK(m.state().review_phase == ReviewPhase::none);
+        CHECK(m.state().compose == Compose::dm);
+        CHECK(m.take_send_request(req) == false); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 0, 1); CHECK(w6::capture(m, s));
+        m.on_gesture(Gesture::short_press, s);
+        m.on_gesture(Gesture::double_press, w6::tsnap(1100, w6::kTeam + 1));   // SEND, in the tick the team moved
+        CHECK(m.take_send_request(req) == false);           // ⛔ the press that found it broken sends nothing
+        CHECK(m.state().review_phase == ReviewPhase::note_team); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();           // the channel list too
+        to_send_list(m, s); m.on_gesture(Gesture::double_press, s); CHECK(w6::capture(m, s));
+        m.on_tick(w6::tsnap(1100, w6::kTeam + 1));
+        CHECK(m.state().review_phase == ReviewPhase::note_team);
+        CHECK(m.state().compose == Compose::channel); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();           // no team remains -> Home
+        w6::dm_double(m, s, 0, 1); CHECK(w6::capture(m, s));
+        m.on_tick(w6::tsnap(1100, 0));
+        CHECK(m.state().review_phase == ReviewPhase::none);
+        CHECK(m.state().compose == Compose::none);
+        CHECK(m.state().screen == Screen::status);
+        CHECK(m.take_send_request(req) == false); }
+}
+
+TEST_CASE("w6-race: a KNOWN recipient re-keyed or unbound closes with RECIPIENT CHANGED; a removed one -> TEAMMATE GONE") {
+    SendReq req{};
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0); CHECK(w6::capture(m, s));
+        UiSnapshot t = w6::tsnap(1100); t.member[1].key_hash32 = 0xBEEF0001u;
+        m.on_tick(t);
+        CHECK(m.state().review_phase == ReviewPhase::note_recipient);
+        char l[24]; CHECK(review_note_row(l, sizeof l, 0, m.state().review_phase, false));
+        CHECK(std::strcmp(l, " RECIPIENT CHANGED") == 0);
+        CHECK(std::strlen(l) <= kReviewCols); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0); CHECK(w6::capture(m, s));
+        UiSnapshot t = w6::tsnap(1100); t.member[1].key_hash32 = 0;          // the binding is lost
+        m.on_tick(t);
+        CHECK(m.state().review_phase == ReviewPhase::note_recipient); }
+    {   // an UNVERIFIED review (no hash known at selection) is not closed by a hash that appears later
+        UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0);
+        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, false, 0}, nullptr, 0, s, s.now_ms));
+        UiSnapshot t = w6::tsnap(1100); t.member[1].key_hash32 = 0xBEEF0001u;
+        m.on_tick(t);
+        CHECK(m.state().review_phase == ReviewPhase::open); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap();
+        w6::dm_double(m, s, 1, 0); CHECK(w6::capture(m, s));
+        UiSnapshot t = w6::tsnap(1100); t.team[1].id = 99; t.member[1].id = 99;   // teammate 11 is GONE
+        m.on_tick(t);
+        CHECK(m.state().review_phase == ReviewPhase::none);
+        CHECK(m.state().compose == Compose::none);
+        CHECK(m.state().screen == Screen::team);
+        CHECK(m.state().team_pick_gone == true);            // the existing `TEAMMATE GONE, pick` row
+        CHECK(m.take_send_request(req) == false); }
+}
+
+TEST_CASE("w6-race: a moved generation closes with PRESET CHANGED — the DM list is KEPT and re-sealed; Send re-reads") {
+    SendReq req{};
+    const mrnv::UiPresetBlob cat = preset_defaults_blob();
+    mrnv::UiPresetBlob moved = cat;
+    mrfw::preset_slot_put(moved.slot[mrfw::kPresetDmFirst + 5], true, false, "new", 3);
+    moved.generation = mrfw::preset_generation_next(moved.generation);
+    {   UiModel m; const UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+        w6::dm_double(m, s, 0, 1); CHECK(w6::capture(m, s, cat));
+        m.on_tick(w6::tsnap(1100, w6::kTeam, moved));
+        CHECK(m.state().review_phase == ReviewPhase::note_preset);
+        CHECK(m.state().compose == Compose::dm);           // ★ KEPT (design §7.4.1), not closed
+        CHECK(m.state().compose_gen == moved.generation);  // re-sealed on the list it now shows
+        CHECK(m.state().cursor == 0);
+        char l[24]; CHECK(review_note_row(l, sizeof l, 0, m.state().review_phase, true));
+        CHECK(std::strcmp(l, ">PRESET CHANGED") == 0);
+        m.on_gesture(Gesture::double_press, w6::tsnap(1200, w6::kTeam, moved));   // clears it, sends nothing
+        CHECK(m.take_send_request(req) == false);
+        CHECK(m.state().review_phase == ReviewPhase::none); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+        w6::dm_double(m, s, 0, 1); CHECK(w6::capture(m, s, cat));
+        m.on_gesture(Gesture::short_press, s);
+        m.on_gesture(Gesture::double_press, w6::tsnap(1100, w6::kTeam, moved));   // SEND in the tick it moved
+        CHECK(m.take_send_request(req) == false); }
+    {   UiModel m; const UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+        to_send_list(m, s); m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+        CHECK(w6::capture(m, s, cat));
+        m.on_tick(w6::tsnap(1100, w6::kTeam, moved));
+        CHECK(m.state().review_phase == ReviewPhase::none);
+        CHECK(m.state().compose == Compose::channel);
+        CHECK(m.state().home.changed == true);             // the Send list's own `PRESET CHANGED` (W4b, U1)
+        CHECK(m.state().cursor == 0); }
+    {   // ...and a capture that finds the generation already moved (between the press and the tick) opens NOTHING
+        UiModel m; const UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+        w6::dm_double(m, s, 0, 0);
+        CHECK(ui_review_capture(m, moved, w6::live(s, 10), nullptr, 0, s, s.now_ms));
+        CHECK(m.state().review_phase == ReviewPhase::note_preset);
+        CHECK(m.take_send_request(req) == false);
+        // ★ re-sealed on the catalog the capture READ (not the tick's older snapshot), so the next tick — whose
+        //   snapshot now shows the moved catalog — KEEPS the DM list and its note rather than closing it.
+        CHECK(m.state().compose_gen == moved.generation);
+        m.on_tick(w6::tsnap(1100, w6::kTeam, moved));
+        CHECK(m.state().compose == Compose::dm);
+        CHECK(m.state().review_phase == ReviewPhase::note_preset); }
+}
+
+TEST_CASE("w6-union: the review's rows SHARE the Inbox detail's storage, and the two are never open together") {
+    CHECK(offsetof(UiState, review_line) == offsetof(UiState, detail_line));
+    CHECK(sizeof(UiState::review_line) == 3u * 20u);
+    CHECK(sizeof(UiState::detail_line) == 2u * 20u);
+    CHECK(kDetailBodyRows == 2);                           // ⛔ the Inbox keeps its two-row byte pager
+    CHECK(kReviewBodyRows == 3);
+    // a review, then the Inbox: the detail shows ITS body through its OWN pager, nothing of the phrase
+    // ★ a MULTI-PAGE review turned past its first page, so a close that forgot to reset the shared page is visible
+    mrnv::UiPresetBlob cat = preset_defaults_blob();
+    const std::string w = w6::witness163();
+    mrfw::preset_slot_put(cat.slot[mrfw::kPresetDmFirst], true, false, w.c_str(), w.size());
+    cat.generation = mrfw::preset_generation_next(cat.generation);
+    UiModel m;
+    UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+    s.inbox_shown = 1; s.inbox_total = 1; s.inbox[0].kind = InboxKind::dm; s.inbox[0].seq = 1;
+    w6::dm_double(m, s, 0, 0); CHECK(w6::capture(m, s, cat));
+    CHECK(m.state().detail == InboxModal::closed);         // ★ never together
+    UiSnapshot t = w6::tsnap(1000 + kDetailPageMs, w6::kTeam, cat);
+    t.inbox_shown = 1; t.inbox_total = 1; t.inbox[0].kind = InboxKind::dm; t.inbox[0].seq = 1;
+    m.on_tick(t);
+    CHECK(m.state().detail_page == 1);
+    CHECK(m.state().detail_pages == 6);
+    m.on_gesture(Gesture::double_press, t);                 // BACK: the review closes and RESETS the shared page
+    CHECK(m.state().review_phase == ReviewPhase::none);
+    CHECK(std::strlen(m.state().review_line[0]) == 0u);
+    UiModel n; to_inbox(n, s);
+    const uint8_t body[] = { 'h', 'i', ' ', 'i', 'n', 'b', 'o', 'x' };
+    CHECK(open_detail(n, s, body, sizeof body));
+    CHECK(n.state().review_phase == ReviewPhase::none);    // ★ never together
+    CHECK(std::strcmp(n.state().detail_line[0], "hi inbox") == 0);
+    CHECK(std::strlen(n.state().detail_line[1]) == 0u);
+    // the model that reviewed and then left: its shared rows were RESET with the review
+    CHECK(m.state().detail_page == 0);
+    CHECK(m.state().detail_pages == 1);
+}
+
+TEST_CASE("w6-rows: the action row is 19 columns with LOC at 12-14 only when requested; the note row is item 1 only") {
+    char l[24];
+    review_action_line(l, sizeof l, false, false, 0, 2);
+    CHECK(std::strcmp(l, " SEND >BACK     1/2") == 0);
+    review_action_line(l, sizeof l, true, true, 2, 6);
+    CHECK(std::strcmp(l, ">SEND  BACK LOC 3/6") == 0);
+    CHECK(std::strlen(l) == kReviewCols);
+    CHECK((std::strlen(l) >= 15 && std::strncmp(l + 12, "LOC", 3) == 0));
+    review_action_line(l, sizeof l, false, true, 0, 1);
+    CHECK(std::strcmp(l, " SEND >BACK LOC 1/1") == 0);
+    CHECK(review_note_row(l, sizeof l, 1, ReviewPhase::note_team, true) == false);   // ⛔ item 1 only
+    CHECK(review_note_row(l, sizeof l, 0, ReviewPhase::open, true) == false);        // ⛔ no note, no override
+    CHECK(review_note_row(l, sizeof l, 0, ReviewPhase::requested, true) == false);
+    CHECK(review_note_row(l, sizeof l, 0, ReviewPhase::note_recipient, false));
+    CHECK(std::strcmp(l, " RECIPIENT CHANGED") == 0);
+    CHECK(review_note_row(nullptr, 0, 0, ReviewPhase::note_preset, false) == false); // fails closed
+}
+
+TEST_CASE("w6-capture: the review holds COPIES — a catalog edited after the capture changes nothing on it") {
+    mrnv::UiPresetBlob cat = preset_defaults_blob();
+    UiModel m; const UiSnapshot s = w6::tsnap(1000, w6::kTeam, cat);
+    w6::dm_double(m, s, 0, 0);
+    CHECK(ui_review_capture(m, cat, w6::live(s, 10), nullptr, 0, s, s.now_ms));
+    const std::string before(m.state().review_line[0]);
+    std::memset(cat.slot[mrfw::kPresetDmFirst].text, 'Z', 5);   // the SAME object the capture read
+    CHECK(std::strcmp(m.state().review_line[0], before.c_str()) == 0);
+    CHECK(std::strcmp(before.c_str(), "Are you OK?") == 0);
 }

@@ -1,0 +1,13 @@
+{
+  "scope": "Labelled synthetic write-failure proof using the verbatim production tx_line body. No BLE hardware claim.",
+  "synthetic_fault": "Three successful notification writes, then write returns 0 (models timeout/failure, not ordinary queue timing). Body unchanged.",
+  "source_sha256": "56d68dd9270f670451115854e4861dceab8b25c7d81b1f923f73aa5a3f941ac5",
+  "function_sha256": "ac6ef4a9eb748bb62b529a5bef51f26ff48cd2152052cde0b72e84d409ed30ca",
+  "result": {
+    "supplied_bytes": 4185,
+    "calls": 18,
+    "accepted_bytes": 717,
+    "lost_bytes": 3468,
+    "write_failures": 15
+  }
+}

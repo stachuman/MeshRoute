@@ -1,0 +1,65 @@
+model	W6-M01	new	W6-M01 ★★★ THE REVIEW OPENS WITH SEND SELECTED — one stray double sends (design §7.3: BACK first, sending costs short + double)
+model	W6-M02	new	W6-M02 ★★★★ A DOUBLE ON A PHRASE QUEUES DIRECTLY — the review is bypassed (D5's whole point)
+model	W6-M03	new	W6-M03 ★★★ SEND REBUILDS THE REQUEST FIELD BY FIELD — the bound team and peer hash are dropped (U2), so the gate cannot re-ask them
+model	W6-M04	new	W6-M04 ★★★ A PAGE TURN IS A SEND — the time-driven cadence queues the reviewed phrase (no-send paging broken)
+model	W6-M05	new	W6-M05 a SHORT on the review also turns the page — a press becomes a page turn (the cadence is time-only)
+model	W6-M06	new	W6-M06 ★★ the BLANK keeps SEND selected — the wake press could be the first half of a send nobody saw armed
+model	W6-M07	new	W6-M07 ★★ `long_arm` leaves SEND selected under the overlay (the alarm must return a review at BACK)
+model	W6-M08	new	W6-M08 `long_fire` closes the whole phrase LIST too — after the alarm the wearer lands elsewhere (§7.4.1: the list)
+model	W6-M09	new	W6-M09 ★★★ `long_fire` LEAVES THE REVIEW OPEN under a committed alarm — an armed confirmation survives the overlay
+model	W6-M10	new	W6-M10 ★★★★ THE TEAM RACE: a changed team no longer closes the review — a phrase aimed at team A confirms into team B
+model	W6-M11	new	W6-M11 no team left: the review closes to its LIST instead of Home (§7.4.1: Home if no team remains)
+model	W6-M12	new	W6-M12 ★★★★ THE HASH RACE: a re-keyed recipient no longer closes the review — the confirmed phrase goes to whoever holds the ID now
+model	W6-M13	new	W6-M13 the KNOWN bit is ignored: an UNVERIFIED review is closed by a hash that merely appears (a false RECIPIENT CHANGED)
+model	W6-M14	new	W6-M14 ★★★ THE GENERATION RACE: a moved catalog no longer closes the review with PRESET CHANGED — the DM list is then closed outright
+model	W6-M15	new	W6-M15 ★★★ a REMOVED teammate keeps the review open — the confirmation targets an ID nobody on the roster holds
+model	W6-M16	new	W6-M16 ★★★★ THE REVIEW's BINDING IS `_req` — a later review overwrites a request still owed (e.g. across an alarm)
+model	W6-M17	new	W6-M17 ★★ the model derives KNOWN from `hash != 0` — a known zero is read as unknown (brief §2.5's forbidden reading)
+model	W6-M18	new	W6-M18 ★★★ FULL-TEXT CAPTURE TRUNCATED to the row width — the review shows the abbreviated row, not what will be sent
+model	W6-M19	new	W6-M19 ★★ THE UNION's EXCLUSIVITY: a closed review leaves its page state in the SHARED storage for the Inbox to inherit
+model	W6-M20	new	W6-M20 the abbreviation starts one byte early — a 17-byte phrase, which FITS, is shown abbreviated
+model	W6-M21	new	W6-M21 the abbreviation marker is a dot — the row no longer says the phrase continues (D7's `»`)
+model	W6-M22	new	W6-M22 ★★ the NOTE's press falls through and ACTS — the press that clears `TEAM CHANGED` also opens a review / sends
+model	W6-M23	new	W6-M23 a capture-time refusal re-seals the DM list on the tick's OLDER snapshot — the next tick closes it and the note is lost
+model	W6-M24	new	W6-M24 ★ the wrap's branch (2) dropped — a line that FITS its 19 cells before a space is split early
+model	W6-M25	new	W6-M25 the wrap's branch (3) keeps one byte too many — the space-ending line swallows the next word's first letter
+model	W6-M26	new	W6-M26 the page count forgets the partial last page — the tail of a long phrase is never shown in review
+model	S03	changed:anchor+mutant	S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (§B101's close dropped)
+model	S05	changed:anchor+mutant	S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK
+model	S07	changed:anchor+mutant	S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick
+model	Y01	changed:anchor+mutant	Y01 ★★★★ THE SLOT IS DERIVED FROM THE ROW INDEX — §B66's exact defect, and on a GAPPED catalog (dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for
+devicenv	W6-N1	new	W6-N1 ★★★ THE OLD v1 RECORD IS NOT RECOGNISED — it reads `invalid` and the wearer is told his phrases are corrupt
+devicenv	W6-N2	new	W6-N2 the v1 test forgets the VERSION — any 372-byte `MRU1` file is called an old v1 record
+devicenv	W6-N3	new	W6-N3 the v1 test forgets the MAGIC — another record of v1's size is called an old phrase catalog
+devicenv	W6-N4	new	W6-N4 ★★ the v1 test is asked BEFORE the backend — a dead store holding v1's bytes reads as a readable old record
+uisend	W6-S01	new	W6-S01 ★★★★ THE GATE DROPS THE TEAM QUESTION — an owed phrase executes into a team the wearer never chose
+uisend	W6-S02	new	W6-S02 ★★★★ THE GATE DROPS THE RECIPIENT QUESTION — a confirmed DM goes to whoever holds the ID now
+uisend	W6-S03	new	W6-S03 ★★★ a binding that NO LONGER RESOLVES is treated as a match — a vanished key is not a changed recipient
+uisend	W6-S04	new	W6-S04 the team refusal is typed as PRESET CHANGED — the wearer is told the wrong reason
+uisend	W6-S05	new	W6-S05 ★★★★ the recipient refusal STILL SUBMITS — a typed note on the panel and a send on the air
+uisend	W6-S06	new	W6-S06 ★★ the capture takes KNOWN from `hash != 0` — a known zero becomes UNVERIFIED (the resolver's bit ignored)
+uisend	W6-S07	new	W6-S07 ★★★ THE CAPTURE SKIPS THE GATE — a review opens on a catalog that already moved
+uisend	W6-S08	new	W6-S08 ★★★ the capture copies at most the ROW's 17 bytes — the review is not the exact phrase that will be sent
+uisend	W6-S09	new	W6-S09 ★★ `LOC` is never captured — a located phrase is confirmed without the wearer seeing it carries a position (D6)
+uisend	W6-S10	new	W6-S10 ★★★ THE OPERATION COMPOSES INTO A 96-B LINE — every long phrase is refused as a truncation (the retired cap)
+uisend	W6-S11	new	W6-S11 ★★ an UNVERIFIED DM's row 0 claims a hash — the wearer is shown a verification that never happened
+uipresets	W6-P1	new	W6-P1 ★★ THE OLD v1 BOOT IS SILENT — the wearer's phrases are gone and nothing says so (D8's line)
+uipresets	W6-P2	new	W6-P2 ★★★ AN OLD v1 RECORD BECOMES A BASELINE — a restated default writes nothing and the v1 record is never replaced
+uipresets	W6-P3	new	W6-P3 ★★★ THE BOOT WRITES an old v1 record over with the defaults (a migration by the back door; D8: zero boot writes)
+uipresets	W6-P4	new	W6-P4 ★★ THE PAGE SIZE grows to five — a maximum page outgrows what the 2048-B stage was proved to hold (D14)
+uipresets	W6-P5	new	W6-P5 the page token accepts one past the last page — `list 6` answers an empty page instead of `bad_page`
+uipresets	W6-P6	new	W6-P6 ★★ THE BOUND GOES ONE TIGHT — a 163-byte phrase (D7's own limit) is refused
+uipresets	W6-P7	new	W6-P7 ★★ a D9 DEFAULT ASKS FOR LOCATION — `Return to base now` would carry coordinates the wearer never enabled
+uipresets	U25	changed:label+mutant	U25 ★★★ OQ-A'S WITHDRAWN DRAFT BOUND RESTORED (T + 1; W6: 164, was 18) — the bound is ONE for every preset in both location states
+uipresets	U31	changed:label	U31 ★★★★ THE BOUND IS TESTED AFTER A NARROW: a 419-byte phrase becomes 163 and is ACCEPTED as valid (W6; was 273 -> 17)
+uipresetverbs	W6-V1	new	W6-V1 ★★ A BAD PAGE ANSWERS THE USAGE LINE — the companion gets prose instead of `bad_page` (D14)
+uipresetverbs	W6-V2	new	W6-V2 ★★★ `list` ANSWERS UNPAGED — the whole-reply bound is gone (seventeen maximum records overflow the stage)
+uipresetverbs	W6-V3	new	W6-V3 ★★ a page does not stop at its four — every page runs to the end of the catalog
+uipresetverbs	W6-V4	new	W6-V4 ★★ a page's end record loses `page`/`pages` — a client cannot tell which page it read or when to stop
+uipresetverbs	W6-V5	new	W6-V5 `text_max` reports the SLOT count — the companion sizes its text field from the wrong number
+uipresetverbs	W6-V6	new	W6-V6 the boot line's buffer is sized short of its own derived bound — a boot diagnostic is clipped
+uipresetverbs	V03	changed:anchor+mutant	V03 ★★★ `list` SKIPS THE DISABLED SLOTS — an editor can no longer address `dm5` to turn it on (§3.2.3's own words)
+uipresetverbs	V04	changed:anchor+mutant	V04 ★★ the end record's `capacity` becomes a HAND-WRITTEN literal — the number the companion sizes its editor from can now drift from the record
+uipresetverbs	V05	changed:anchor	V05 ★★ THE GENERATION IS DROPPED FROM THE END RECORD — a list no longer says WHICH catalog it just described
+uipresetverbs	V06	changed:label+anchor+mutant	V06 the two ACTIVE COUNTS are swapped in the end record — invisible on the compiled defaults, where both are 2 (W6: D9 makes them 3 / 4)
+uipresetverbs	V18	changed:label+anchor+mutant	V18 a TRAILING TOKEN on `list` is IGNORED rather than refused (C2) — `ui preset list 1 2` silently runs page 1

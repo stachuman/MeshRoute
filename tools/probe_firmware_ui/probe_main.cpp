@@ -1252,6 +1252,14 @@ uint32_t settle(uint32_t t) {
     t += 700; tick(t);                                       // > kPaintThrottleMs since that paint
     return t;
 }
+// ★★★★ W6 (design r2.23 §7.3, owner-ruled D5) — A SAVED PHRASE IS SENT THROUGH ITS REVIEW. The `double` on a phrase
+//      REQUESTED it and the same `mr_ui_tick` pass captured it (`ui_service_review`); this is the operator's
+//      deliberate confirmation — a real `short` (BACK -> SEND) and a real `double` (SEND), which queues and executes.
+//      ⇒ every landed phase that sent on ONE double now confirms through the review (brief §2.8), never a lowered count.
+uint32_t confirm_review(uint32_t t) {
+    t = settle(t + 500);                                     // `short`: BACK -> SEND
+    return double_press(t + 500);                            // `double`: SEND
+}
 
 // Walk the list until the HIGHLIGHTED row is of the wanted kind, then open it with a double press.
 // ⛔⛔ THE TARGET STRING MUST NOT MATCH ANOTHER SCREEN'S ROW, and this is a MEASURED trap rather than a caution: the
@@ -2247,7 +2255,10 @@ int main() {
         // ⓘ W4b fixture: SEND is reached BY THE RAIL in menu mode and entered with `double` (the Send LIST, design
         //   §6.5) — ⛔ never by walking to the passive `SEND to team` preview, which an acknowledged result no longer
         //   returns to (it returns to the list itself, on item 1).
-        t9 = double_press(t9 + 500); paint(t9);               // ...and send its first text
+        t9 = double_press(t9 + 500); paint(t9);               // ...its first text -> the REVIEW (W6, D5)
+        CHK("P9a W6: the phrase double opened its review and submitted NOTHING",
+            g_exec.calls == 0 && strstr(g_c.page_text, "TO TEAM ") != nullptr);
+        t9 = confirm_review(t9); paint(t9);                   // ...and SEND it
         CHK("P9a the canned post really reached the executor", g_exec.calls == 1);
         CHK("P9a an ACCEPTED post reads QUEUED, never SENT",
             strstr(g_c.page_text, "QUEUED") != nullptr && strstr(g_c.page_text, "SENT, waiting") == nullptr);
@@ -2263,7 +2274,7 @@ int main() {
         g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 301;
         t9 = settle(t9 + 1000);
         t9 = enter_list(t9, kSlotSend);                       // W4b fixture: by the rail, as above
-        t9 = double_press(t9 + 500); paint(t9);
+        t9 = confirm_review(double_press(t9 + 500)); paint(t9);   // W6: review, then SEND
         CHK("P9c precondition: the new post is QUEUED",  strstr(g_c.page_text, "QUEUED") != nullptr);
         mr_ui_on_push(aired_push(/*dst=*/0, /*ctr=*/45));     // ⛔ 301 & 0xff == 45: the TRUNCATED handle
         t9 += 700; paint(t9);
@@ -2309,7 +2320,7 @@ int main() {
             g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 42;
             t9 = settle(t9 + 1000);
             t9 = open_in_list(t9, kSlotTeam, ">id 60");    // the teammate row -> the DM compose list
-            t9 = double_press(t9 + 500);                   // ...and send its first canned text
+            t9 = confirm_review(double_press(t9 + 500));   // ...review its first canned text and SEND it (W6)
             // ⚠⚠ §UI-17 S4 — THE HARNESS PAYS FOR A REAL BEHAVIOUR CHANGE, and it is the S2 note two lines below
             //    wearing the other hat. ⛔ MEASURED, not anticipated: this phase's teammate row carries a
             //    SECOND-SCALE route age, so its token now turns every second and `ui_team_invalidate` asks for the
@@ -2890,7 +2901,10 @@ int main() {
                 strstr(g_c.page_text, "to: ") != nullptr);
             CHK("P14d a compose modal opened from TEAM selects SEND, not TEAM",
                 rail_boxed_slot() == kSlotSend);
-            t16 = double_press(t16 + 500); paint(t16);          // send the first canned text -> the RESULT phase
+            t16 = double_press(t16 + 500); paint(t16);          // the first canned text -> its REVIEW (W6)
+            CHK("P14d W6: the phrase REVIEW keeps SEND selected", rail_boxed_slot() == kSlotSend &&
+                strstr(g_c.page_text, " SEND >BACK") != nullptr);
+            t16 = confirm_review(t16); paint(t16);              // SEND -> the RESULT phase
             CHK("P14d ...and the send RESULT keeps SEND selected", rail_boxed_slot() == kSlotSend);
             t16 = double_press(t16 + 500); paint(t16);          // acknowledge and close
         }
@@ -6151,6 +6165,11 @@ int main() {
                     };
                     g_node.clear_team_routing_state();
                     seat(90, hashA, pubA);
+                    // ⓘ W6 (owner-ruled D9): the compiled catalog has THREE DM phrases now; K7's rows below are pinned
+                    //   against the two-phrase list it landed on, so `dm3` is cleared through the REAL verb for this
+                    //   phase and restored at its end (P27 re-proves the act row against a list of ANY length).
+                    CHK("P24k7 precondition (W6): the compiled `dm3` is cleared for K7's landed layout",
+                        run_preset_cmd("preset clear dm3"));
                     char fullA[mrui::kMemberHashCap];
                     mrui::ui_fmt_member_hash_full(fullA, sizeof fullA, hashA);
                     {
@@ -6370,6 +6389,9 @@ int main() {
                         CHK("P24k7e the panel is back on the PROVISION menu for the next phase",
                             body_row_is(0, ">CREATE TEAM"));
                     }
+                    CHK("P24k7 (W6): the compiled `dm3` is restored for the phases that follow",
+                        run_preset_cmd("preset reset dm3") &&
+                        probe_presets().enabled_count(mrfw::PresetKind::dm) == 3);
                 }
             }
         }
@@ -6728,10 +6750,13 @@ int main() {
         if (strstr(g_c.page_text, "CREATE TEAM") != nullptr) t27 = open_highlighted(t27 + 500, ">BACK");
         // ---- (a) RECONFIGURE THROUGH THE REAL VERBS: dm1 / dm4 / dm8, the design's own gap example -------------
         const uint32_t gen0 = probe_presets().generation();
-        CHK("P27a the shipped catalog starts on the compiled defaults (2 DM presets, non-zero generation)",
-            probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 && gen0 != 0);
+        // ⓘ W6 (owner-ruled D9): the compiled catalog has THREE DM phrases (`dm3` `Where are you?`), so the gap
+        //   example below also clears `dm3` to reach the same dm1 / dm4 / dm8 list (was 2 presets, dm2 cleared).
+        CHK("P27a the shipped catalog starts on the compiled defaults (3 DM presets, non-zero generation)",
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 3 && gen0 != 0);
         const bool cfg_ok =
             run_preset_cmd("preset clear dm2") &&
+            run_preset_cmd("preset clear dm3") &&
             run_preset_cmd("preset set dm4 loc=on \"MEET AT THE COL\"") &&
             run_preset_cmd("preset set dm8 loc=off \"ON MY WAY\"");
         CHK("P27a the REAL `ui preset` verbs reconfigure the catalog the panel reads",
@@ -6805,6 +6830,15 @@ int main() {
             t27 = see(double_press(t27 + 500));
             CHK("P27c a selection-phase compose is open before the interleaved write",
                 body_row_is(1, ">-Are you OK?"));
+            // ★★ W6 (D5): the press that EXECUTES is the review's SEND now, so the race is armed on THAT double —
+            //    the owed request re-asks the generation at execution, exactly the window design §3.3 names. The
+            //    review opens first (the phrase's own double, nothing submitted) and SEND is selected with `short`.
+            t27 = see(double_press(t27 + 500));
+            CHK("P27c W6: the phrase's review is open, BACK selected, nothing submitted",
+                strstr(g_c.page_text, " SEND >BACK") != nullptr);
+            t27 = see(settle(t27 + 500));
+            CHK("P27c W6: ...and SEND is selected before the interleaved write",
+                strstr(g_c.page_text, ">SEND  BACK") != nullptr);
             const int exec0 = g_exec.calls;
             g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 4242;
             // ⓘ THE DOUBLE PRESS IS SPELLED OUT rather than driven through `double_press()`, because the ARMING
@@ -6836,6 +6870,31 @@ int main() {
             CHK("P27c the repaint is from the CURRENT catalog — dm5 has taken its stable place between dm4 and dm8",
                 body_row_is(1, ">-Are you OK?") && body_row_is(2, " LMEET AT THE COL") &&
                 body_row_is(3, " -LATER") && body_row_is(4, " -ON MY WAY"));
+            // ★★ W6 — THE SAME RACE ONE STEP EARLIER, AT THE REVIEW's CAPTURE: the write lands inside the tick of the
+            //    PHRASE's double, after the frame froze the old generation and before `ui_service_review` asks the live
+            //    catalog. ⇒ no review opens; the list says `PRESET CHANGED` over item 1; ⛔ nothing is submitted.
+            {
+                const int exec_c = g_exec.calls;
+                const uint32_t tc = t27 + 500;
+                g_c.button_down = true;  tick(tc);       tick(tc + 50);
+                g_c.button_down = false; tick(tc + 100); tick(tc + 150);
+                g_c.button_down = true;  tick(tc + 200); tick(tc + 250);
+                g_c.button_down = false; tick(tc + 300);
+                mrui::g_preset_race.cmd = "preset set dm6 loc=off \"EARLY\"";   // ⛔ a DIFFERENT slot again
+                mrui::g_preset_race.fired = false;
+                tick(tc + 350);                                        // ★ the phrase's double, and the write
+                CHK("P27c W6: the capture-time write really ran inside that tick", mrui::g_preset_race.cmd == nullptr);
+                t27 = see(tc + 400);
+                CHK("P27c W6: ★★★ a catalog move before the capture opens NO review — the list says PRESET CHANGED",
+                    body_row_is(1, ">PRESET CHANGED") && strstr(g_c.page_text, " SEND >BACK") == nullptr);
+                CHK("P27c W6: ⛔ ...and submits NOTHING", g_exec.calls == exec_c);
+                mrui::g_preset_race.cmd = nullptr;
+                t27 = see(settle(t27 + 500));                          // the note's press: clears it, runs nothing
+                CHK("P27c W6: the note's press clears it and sends nothing",
+                    body_row_is(1, ">-Are you OK?") && g_exec.calls == exec_c);
+                // ⓘ `dm6` stays `EARLY`: removing it would move the generation under this OPEN list and close it
+                //   (P27d's own rule) — P27d reads only rows 1-2, and P27e/P27f clear and restore every slot.
+            }
         }
 
         // ---- (d) A MUTATION WHILE THE LIST IS OPEN CLOSES THE SELECTION-PHASE MODAL, WITHOUT SENDING ----------
@@ -6888,8 +6947,126 @@ int main() {
         // ---- (f) RESTORE, THROUGH THE REAL VERB, so no later phase inherits a reconfigured catalog -------------
         CHK("P27f `preset reset all` restores the compiled catalog for the phases that follow",
             run_preset_cmd("preset reset all") &&
-            probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 &&
-            probe_presets().enabled_count(mrfw::PresetKind::channel) == 2);
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 3 &&           // W6 (D9): was 2 / 2
+            probe_presets().enabled_count(mrfw::PresetKind::channel) == 4);
+    }
+
+    // ============================================================================================================ P31
+    // ★★★★ W6 — THE SAVED-PHRASE REVIEW ON GLASS (design r2.23 §7.2-§7.4, brief §2.8), through the REAL
+    //      `firmware_ui.cpp`: the Send list's `»` drawn RAW; the review's header, word-wrapped pages, action row and
+    //      `LOC`; frozen frames a mid-frame catalog write cannot tear; and a 163-byte phrase reaching the executor
+    //      WHOLE through the one static send line. ⓘ It runs after P27 and before P28 and leaves the compiled catalog.
+    {
+        auto see = [&](uint32_t at) { paint(at); paint(at + 700); return at + 800; };
+        uint32_t t31 = settle(g_probe_millis + 5000);
+        paint(t31);
+        if (strstr(g_c.page_text, "CREATE TEAM") != nullptr) t31 = open_highlighted(t31 + 500, ">BACK");
+        CHK("P31 precondition: the compiled catalog is live (3 DM, 4 channel phrases)",
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 3 &&
+            probe_presets().enabled_count(mrfw::PresetKind::channel) == 4);
+        // ---- (a) THE ABBREVIATED ROW: 16 bytes + the GENERATED 0xBB, drawn raw ----------------------------------
+        t31 = enter_list(t31 + 500, kSlotSend);
+        CHK("P31a the D9 18-byte phrase is drawn ABBREVIATED — 16 bytes and the generated 0xBB",
+            body_row_is(3, " -Return to base n\xBB"));
+        CHK("P31a ⛔ ...and the marker reaches the canvas RAW — no sanitizer turned it into a dot",
+            strstr(g_c.page_text, "Return to base n.") == nullptr);
+        // ---- (b) ITS REVIEW: the team, the WHOLE 18 bytes, BACK first, no LOC, nothing submitted ----------------
+        const int exec_b = g_exec.calls;
+        t31 = see(settle(t31 + 500)); t31 = see(settle(t31 + 500));
+        CHK("P31b precondition: the arrow is on the abbreviated phrase", body_row_is(3, ">-Return to base n\xBB"));
+        t31 = see(double_press(t31 + 500));
+        char team_head[24];
+        snprintf(team_head, sizeof team_head, "TO TEAM %08lX", (unsigned long)g_node.config().team_id);
+        CHK("P31b the review's row 0 names the team with its FULL id", body_row_is(0, team_head));
+        CHK("P31b ...its body is the WHOLE phrase, all 18 bytes", body_row_is(1, "Return to base now"));
+        CHK("P31b ...BACK is selected first and there is NO `LOC` (the phrase does not ask for location)",
+            body_row_is(4, " SEND >BACK     1/1"));
+        CHK("P31b ⛔ ...and opening it submitted NOTHING", g_exec.calls == exec_b);
+        t31 = see(double_press(t31 + 500));                  // BACK
+        CHK("P31b BACK returns to the list with the arrow on that phrase, nothing submitted",
+            body_row_is(3, ">-Return to base n\xBB") && g_exec.calls == exec_b);
+        t31 = open_highlighted(t31 + 500, ">MENU");          // leave the list
+        // ---- (c) A 163-BYTE LOCATED PHRASE: word-wrapped pages, `LOC`, the cadence --------------------------------
+        char long163[164];
+        for (int i = 0; i < 160; ++i) long163[i] = (i % 10 == 9) ? ' ' : char('A' + i % 10);
+        long163[160] = 'X'; long163[161] = 'Y'; long163[162] = 'Z'; long163[163] = '\0';
+        {
+            char cmd[200];
+            snprintf(cmd, sizeof cmd, "preset set channel1 loc=on \"%s\"", long163);
+            CHK("P31c precondition: the REAL verb stores a 163-byte located phrase",
+                run_preset_cmd(cmd) && probe_presets().slot(mrfw::kPresetChannelFirst).len == 163);
+        }
+        // ★ AN INDEPENDENT ORACLE of design §7.2's four branches — ⛔ not the model's helper — so a wrap defect in the
+        //   shipped code cannot also be the expectation.
+        char wl[24][20]; int nl = 0;
+        for (int st = 0; st < 163 && nl < 24; ++nl) {
+            int k = 19;
+            if (163 - st <= 19) k = 163 - st;
+            else if (long163[st + 19] == ' ' || long163[st + 18] == ' ') k = 19;
+            else for (int j = st + 17; j >= st; --j) if (long163[j] == ' ') { k = j - st + 1; break; }
+            memcpy(wl[nl], long163 + st, size_t(k)); wl[nl][k] = '\0';
+            st += k;
+        }
+        const int pages = (nl + 2) / 3;
+        CHK("P31c the oracle's layout is within the design's bound (≤ 6 pages)", pages >= 2 && pages <= 6);
+        t31 = enter_list(t31 + 500, kSlotSend);
+        CHK("P31c the list row abbreviates it: `L`, 16 bytes and the marker", body_row_is(1, ">LABCDEFGHI ABCDEF\xBB"));
+        const int exec_c = g_exec.calls;
+        t31 = double_press(t31 + 500);
+        uint32_t now = t31;
+        auto until_row4 = [&](const char* want, uint32_t bound_ms) {
+            for (uint32_t w = 0; w <= bound_ms; w += 10) { now += 10; tick(now);
+                if (g_c.pages_this_frame == 8 && body_row_is(4, want)) return true; }
+            return false;
+        };
+        char act[24];
+        snprintf(act, sizeof act, " SEND >BACK LOC 1/%d", pages);
+        CHK("P31c page 1: its action row is ` SEND >BACK LOC 1/n` — BACK first, `LOC` at columns 12-14",
+            until_row4(act, 1500) && strncmp(body_row(4) + 12, "LOC", 3) == 0);
+        CHK("P31c page 1: the three wrapped rows, exact",
+            body_row_is(1, wl[0]) && body_row_is(2, wl[1]) && body_row_is(3, wl[2]));
+        snprintf(act, sizeof act, " SEND >BACK LOC 2/%d", pages);
+        CHK("P31c page 2 turns on the cadence alone, its rows exact",
+            until_row4(act, 2600) && body_row_is(1, wl[3]) && body_row_is(2, wl[4]) &&
+            (nl > 5 ? body_row_is(3, wl[5]) : body_row(3) == nullptr));
+        CHK("P31c ⛔ ...and neither the review nor a page turn submitted anything", g_exec.calls == exec_c);
+        // ---- (d) FROZEN FRAMES: a catalog write while a frame pages out does not tear the review -----------------
+        dirty_the_model(now + 700); now += 700;
+        run_ticks(now + 10, 3, 10); now += 40;               // three of the eight pages drawn
+        CHK("P31d the mid-frame write is accepted by the REAL verb",
+            run_preset_cmd("preset set channel2 loc=off \"TORN\""));   // ⚡ a DIFFERENT slot: the generation moves
+        run_ticks(now, 6, 10); now += 70;
+        {
+            bool same = true;
+            const char* r0 = text_at(kBodyXExpected, body_y_expected(1), 0);
+            for (int pg = 0; pg < 8; ++pg) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(1), pg);
+                if (!r || !r0 || strcmp(r, r0) != 0 || strstr(r, "PRESET") != nullptr) same = false;
+            }
+            CHK("P31d every page of that frame drew the SAME review row — nothing read the live catalog mid-frame", same);
+        }
+        now += 1000; paint(now); now += 200;
+        CHK("P31d ...and the NEXT frame is the re-read list with PRESET CHANGED over item 1 (the review closed)",
+            body_row_is(1, ">PRESET CHANGED") && strstr(g_c.page_text, "SEND >BACK") == nullptr);
+        CHK("P31d ⛔ ...submitting nothing", g_exec.calls == exec_c);
+        t31 = see(settle(now + 500));                         // the note's press: clears it, nothing else
+        // ---- (e) THE 163 BYTES REACH THE EXECUTOR WHOLE, through the review's SEND -----------------------------
+        g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 3131;
+        t31 = confirm_review(see(double_press(t31 + 500)));
+        paint(t31);
+        {
+            char want[220];
+            snprintf(want, sizeof want, "send_channel 0 \"%s\" -t -l -e", long163);
+            CHK("P31e ★★★ the review's SEND issues the WHOLE 163-byte phrase, `-l` because the slot asks for it",
+                g_exec.calls == exec_c + 1 && strcmp(g_exec.last, want) == 0);
+        }
+        t31 = see(double_press(t31 + 500));                  // acknowledge the result
+        CHK("P31f `preset reset all` restores the compiled catalog",
+            run_preset_cmd("preset reset all") &&
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 3 &&
+            probe_presets().enabled_count(mrfw::PresetKind::channel) == 4);
+        dirty_the_model(t31 + 100); t31 = see(t31 + 200);
+        t31 = open_highlighted(t31 + 500, ">MENU");
     }
 
     // ============================================================================================================ P28
@@ -7063,9 +7240,14 @@ int main() {
         // ---- (c) THE COMPOSE HEADER AND THE `DELIVERED to` RESULT, for each of the four ----------------------------
         // ⓘ The row is reached by POSITION (`enter_list` lands on row 0, one `short` per row), never by searching for
         //   its label: a walk can wrap the clock, so the label on the list is only trusted after `rebind`.
-        struct Peer { uint8_t id; const char* label; const char* who; uint16_t ctr; };
-        const Peer peers[] = { {91, "H1", "named", 2411}, {92, "0xB2410007", "NAMELESS", 2412},
-                               {93, "id 93", "keyless", 2413}, {94, "0xB2EE41EE", "UNKNOWN-hash", 2414} };
+        struct Peer { uint8_t id; const char* label; const char* who; uint16_t ctr; const char* review; };
+        char rv_named[24], rv_nameless[24], rv_unknown[24];
+        snprintf(rv_named, sizeof rv_named, "TO H1 %08lX", (unsigned long)h[1]);
+        snprintf(rv_nameless, sizeof rv_nameless, "TO 410007 %08lX", (unsigned long)h[7]);
+        snprintf(rv_unknown, sizeof rv_unknown, "TO EE41EE %08lX", (unsigned long)unknown);
+        const Peer peers[] = { {91, "H1", "named", 2411, rv_named}, {92, "0xB2410007", "NAMELESS", 2412, rv_nameless},
+                               {93, "id 93", "keyless", 2413, "TO T93 UNVERIFIED"},
+                               {94, "0xB2EE41EE", "UNKNOWN-hash", 2414, rv_unknown} };
         for (uint8_t row = 0; row < 4; ++row) {
             const Peer& p = peers[row];
             char lab[96];
@@ -7079,7 +7261,14 @@ int main() {
             snprintf(lab, sizeof lab, "P28c the compose HEADER names the %s teammate exactly", p.who);
             CHK(lab, body_row_is(0, head));
             g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = p.ctr;
-            t28 = double_press(t28 + 500);                            // send the first canned text
+            t28 = double_press(t28 + 500);                            // the first canned text -> its REVIEW (W6)
+            rebind(t28 + 100);
+            dirty_the_model(t28 + 100); paint(t28 + 200); t28 += 300;
+            // ★ W6 (design §7.3): row 0 names the destination from the resolver's OWN answer at capture — the full
+            //   raw name at 7 cells plus the full hash, the member token for an unnamed key, `UNVERIFIED` without one.
+            snprintf(lab, sizeof lab, "P28c W6: the REVIEW names the %s teammate exactly", p.who);
+            CHK(lab, body_row_is(0, p.review) && g_exec.calls == 0);
+            t28 = confirm_review(t28);                                // ...and SEND it
             t28 += 700; paint(t28);
             snprintf(lab, sizeof lab, "P28c precondition: the DM to the %s teammate reached the executor", p.who);
             CHK(lab, g_exec.calls == 1);
@@ -7267,8 +7456,12 @@ int main() {
             snprintf(c2, sizeof c2, "preset set dm2 loc=off \"%s\"", kDmPlain);
             snprintf(c3, sizeof c3, "preset set channel1 loc=on \"%s\"", kChLoc);
             snprintf(c4, sizeof c4, "preset set channel2 loc=off \"%s\"", kChPlain);
+            // ⓘ W6 (D9): the compiled `dm3` / `channel3` / `channel4` are cleared too, so each list is the same two
+            //   phrases + its exit row this phase has always read (the D9 rows are P31's).
             CHK("P29b precondition: the REAL verbs store four 17-byte phrases",
-                run_preset_cmd(c1) && run_preset_cmd(c2) && run_preset_cmd(c3) && run_preset_cmd(c4));
+                run_preset_cmd(c1) && run_preset_cmd(c2) && run_preset_cmd(c3) && run_preset_cmd(c4) &&
+                run_preset_cmd("preset clear dm3") && run_preset_cmd("preset clear channel3") &&
+                run_preset_cmd("preset clear channel4"));
         }
         struct ComposeCase { const char* who; const char* loc; const char* plain; };
         const ComposeCase kinds[] = { {"DM", kDmLoc, kDmPlain}, {"channel", kChLoc, kChPlain} };
@@ -7296,8 +7489,8 @@ int main() {
         }
         CHK("P29b `preset reset all` restores the compiled catalog",
             run_preset_cmd("preset reset all") &&
-            probe_presets().enabled_count(mrfw::PresetKind::dm) == 2 &&
-            probe_presets().enabled_count(mrfw::PresetKind::channel) == 2);
+            probe_presets().enabled_count(mrfw::PresetKind::dm) == 3 &&           // W6 (D9): was 2 / 2
+            probe_presets().enabled_count(mrfw::PresetKind::channel) == 4);
 
 #if MR_N_LAYERS < 2
         // ---- (c) THE BLOCKED PROVISION NOTE, on the child-enabled arm's real SETTINGS -> PROVISION path -------------
@@ -7482,7 +7675,7 @@ int main() {
             snprintf(lab, sizeof lab, "P30b the compose HEADER shows the %s name at 15 cells", c.who);
             CHK(lab, body_row_is(0, c.head));
             g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = c.ctr;
-            t30 = double_press(t30 + 500);                            // send the first canned text
+            t30 = confirm_review(double_press(t30 + 500));            // review the first canned text, SEND it (W6)
             t30 += 700; paint(t30);
             MESHROUTE_NS::Push ack{};
             ack.kind = MESHROUTE_NS::PushKind::send_e2e_acked; ack.dst = c.id; ack.ctr = c.ctr;
@@ -7637,12 +7830,13 @@ int main() {
                 mrfw::preset_verb(cat, dg, cmd, strlen(cmd), out) &&
                 strcmp(out.buf, "{\"ev\":\"ui_preset_err\",\"reason\":\"busy\"}\n") == 0);
             CHK("P26a ⛔ ...with ZERO loads and ZERO writes", ps.loads == 0 && ps.saves == 0);
-            // ...and `list` is not a mutation, so it still answers in full.
+            // ...and `list` is not a mutation, so it still answers — W6 (D14): ONE page, four records + its end
+            //   record (was all 17 + the end record).
             out.reset();
             const char* lc = "preset list";
             mrfw::preset_verb(cat, dg, lc, strlen(lc), out);
-            CHK("P26a ...while `list` still answers 17 records + the end record during the alarm",
-                out.lines == mrnv::kUiPresets + 1);
+            CHK("P26a ...while `list` still answers page 1 (4 records + the end record) during the alarm",
+                out.lines == mrfw::kPresetPageSize + 1 && strstr(out.buf, "\"page\":1,\"pages\":5}") != nullptr);
         }
         g_c.button_down = false;
         for (int i = 0; i < 10; ++i) tick(t26 + 6200 + uint32_t(i) * 100);
@@ -7659,6 +7853,7 @@ int main() {
                 { mrnv::UiPresetRead::absent,    nullptr,                    "absent" },
                 { mrnv::UiPresetRead::invalid,   mrfw::kPresetInvalidLine,   "invalid" },
                 { mrnv::UiPresetRead::io_failed, mrfw::kPresetIoFailedLine,  "io_failed" },
+                { mrnv::UiPresetRead::old_v1,    mrfw::kPresetOldV1Line,     "old_v1" },     // ★ W6 (D8)
             };
             bool all_ok = true, silent_ok = true, usable = true, no_writes = true;
             for (const auto& a : arms) {
@@ -7679,10 +7874,10 @@ int main() {
                 if (cat.slot(mrfw::kPresetEmergency).enabled != 1 || cat.slot(mrfw::kPresetEmergency).len == 0)
                     usable = false;
             }
-            CHK("P26b the four /mrui states each drive the ruled boot line and return their own state", all_ok);
+            CHK("P26b the five /mrui states (W6: + old_v1) each drive the ruled boot line and return their own state", all_ok);
             CHK("P26b ⛔ ...and `ok` / `absent` print NOTHING AT ALL (not even a blank line)", silent_ok);
             CHK("P26b ⛔ ...and the boot NEVER writes, not even to repair a corrupt record", no_writes);
-            CHK("P26b ...and the emergency slot is live and non-empty on every one of the four", usable);
+            CHK("P26b ...and the emergency slot is live and non-empty on every one of the five", usable);
         }
     }
 

@@ -1,0 +1,149 @@
+{
+  "artifacts": {
+    "elf": {
+      "bytes": 21659708,
+      "filename": "firmware.elf",
+      "sha256": "b2ccef33d8ba7f77403e7b034d8aee19517e2cf103768326e401e0946f69734d"
+    },
+    "payload": {
+      "bytes": 1400912,
+      "filename": "firmware.bin",
+      "sha256": "6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998"
+    }
+  },
+  "concurrency": {
+    "limitation": "The measurement lock excludes only this runner. Source-mutating mutation batteries in the same checkout do not share it and must not run concurrently.",
+    "measurement_lock": "/home/staszek/MeshRoute/.pio-measure/measurement.lock",
+    "mutation_batteries_share_lock": false
+  },
+  "environment": "heltec_mobile",
+  "fixed_identity": {
+    "build_stamp": "Jan  1 2000 00:00:00",
+    "build_stamp_count": 1,
+    "git_revision": "b206b206b206",
+    "git_revision_count": 1,
+    "source_date_epoch": "946684800"
+  },
+  "host": {
+    "limitation": "Linux/POSIX-only: requires fcntl advisory locking and PTYs.",
+    "platform": "linux"
+  },
+  "measurements": {
+    "flash_bytes": 1400276,
+    "loadable_sections": {
+      ".dram0.data": 25436,
+      ".flash.appdesc": 256,
+      ".flash.rodata": 218436,
+      ".flash.text": 1077534,
+      ".iram0.text": 77843,
+      ".iram0.vectors": 1027,
+      ".rtc.force_fast": 8,
+      ".rtc.text": 256
+    },
+    "object_count": 329,
+    "ram_bytes": 219540,
+    "symbol_count": 13336,
+    "symbol_size_total": 1509129,
+    "symbols_sha256": "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e"
+  },
+  "normal_pio_metadata": {
+    "entry_count": 10653,
+    "exists": true,
+    "sha256": "78dd26ea7f7a70b034e5d20a9bfa93b32c74ce6a56d07243101f966773d4ea6e"
+  },
+  "paths": {
+    "build_root": "/home/staszek/MeshRoute/.pio-measure/env/heltec_mobile/build",
+    "env_build_dir": "/home/staszek/MeshRoute/.pio-measure/env/heltec_mobile/build/heltec_mobile",
+    "libdeps_root": "/home/staszek/MeshRoute/.pio-measure/env/heltec_mobile/libdeps",
+    "normal_pio_root": "/home/staszek/MeshRoute/.pio",
+    "normal_pio_used": false,
+    "project_root": "/home/staszek/MeshRoute",
+    "workspace_root": "/home/staszek/MeshRoute/.pio-measure/env/heltec_mobile/workspace"
+  },
+  "schema": 2,
+  "source": {
+    "deleted_files": [],
+    "file_count": 2054,
+    "git_head": "70ff486b40c9b07001b33bcbcdf640ad494c1149",
+    "git_status_sha256": "6b86a2c34bcb310194152d4533abd33ca06250153ecac40b2c0d012abaa51f3a",
+    "tree_sha256": "8053128dee7d21a4044440ee107a03d126e9d09f671329a13af207a4813b9cd9"
+  },
+  "toolchain": {
+    "command_state_schema": 2,
+    "commands": {
+      "cc": {
+        "command": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
+        "command_template": "${TEMPFILE('$CC -o $TARGET -c $CFLAGS $CCFLAGS $_CCCOMCOM $SOURCES','$CCCOMSTR')}",
+        "executable_realpath": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
+        "executable_resolved": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc",
+        "tool_token": "xtensa-esp32s3-elf-gcc",
+        "version": "xtensa-esp-elf-gcc (crosstool-NG esp-13.2.0_20240530) 13.2.0",
+        "wrapper_active": false,
+        "wrapper_prefix": []
+      },
+      "cxx": {
+        "command": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++",
+        "command_template": "${TEMPFILE('$CXX -o $TARGET -c $CXXFLAGS $CCFLAGS $_CCCOMCOM $SOURCES','$CXXCOMSTR')}",
+        "executable_realpath": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++",
+        "executable_resolved": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++",
+        "tool_token": "xtensa-esp32s3-elf-g++",
+        "version": "xtensa-esp-elf-g++ (crosstool-NG esp-13.2.0_20240530) 13.2.0",
+        "wrapper_active": false,
+        "wrapper_prefix": []
+      },
+      "link": {
+        "command": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++",
+        "command_template": "${TEMPFILE('$LINK -o $TARGET $LINKFLAGS $__RPATH $SOURCES $_LIBDIRFLAGS $_LIBFLAGS','$LINKCOMSTR')}",
+        "executable_realpath": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++",
+        "executable_resolved": "/home/staszek/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++",
+        "tool_token": "xtensa-esp32s3-elf-g++",
+        "version": "xtensa-esp-elf-g++ (crosstool-NG esp-13.2.0_20240530) 13.2.0",
+        "wrapper_active": false,
+        "wrapper_prefix": []
+      }
+    },
+    "link_aliases": [
+      "cxx"
+    ],
+    "packages": [
+      {
+        "name": "framework-arduinoespressif32",
+        "version": "3.1.3"
+      },
+      {
+        "name": "framework-arduinoespressif32-libs",
+        "version": "5.3.0+sha.489d7a2b3a"
+      },
+      {
+        "name": "tool-esptoolpy",
+        "version": "4.8.6"
+      },
+      {
+        "name": "tool-mklittlefs",
+        "version": "3.2.0"
+      },
+      {
+        "name": "tool-openocd-esp32",
+        "version": "2.1100.20220706 (11.0)"
+      },
+      {
+        "name": "tool-riscv32-esp-elf-gdb",
+        "version": "14.2.0+20240403"
+      },
+      {
+        "name": "tool-xtensa-esp-elf-gdb",
+        "version": "14.2.0+20240403"
+      },
+      {
+        "name": "toolchain-riscv32-esp",
+        "version": "13.2.0+20240530"
+      },
+      {
+        "name": "toolchain-xtensa-esp-elf",
+        "version": "13.2.0+20240530"
+      }
+    ],
+    "platform": "Espressif 32 (53.3.13) > Heltec WiFi LoRa 32 (V3)",
+    "platformio": "PlatformIO Core, version 6.1.19"
+  }
+}

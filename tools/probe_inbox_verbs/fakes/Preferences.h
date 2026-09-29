@@ -39,12 +39,16 @@
 //    `retain_on_fail` and `drop_on_ok` are untouched, the byte counts are untouched, and a record LARGER than the
 //    slot is still an honest short write.
 //    2304 = 2056 rounded up past the largest record any arm stores (/mrpeers is 1160, /mrui 372, /mrmkeys 368).
+// ★★ W6 / [[B477]] — 2304 -> 2852, AND FOR THE SAME MEASURED REASON: the `/mrui` v2 record is 2852 B
+//    (`sizeof(mrnv::UiPresetBlob)`, owner-ruled D15), the largest record any arm now stores, and a 2304-B slot
+//    would have skipped it SILENTLY while `putBytes` still reported the full length — a save that "worked" and
+//    stored nothing. `probe_main.cpp` asserts AT COMPILE TIME that every record an arm stores fits this slot.
 // ★ SIX SLOTS, not four: an arm now touches /mrid, /mrcfg, /mrpeers, /mrmkeys, /mrtargets and (on the ACCEPT arm)
 //   /mradmid + /mracl. A table that ran out would report a write failure production never sees.
 struct MrProbeNvSlot {
     char          ns[16]    = {};
     char          key[16]   = {};
-    unsigned char data[2304] = {};
+    unsigned char data[2852] = {};
     size_t        len       = 0;
     bool          used      = false;
 };
@@ -71,15 +75,18 @@ struct MrProbeNv {
         for (auto& s : slot) if (s.used && same(s.ns, ns) && same(s.key, key)) return &s;
         return nullptr;
     }
-    void put(const char* ns, const char* key, const unsigned char* src, size_t n) {
+    // ★ W6 / [[B477]]: answers whether the medium STORED the bytes. Over-capacity or no free slot stores NOTHING
+    //   and answers false, which `putBytes` then reports as a SHORT write — never a full one.
+    bool put(const char* ns, const char* key, const unsigned char* src, size_t n) {
         MrProbeNvSlot* s = find(ns, key);
         if (!s) for (auto& c : slot) if (!c.used) { s = &c; break; }
-        if (!s || n > sizeof s->data) return;
+        if (!s || n > sizeof s->data) return false;
         s->used = true;
         std::snprintf(s->ns, sizeof s->ns, "%s", ns ? ns : "");
         std::snprintf(s->key, sizeof s->key, "%s", key ? key : "");
         std::memcpy(s->data, src, n);
         s->len = n;
+        return true;
     }
     // "does the medium hold EXACTLY these bytes under this key?" — the probe's storage-honesty question.
     bool holds(const char* ns, const char* key, const void* want, size_t n) {
@@ -112,12 +119,16 @@ public:
         ++mrprobe_nv().reads;
         return s->len;
     }
+    // ★★ W6 / [[B477]] — THE FULL LENGTH ONLY WHEN THE MEDIUM ACTUALLY STORED THE BYTES. An over-capacity or
+    //    no-slot write reports a SHORT write (0) and stores nothing. ⛔ The two DISHONEST switches keep their exact
+    //    meaning: `retain_on_fail` keeps bytes under a reported failure, `drop_on_ok` reports success over stale ones.
     size_t putBytes(const char* key, const void* src, size_t n) {
         MrProbeNv& nv = mrprobe_nv();
         ++nv.writes;
-        const bool retain = nv.fail_write ? nv.retain_on_fail : !nv.drop_on_ok;
-        if (retain) nv.put(_ns, key, static_cast<const unsigned char*>(src), n);
-        return nv.fail_write ? 0 : n;
+        const unsigned char* b = static_cast<const unsigned char*>(src);
+        if (nv.fail_write) { if (nv.retain_on_fail) (void)nv.put(_ns, key, b, n); return 0; }
+        if (nv.drop_on_ok) return n;
+        return nv.put(_ns, key, b, n) ? n : 0;
     }
     bool remove(const char*) { return true; }
     bool clear() { if (mrprobe_nv().observe) mrprobe_nv().observe("nv-clear"); return true; }

@@ -1,0 +1,141 @@
+{
+  "native": {
+    "cases": 3031,
+    "assertions": 198613,
+    "failed": 0,
+    "skipped": 0
+  },
+  "corpus": {
+    "anchored": 36,
+    "s18": {
+      "anchor_assertion_failures": 0,
+      "anchor_events": 269517,
+      "anchor_match": true,
+      "anchor_md5_prefix": "32afbf11",
+      "assertion_failures": 0,
+      "events": 269517,
+      "exit_status": 0,
+      "name": "s18_meshroute",
+      "output_bytes": 38698103,
+      "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+      "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+      "promoted": true,
+      "scenario_path": "simulation/s18_meshroute.json",
+      "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+    }
+  },
+  "abi": {
+    "checks": 290,
+    "controls_red": 9,
+    "unusable": 0
+  },
+  "firmware_ui": {
+    "arms": [
+      557,
+      1023,
+      557
+    ],
+    "controls_declared": 238,
+    "controls_accepted_once": 238,
+    "guard_failures": 0
+  },
+  "board_ui": {
+    "identities_declared": 592,
+    "identities_accepted_once": 592,
+    "guard_failures": 0,
+    "canvas": [
+      124,
+      110
+    ],
+    "wiring": 60,
+    "wiring_controls": 186,
+    "canvas_controls": [
+      60,
+      3
+    ]
+  },
+  "console_sink": {
+    "profile_checks": 720,
+    "structural": 84,
+    "ble_guards": 905,
+    "ownership": 6,
+    "ownership_controls": 3,
+    "controls": 152,
+    "unusable": 0
+  },
+  "inbox_verbs": {
+    "accept": [
+      1400,
+      63
+    ],
+    "client": [
+      483,
+      71
+    ],
+    "failed": 0,
+    "unusable": 0
+  },
+  "inventory_rows": 197,
+  "boards": {
+    "gateway": {
+      "measurements": {
+        "flash_bytes": 571936,
+        "loadable_sections": {
+          ".ARM.exidx": 8,
+          ".data": 980,
+          ".text": 570948
+        },
+        "object_count": 285,
+        "ram_bytes": 203740,
+        "symbol_count": 6593,
+        "symbol_size_total": 752316,
+        "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+      },
+      "payload": {
+        "bytes": 1608800,
+        "filename": "firmware.hex",
+        "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+      },
+      "fixed_identity": {
+        "build_stamp": "Jan  1 2000 00:00:00",
+        "build_stamp_count": 1,
+        "git_revision": "b206b206b206",
+        "git_revision_count": 1,
+        "source_date_epoch": "946684800"
+      }
+    },
+    "heltec_mobile": {
+      "measurements": {
+        "flash_bytes": 1397696,
+        "loadable_sections": {
+          ".dram0.data": 25324,
+          ".flash.appdesc": 256,
+          ".flash.rodata": 218180,
+          ".flash.text": 1075322,
+          ".iram0.text": 77843,
+          ".iram0.vectors": 1027,
+          ".rtc.force_fast": 8,
+          ".rtc.text": 256
+        },
+        "object_count": 329,
+        "ram_bytes": 211788,
+        "symbol_count": 13311,
+        "symbol_size_total": 1498867,
+        "symbols_sha256": "85fce380ad0a19c1689c5e08bdbe0e2e9db5f2b83330930db5d84545668d827b"
+      },
+      "payload": {
+        "bytes": 1398336,
+        "filename": "firmware.bin",
+        "sha256": "6a7250e6e0a1f5ca08ee7d7385eeeabfeb07373a7bc785456267275d0a999b14"
+      },
+      "fixed_identity": {
+        "build_stamp": "Jan  1 2000 00:00:00",
+        "build_stamp_count": 1,
+        "git_revision": "b206b206b206",
+        "git_revision_count": 1,
+        "source_date_epoch": "946684800"
+      }
+    }
+  },
+  "board_repeatability": "both comparisons exit 0"
+}

@@ -1,0 +1,103 @@
+{
+  "scope": "Disposable measurement. Unmodified production Preferences fake; page grouping and appended page metadata are synthetic adapters over the precheck real-writer overlay, not a W6 implementation or router test. Existing overlay hashes verified.",
+  "scratch": "/tmp/w6-brief-review-jbygh9xl",
+  "fake_command": [
+    "g++",
+    "-std=c++20",
+    "-O2",
+    "/tmp/w6-brief-review-jbygh9xl/fake.cpp",
+    "-o",
+    "/tmp/w6-brief-review-jbygh9xl/fake"
+  ],
+  "fake_sha256": "67e329fb4f21a90e2c603002e4a6d206d07c7e7f4427d0496ba32c67f382a68b",
+  "fake_result": "requested=2304 opened=1 reported=2304 present=1 stored_len=2304 holds_exact=1\nrequested=2305 opened=1 reported=2305 present=0 stored_len=0 holds_exact=0\nrequested=2852 opened=1 reported=2852 present=0 stored_len=0 holds_exact=0\n",
+  "page_command": [
+    "g++",
+    "-std=c++20",
+    "-O2",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-Wl,--gc-sections",
+    "-fno-exceptions",
+    "-fno-rtti",
+    "-I/home/staszek/MeshRoute/tools/probe_console_sink/fakes",
+    "-I/tmp/w6-reply-measure-5tggs60f/src",
+    "-I/home/staszek/MeshRoute/lib/console",
+    "-I/home/staszek/MeshRoute/lib/core",
+    "-I/home/staszek/MeshRoute/lib/hal",
+    "-I/home/staszek/MeshRoute/lib/monocypher/src",
+    "/tmp/w6-brief-review-jbygh9xl/page.cpp",
+    "/home/staszek/MeshRoute/lib/console/console_json.cpp",
+    "-o",
+    "/tmp/w6-brief-review-jbygh9xl/page"
+  ],
+  "page_result": {
+    "pages": [
+      {
+        "page": 1,
+        "records": 4,
+        "end_bytes": 129,
+        "bytes": 1083,
+        "dropped": 0,
+        "immediate_bytes": 0,
+        "exact_after_drain": true
+      },
+      {
+        "page": 2,
+        "records": 4,
+        "end_bytes": 129,
+        "bytes": 1077,
+        "dropped": 0,
+        "immediate_bytes": 0,
+        "exact_after_drain": true
+      },
+      {
+        "page": 3,
+        "records": 4,
+        "end_bytes": 129,
+        "bytes": 1092,
+        "dropped": 0,
+        "immediate_bytes": 0,
+        "exact_after_drain": true
+      },
+      {
+        "page": 4,
+        "records": 4,
+        "end_bytes": 129,
+        "bytes": 1097,
+        "dropped": 0,
+        "immediate_bytes": 0,
+        "exact_after_drain": true
+      },
+      {
+        "page": 5,
+        "records": 1,
+        "end_bytes": 129,
+        "bytes": 371,
+        "dropped": 0,
+        "immediate_bytes": 0,
+        "exact_after_drain": true
+      }
+    ],
+    "reset_all": [
+      {
+        "before_generation": 4294967295,
+        "after_generation": 1,
+        "bytes": 1508,
+        "lines": 18
+      },
+      {
+        "before_generation": 999999999,
+        "after_generation": 1000000000,
+        "bytes": 1517,
+        "lines": 18
+      },
+      {
+        "before_generation": 4294967294,
+        "after_generation": 4294967295,
+        "bytes": 1517,
+        "lines": 18
+      }
+    ]
+  }
+}

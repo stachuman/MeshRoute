@@ -1,0 +1,19 @@
+{
+  "report_links": 20,
+  "missing": [],
+  "metal_ui22_unique": true,
+  "fixture_bytes": 163,
+  "closures": [
+    "B335",
+    "B475",
+    "B477"
+  ],
+  "new_findings": [
+    "B478",
+    "B479",
+    "B480",
+    "B481"
+  ],
+  "brief_unchanged": true,
+  "whitespace_exit": 0
+}

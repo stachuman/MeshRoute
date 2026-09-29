@@ -1,0 +1,14 @@
+allocation-review.json: OK
+fake-query.cpp: OK
+fake-result.txt: OK
+inputs.json: OK
+inventory-result.txt: OK
+measure.py: OK
+measurements.json: OK
+page-query.cpp: OK
+precheck-checksums.txt: OK
+preflight.py: OK
+preservation.json: OK
+register-added-row.txt: OK
+register-review-change.json: OK
+../2026-09-29-standalone-mobile-home-w6-brief-review.md: OK

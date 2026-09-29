@@ -29,6 +29,9 @@
 //                     nothing is known about the record, and a blind rewrite would destroy a POSSIBLY-INTACT
 //                     catalog because a mount failed transiently
 //       · valid     ⇒ loaded
+//       · old_v1    ⇒ (W6, design r2.23 §7.8) a version-1 record, recognised by SIZE, MAGIC and VERSION ONLY:
+//                     defaults + its own line at EVERY boot, ZERO boot writes and ⛔ no migration — nothing reads its
+//                     slots. Like `invalid` it has no baseline, so the first successful mutation REPLACES it
 // ★★★★ AND `valid` MEANS **FULLY SEMANTICALLY VALID**, ⛔ NOT MERELY SIZE-AND-HEADER-VALID (spec §3-P1, QA round 2).
 //      `mrnv::ui_preset_blob_state` answers the STORAGE question (length, magic, version, backend); it cannot see a
 //      slot whose `enabled` byte reads `7`, whose `len` says 40, whose disabled row still carries text, or whose
@@ -48,7 +51,7 @@
 //         transaction row — construct the canonical candidate WITH the next non-zero generation → save → publish).
 //
 // ★ WHAT IT REUSES RATHER THAN FORKS (U1), verified at the declaration (V1):
-//     · the RECORD and its four-state read: `mrnv::UiPresetBlob` / `mrnv::UiPresetRead` (`src/device_nv.h`), which in
+//     · the RECORD and its five-state read (W6: `old_v1`): `mrnv::UiPresetBlob` / `mrnv::UiPresetRead` (`src/device_nv.h`), which in
 //       turn reuse `SlotIo` / `slot_size_ok` / `blob_valid_exact` — one version+length+backend policy for all six;
 //     · the whole-record write guard and its `unchanged ⇒ ZERO writes` verdict: `mrfw::JoinProfileService::commit`'s
 //       shape and `ProfileVerdict`'s vocabulary;
@@ -103,8 +106,8 @@ namespace mrfw {
 
 // ---- the durable seam ------------------------------------------------------------------------------------------
 // ★ A FOURTH store interface is not a fork of `ICfgStore` / `IJoinStore` / `ITeamKeyStore` (U1 was checked first): a
-//   different record, and — like the last two and ⛔ unlike `ICfgStore` — a FOUR-valued read whose whole purpose is
-//   to keep absent, corrupt and unreadable apart. Widening any existing seam would change `/mrcfg`'s, `/mrjoin`'s or
+//   different record, and — like the last two and ⛔ unlike `ICfgStore` — a FIVE-valued read (W6: `old_v1`; was four)
+//   whose whole purpose is to keep absent, corrupt, unreadable and an old version apart. Widening any existing seam would change `/mrcfg`'s, `/mrjoin`'s or
 //   `/mrteams`' behaviour inside a storage slice (C1).
 // ⛔⛔ AND IT IS THE **ONLY** SEAM THIS SERVICE HOLDS, which is how the design's *"a phrase edit can never
 //    reprovision the node"* is delivered HERE: there is no `mrnv::Blob`, no `ICfgStore` and no `/mrcfg` writer in
@@ -139,6 +142,24 @@ inline constexpr uint8_t kPresetChannelFirst = uint8_t(kPresetDmFirst + kPresetP
 // ⛔ DERIVED, ⛔ never re-typed: the record's capacity and this index space are the SAME seventeen, and a hand-written
 //    17 here is exactly how the two would come to disagree (§B66's own lesson, one record over).
 static_assert(mrnv::kUiPresets == 1u + 2u * kPresetPerKind, "firmware_ui_presets.h: the /mrui slot space and the record disagree");
+// ★★ W6 (owner-ruled D14, [[B475]]) — `ui preset list` answers PAGES of FOUR slots in this order, so no reply outgrows
+//    the 2048-B console stage (B208 forbids growing it). The page COUNT is derived — ⛔ never a literal 5.
+inline constexpr uint8_t kPresetPageSize = 4;
+inline constexpr uint8_t kPresetPages    = uint8_t((mrnv::kUiPresets + kPresetPageSize - 1) / kPresetPageSize);
+static_assert(kPresetPages >= 1 && kPresetPages <= 9, "firmware_ui_presets.h: a page token is ONE digit");
+// The page token: ONE canonical digit 1..kPresetPages, else 0 (`bad_page`) — `01`, `+1`, `0`, `6`, `x` all refuse.
+inline uint8_t preset_page_of_token(const char* t, size_t n) {
+    return (t && n == 1 && t[0] >= '1' && t[0] <= char('0' + kPresetPages)) ? uint8_t(t[0] - '0') : uint8_t(0);
+}
+// ★★ W6 (design r2.23 §7.7) — THE REPLY RECORDS' FIXED FIELD SPELLINGS, P1's lexemes like `preset_err_name`'s: the
+//    verbs' writers spell every fixed part through them and `kPresetLineMax` is derived from the SAME constants, so
+//    the bound and the bytes cannot drift (`src/firmware_ui_preset_verbs.h`).
+inline constexpr char kPresetRecHead[] = "{\"ev\":\"ui_preset\",\"slot\":\"", kPresetRecEnabled[] = ",\"enabled\":",
+                      kPresetRecText[] = ",\"text\":", kPresetRecLocation[] = ",\"location\":";
+inline constexpr char kPresetEndHead[] = "{\"ev\":\"ui_presets_end\",\"capacity\":", kPresetEndTextMax[] = ",\"text_max\":",
+    kPresetEndDm[] = ",\"dm_active\":", kPresetEndChannel[] = ",\"channel_active\":", kPresetEndGen[] = ",\"generation\":",
+    kPresetEndPage[] = ",\"page\":", kPresetEndPages[] = ",\"pages\":";
+template <size_t N> constexpr size_t preset_lit_len(const char (&)[N]) { return N - 1; }   // a spelling's bytes, sans NUL
 
 enum class PresetKind : uint8_t {
     emergency,   // the ONE mandatory slot — long-press only, ⛔ never a compose row (§3.2.2)
@@ -224,7 +245,7 @@ enum class PresetVerdict : uint8_t {
 enum class PresetErr : uint8_t {
     none,
     bad_slot,    // outside 0..16 — the off-by-one ends are both pinned
-    bad_text,    // OQ-A's bound (1..17), a non-printable byte, `"` / `\` / CR / LF, or all-spaces
+    bad_text,    // W6's bound (1..kUiPresetTextMax = 163), a non-printable byte, `"` / `\` / CR / LF, or all-spaces
     // ★★★★ **P1 HAS NO PRODUCER FOR THIS ARM, AND THAT IS RECORDED HERE RATHER THAN FIXED** (the standing
     //      [[meshroute-mark-done-vs-missing-in-code]] rule; ADDED 2026-08-25 on QG blocker 3, and the WITHDRAWN
     //      DECISION IS KEPT VISIBLE): this enum omitted `bad_location` on the argument that an arm with no producer
@@ -249,6 +270,10 @@ enum class PresetErr : uint8_t {
     mandatory,   // `clear emergency` — ⛔ REFUSED, never honoured (§3.2.2)
     busy,        // an ACTIVE EMERGENCY: every mutating verb, ⛔ including a no-op (spec §2)
     store,       // the store is unreadable (`invalid` is repaired instead — see `mutate`), or the ONE save failed
+    // ★ W6 (design r2.23 §7.7, owner-ruled D14) — THE SEVENTH REASON: `ui preset list <page>` with a page token that
+    //   is not a canonical `1`..`5`, or with a second token. Its producer is the verbs' page parser; ⛔ nothing in the
+    //   service returns it (the `bad_location` precedent above: a published reason, declared where the set lives).
+    bad_page,
     count        // ⛔ the INVENTORY SENTINEL — see PresetKind::count. ⛔ Not a reason; must stay LAST.
 };
 inline const char* preset_verdict_name(PresetVerdict v) {
@@ -270,6 +295,7 @@ inline const char* preset_err_name(PresetErr e) {
         case PresetErr::mandatory: return "mandatory";
         case PresetErr::busy:      return "busy";
         case PresetErr::store:     return "store";
+        case PresetErr::bad_page:  return "bad_page";  // W6 (D14) — the verbs' page parser produces it
         case PresetErr::count:     return "?";         // ⛔ the sentinel is not a reason
     }
     return "?";
@@ -286,10 +312,17 @@ struct PresetResult {
 //     the spec. ⓘ Each says what happened AND what the wearer can do about it, which is the difference between the
 //     two states: an INVALID record repairs itself on his next successful change; an UNREADABLE store accepts no
 //     changes at all until the device is dealt with.
-inline constexpr const char* kPresetInvalidLine =
+// ⓘ W6: ARRAYS, ⛔ not pointers, so the boot emitter's own buffer can be DERIVED from their `sizeof` (design §7.7:
+//   the boot path must not pay for the 244-B reply line) — see `kPresetBootLineMax` in the verbs header.
+inline constexpr char kPresetInvalidLine[] =
     "  ui presets = DEFAULTS (record invalid — repaired on next successful change)";
-inline constexpr const char* kPresetIoFailedLine =
+inline constexpr char kPresetIoFailedLine[] =
     "  ui presets = DEFAULTS (store unreadable — changes disabled)";
+// ★★ W6 (design r2.23 §7.8, owner-ruled D8) — THE OLD v1 RECORD'S LINE, printed at EVERY boot until the first
+//    successful change replaces the record: it says what happened (the defaults are live) and what to do (re-enter
+//    the phrases over USB). ⛔ Zero boot writes, no migration — the words are the whole remedy.
+inline constexpr char kPresetOldV1Line[] =
+    "  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)";
 // ★★ `nullptr` IS THE THIRD ANSWER AND IT IS THE RULING: *"a valid or absent store prints NO presets line"*. An
 //    ordinary first boot is not a fault and must not read like one — the whole reason `absent` and `invalid` are
 //    different states. ⛔ Never an empty string: a caller that printed one would emit a blank line at boot.
@@ -299,15 +332,22 @@ inline const char* preset_boot_line(mrnv::UiPresetRead st) {
         case mrnv::UiPresetRead::absent:    return nullptr;   // ★ a first boot is SILENT (owner-ruled)
         case mrnv::UiPresetRead::invalid:   return kPresetInvalidLine;
         case mrnv::UiPresetRead::io_failed: return kPresetIoFailedLine;
+        case mrnv::UiPresetRead::old_v1:    return kPresetOldV1Line;    // W6 — at EVERY boot until replaced
     }
     return nullptr;
 }
+// ★ W6 (design r2.23 §7.7) — THE BOOT DIAGNOSTIC'S OWN LINE BOUND, derived from the three lines above: each `sizeof`
+//   already counts its NUL, and the emitter (`preset_boot_restore`) appends one '\n' — 81 B today. ⛔ The boot path
+//   does not pay for the 244-B reply line: `setup()`'s frame is the tightest on the board.
+inline constexpr size_t preset_size_max(size_t a, size_t b) { return a > b ? a : b; }
+inline constexpr size_t kPresetBootLineMax =
+    preset_size_max(preset_size_max(sizeof(kPresetInvalidLine), sizeof(kPresetIoFailedLine)), sizeof(kPresetOldV1Line)) + 1;
 
-// ---- validation (§3.2.2's text rule, with OQ-A's bound) ---------------------------------------------------------
-// ★★★ 1..17 PRINTABLE ASCII, and the 17 is OQ-A's OWNER RULING of 2026-08-25: the compose row ALWAYS shows a
-//     selection marker AND a location marker (`L` or `-`), so BOTH location states consume 2 of the panel's 19
-//     columns. ⛔ The draft's conditional bound — 18 when `loc=off` — was WRONG; it is kept visible in the spec. The
-//     device must never send a hidden suffix the wearer could not inspect, so 18+ bytes REFUSE (C2), ⛔ never truncate.
+// ---- validation (§3.2.2's text rule, with W6's bound) -----------------------------------------------------------
+// ★★★ 1..163 PRINTABLE ASCII (`mrnv::kUiPresetTextMax`, owner-ruled D7, W6). ⛔ WITHDRAWN AND KEPT VISIBLE: OQ-A's
+//     1..17 (2026-08-25) bound the TEXT to the compose row's width. W6 decouples them: the row abbreviates (16 bytes
+//     + `»`) and the mandatory review shows the WHOLE text before any send, so the device still never sends a
+//     suffix the wearer could not inspect. 164+ bytes REFUSE (C2), ⛔ never truncate.
 // ★ THE PRINTABLE DOMAIN IS `mrui::ui_display_byte`'s (`0x20 .. 0x7e`), ⛔ not a second opinion about which bytes
 //   this panel can show. ⓘ CR and LF are excluded BY THAT RANGE, and this is said rather than re-checked: an explicit
 //   `c == '\r'` test after it would be unreachable, so no mutation could redden it and the entry would report a
@@ -323,12 +363,12 @@ inline const char* preset_boot_line(mrnv::UiPresetRead st) {
 //      validator never saw the real length, so no amount of checking inside it could have caught the input. ⇒ THE
 //      WIDE TYPE IS THE FIX, and it must reach the PUBLIC BOUNDARY (`PresetCatalog::set`) or the narrowing simply
 //      moves one frame outwards. ⛔ THE ORDER IS THE OTHER HALF: the bound is tested on the WIDE value, and the
-//      narrow happens only afterwards, inside `preset_slot_put`, where 17 is already proven.
+//      narrow happens only afterwards, inside `preset_slot_put`, where the bound (163 since W6) is already proven.
 // ⓘ It is the [[B216]] family seen from the type system's side: a predicate that is the NEGATION of a reject
 //   condition is only as sound as the value it is handed.
 inline PresetErr validate_preset_text(const char* text, size_t len) {
     if (!text) return PresetErr::bad_text;                            // C2 — ⛔ never "an empty phrase"
-    // ★ TESTED ON THE WIDE VALUE, BEFORE ANY NARROWING — see the block above. 273 must fail here, not become 17.
+    // ★ TESTED ON THE WIDE VALUE, BEFORE ANY NARROWING — see the block above. 273 must fail here, never wrap.
     if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;
     bool non_space = false;
     for (size_t i = 0; i < len; ++i) {
@@ -353,8 +393,9 @@ inline uint32_t preset_generation_next(uint32_t g) {
 
 // ---- the COMPILED DEFAULTS — §3.2.2's table, VERBATIM ------------------------------------------------------------
 // ★ INDEX-ALIGNED WITH THE RECORD's `slot[]`, so the table IS the stable-slot map and there is no second ordering to
-//   keep in step. `text == nullptr` means the slot's compiled state is DISABLED AND EMPTY — slots `dm3..dm8` and
-//   `channel3..channel8`, exactly as the design's table says.
+//   keep in step. `text == nullptr` means the slot's compiled state is DISABLED AND EMPTY — since W6 (owner-ruled D9,
+//   design r2.23 §7.7) slots `dm4..dm8` and `channel5..channel8`; W6 added `dm3`, `channel3` and `channel4` (all
+//   location off) to the original five, giving 3 DM and 4 channel phrases plus the emergency slot.
 // ⛔⛔ ✅ **CLOSED 2026-08-26 BY P3 — THE DUPLICATION IS GONE AND THESE FIVE STRINGS ARE NOW THE ONLY COPY.** The
 //    paragraph below is KEPT VISIBLE as the reasoning that made the duplication acceptable for exactly one slice;
 //    ⛔ its PRESENT TENSE is now false (corrected on QG's sweep): there are no `mrui::kDmTexts` / `kChannelTexts` /
@@ -377,17 +418,17 @@ inline constexpr PresetDefaultRow kPresetDefaults[mrnv::kUiPresets] = {
     { "I'm in danger", 1 },        //  0 emergency — ★ location ON, enabled, MANDATORY (§3.2.2 row 1)
     { "Are you OK?",   0 },        //  1 dm1
     { "I'm OK",        0 },        //  2 dm2
-    { nullptr,         0 },        //  3 dm3   \.
-    { nullptr,         0 },        //  4 dm4    |
+    { "Where are you?", 0 },       //  3 dm3   ★ W6 (owner-ruled D9), location off
+    { nullptr,         0 },        //  4 dm4   \.
     { nullptr,         0 },        //  5 dm5    |  §3.2.2: "empty, location off / disabled"
     { nullptr,         0 },        //  6 dm6    |
     { nullptr,         0 },        //  7 dm7    |
     { nullptr,         0 },        //  8 dm8   /
     { "Got your message", 0 },     //  9 channel1
     { "All good",         0 },     // 10 channel2
-    { nullptr,         0 },        // 11 channel3  \.
-    { nullptr,         0 },        // 12 channel4   |
-    { nullptr,         0 },        // 13 channel5   |  §3.2.2: "empty, location off / disabled"
+    { "Return to base now", 0 },   // 11 channel3  ★ W6 (D9), 18 B: the row shows `Return to base n»`, the review all 18
+    { "On my way",        0 },     // 12 channel4  ★ W6 (D9), location off
+    { nullptr,         0 },        // 13 channel5  \.  §3.2.2: "empty, location off / disabled"
     { nullptr,         0 },        // 14 channel6   |
     { nullptr,         0 },        // 15 channel7   |
     { nullptr,         0 },        // 16 channel8  /
@@ -451,8 +492,8 @@ inline bool preset_slot_canonical(const mrnv::UiPresetSlot& s, bool mandatory) {
         return true;
     }
     if (validate_preset_text(s.text, s.len) != PresetErr::none) return false;   // ⛔ ONE authority (U1)
-    // ★ THE TAIL: every byte AT and AFTER `len` is zero. ⓘ This is what makes `text[18]` "17 + the canonical
-    //   terminator" rather than "17 and whatever follows", and it is the rule that makes the whole-record compare
+    // ★ THE TAIL: every byte AT and AFTER `len` is zero. ⓘ This is what makes `text[kUiPresetTextMax + 1]` "163 + the
+    //   canonical terminator" rather than "163 and whatever follows", and it is the rule that makes the whole-record compare
     //   trustworthy — garbage in the tail is invisible on the panel and fatal to coalescing.
     for (uint8_t i = s.len; i < sizeof s.text; ++i) if (s.text[i] != 0) return false;
     return true;
@@ -478,22 +519,25 @@ inline bool preset_read_refuses_writes(mrnv::UiPresetRead st) { return st == mrn
 // ---- the service -------------------------------------------------------------------------------------------
 // ★★★★ THE STACK GATE, OWNER-RULED (spec §5), AND THE ANSWER IS **RESIDENT MEMBERS — ⛔ ZERO BYTES OF CATALOG ON ANY
 //      STACK, ON ANY PATH.** The measurement and the trade, so the decision is visible rather than inherited:
-//        · `sizeof(mrnv::UiPresetBlob)` = 372 B. A transaction needs TWO scratch records — the CANDIDATE it composes
+//        · `sizeof(mrnv::UiPresetBlob)` = 2852 B since W6 (372 B in v1). A transaction needs TWO scratch records — the CANDIDATE it composes
 //          and the record it READ (the byte-identical compare is between exactly those two) — plus the LIVE catalog,
 //          which is resident by requirement because the panel reads it every frame.
-//        · AS STACK LOCALS that would be 744 B in the mutating frame. ⛔ REFUSED: `begin()` runs from `setup()`, i.e.
+//        · AS STACK LOCALS that would be 5704 B in the mutating frame (744 B in v1). ⛔ REFUSED: `begin()` runs from `setup()`, i.e.
 //          on the nRF52 Arduino loop task, whose stack is a FIXED 4 KB (`LOOP_STACK_SZ = 256*4`, not overridable) —
 //          744 B is 18 % of the WHOLE stack, and this tree has already HARDFAULTED on that stack once, with
 //          `status stackhw=` down to 72 B (`fw_main.cpp` §stability; the `do_post_ack` frame). The console/BLE path
 //          runs in the 8 KB `g_mesh_task` whose deepest RX nesting is ~1.4 KB, where 744 B would in fact fit — but a
 //          buffer that is safe on ONE of the two entry paths is a buffer waiting for the other one.
-//        · ⇒ THREE MEMBERS, 3 × 372 = 1116 B RESIDENT, and the tree's own precedent is exactly this trade made
+//        · ⇒ THREE MEMBERS, 3 × 2852 = 8556 B RESIDENT since W6 (1116 B in v1; `sizeof(PresetCatalog)` is 8584 B on the
+//          host and 8572 B on the boards, owner-ruled D7/D15), and the tree's own precedent is exactly this trade made
 //          twice for exactly this reason: `static mrnv::PeerBlob s_peers` (1160 B, `firmware_commands.cpp:45`) and
 //          `static Blob cur` in `mrnv::save` both chose resident-over-stack, both citing the `do_post_ack` overflow.
 //        · ⛔ AND THE OPPOSITE CHOICE — K1's *"296 B ON THE STACK and deliberately NOT static"* — DOES NOT APPLY AND
 //          IS NOT A CONTRADICTION: that argument is about a SECRET (a resident copy outlives the call in `.bss`
 //          where nothing wipes it). A preset catalog carries no secret; it carries the wearer's phrases, which are
 //          displayed on a screen. ⇒ the `s_peers` precedent governs, not the keyring's.
+//        · ⓘ W6: the nRF52 loop-task figures above are P1's original rationale, KEPT AS HISTORY. Since [[B255]] the
+//          one instance exists only on `MR_FEAT_OLED` builds, and no stock nRF52 profile has a panel.
 // ⛔ THE TWO SCRATCH MEMBERS ARE **SCRATCH, ⛔ NOT STATE**: each is written WHOLE at the head of the transaction that
 //    uses it and is never read across calls, so there is nothing between calls to go stale. That is stated because
 //    `JoinProfileService` and `TeamKeyringService` both advertise "no member holding a record between calls", and
@@ -511,8 +555,9 @@ class PresetCatalog {
     mrnv::UiPresetRead begin() {
         const mrnv::UiPresetRead st = read_store();
         if (st == mrnv::UiPresetRead::ok) { _live = _cur; return st; }
-        // ★ ALL THREE non-`ok` states run the COMPILED DEFAULTS — the difference between them is what the wearer is
-        //   TOLD (nothing / invalid / unreadable) and what a later mutation may DO, ⛔ never what he sees on the panel.
+        // ★ ALL FOUR non-`ok` states run the COMPILED DEFAULTS — the difference between them is what the wearer is
+        //   TOLD (nothing / invalid / unreadable / old v1) and what a later mutation may DO, ⛔ never what he sees on
+        //   the panel. (ⓘ W6: "three" before `old_v1`.)
         preset_defaults(_live);
         return st;
     }
@@ -663,6 +708,8 @@ class PresetCatalog {
         //                   the dishonest one. ⇒ the compare is SKIPPED and the REPAIR writes the complete canonical
         //                   catalog, exactly as the ruling allows *"even when its live values equal defaults"*.
         //                   (`JoinProfileService::reset`'s `commit_forced` arm, arrived at from the same direction.)
+        //      · old_v1  -> ⛔ NO BASELINE either (W6): a version-1 record is never the durable side of a v2 catalog, so
+        //                   the first successful mutation REPLACES it even when it restates a default.
         // ⛔ THE TWO ARMS STAY SEPARATE STATEMENTS rather than one `st != invalid`: each is a ruled decision and each
         //    must be attackable ON ITS OWN (`--target=uipresets` U15/U16), which one merged predicate would prevent.
         if (st == mrnv::UiPresetRead::ok &&

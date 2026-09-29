@@ -1,0 +1,18 @@
+{
+  "changed_inputs": [],
+  "meshroute_verified": 2039,
+  "simulator_verified": 285,
+  "allowed_additions": [
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview.md",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/first-review-checksums.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/inputs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/precheck-checksums.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/source-checks.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/source_checks.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/verification.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-rereview/verify.py"
+  ],
+  "simulator_clean": true,
+  "index_empty": true,
+  "whitespace_exit": 0
+}

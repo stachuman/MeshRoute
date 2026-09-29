@@ -337,6 +337,12 @@ static_assert(sizeof(TeamKeyBlob) == 8 + 4 * 72, "device_nv.h: the /mrteams blob
 //    — zero to eight of each may be enabled, and gaps are valid. Raising a capacity is an explicit format revision.
 // ★ THE INDEX ORDER IS THE STABLE SLOT IDENTITY: 0 = emergency, 1..8 = dm1..dm8, 9..16 = channel1..channel8. The
 //   design forbids deriving `dmN` from a compose-list ROW index (§B66's cure), so the array index IS the id.
+// ★★★ W6 (design r2.23 §7.1/§7.7, owner-ruled D7) — T = 163 BYTES PER SLOT, for every preset in both location states:
+//     163 is the smallest admission of any destination with location on (a sealed team post with `-l`), so every
+//     phrase fits every shape. ⛔ WITHDRAWN AND KEPT VISIBLE: OQ-A's 17 (2026-08-25) tied the RECORD to the panel's
+//     row width; the row now abbreviates (`compose_project`, 16 bytes + `»`) and the review shows the whole text, so
+//     the record's limit and the display width are two numbers again. Declared BEFORE the slot, which sizes by it.
+constexpr uint8_t kUiPresetTextMax = 163;
 struct UiPresetSlot {
     // ★ EXACTLY 0 OR 1, ⛔ never "non-zero is true" (the owner-ruled canonical bytes): a record whose flag byte reads
     //   `2` would compare unequal to the same catalog written canonically and so rewrite flash forever. The predicate
@@ -345,15 +351,13 @@ struct UiPresetSlot {
     uint8_t enabled;
     uint8_t loc;       // `include_location` — the row's `L` / `-` marker (§3.2.2)
     uint8_t len;       // 0..kUiPresetTextMax; ★ the bytes AT and AFTER `len` are ZERO (canonical)
-    // ★★ 18 = 17 CHARACTERS + THE CANONICAL TERMINATOR, and the 17 is OQ-A's owner ruling (2026-08-25): the compose
-    //    row ALWAYS shows a selection marker AND a location marker, so BOTH location states consume 2 of the panel's
-    //    19 columns. ⛔ The draft's conditional bound (18 when loc=off) was WRONG and is kept visible in the spec.
-    // ⓘ ⛔ NO `reserved` MEMBER, and that is a measurement rather than an omission: 3 × uint8 + 18 char = 21 with
+    // ★★ kUiPresetTextMax CHARACTERS + THE CANONICAL TERMINATOR (W6: 163 + 1 = 164). ⓘ A `uint8_t` length holds 163,
+    //    and the canonical-tail loop's `uint8_t` index reaches 164, so neither widens.
+    // ⓘ ⛔ NO `reserved` MEMBER, and that is a measurement rather than an omission: 3 × uint8 + 164 char = 167 with
     //   alignof 1 and NO implicit padding, so there is nothing for one to fix — the `JoinProfile` ruling verbatim.
-    char    text[18];
+    char    text[kUiPresetTextMax + 1];
 };
 constexpr uint8_t kUiPresets       = 17;   // 1 emergency + 8 dm + 8 channel — the design's §3.2.2 table
-constexpr uint8_t kUiPresetTextMax = 17;   // OQ-A: 17 printable ASCII bytes for EVERY preset, both location states
 struct UiPresetBlob {
     uint32_t magic;       // kUiPresetMagic
     uint16_t version;     // kUiPresetVersion — EQUALITY (see ui_preset_blob_state)
@@ -363,26 +367,40 @@ struct UiPresetBlob {
     //     Consumers compare it for EQUALITY, never ordering, which is what makes uint32 wrap harmless.
     uint32_t generation;
     UiPresetSlot slot[kUiPresets];
-    // ★★★ NAMED TAIL PADDING, AND IT IS LOAD-BEARING ARITHMETIC, ⛔ not symmetry: the header is 12 B and 17 × 21 =
-    //     357, so the struct body ends at 369 — which is NOT a multiple of `alignof(UiPresetBlob)` (4, from `magic`).
-    //     A compiler therefore inserts THREE bytes of IMPLICIT tail padding, and implicit padding is INDETERMINATE
-    //     after `UiPresetBlob{}` — which would make the whole-record `memcmp` the write-coalescing policy IS answer
-    //     differently on identical catalogs and rewrite flash for nothing. ⇒ the three bytes are DECLARED, so they
-    //     are zeroed by value-initialisation like every other member. (`TeamKeyRecord::reserved[4]`'s rule, arrived
-    //     at from the other direction: there the named member REMOVES padding, here it REPLACES it.)
-    uint8_t  reserved_tail[3];
+    // ★★★ NAMED TAIL PADDING, AND IT IS LOAD-BEARING ARITHMETIC, ⛔ not symmetry: the header is 12 B and 17 × 167 =
+    //     2839, so the struct body ends at 2851 — which is NOT a multiple of `alignof(UiPresetBlob)` (4, from
+    //     `magic`). A compiler therefore inserts ONE byte of IMPLICIT tail padding, and implicit padding is
+    //     INDETERMINATE after `UiPresetBlob{}` — which would make the whole-record `memcmp` the write-coalescing policy
+    //     IS answer differently on identical catalogs and rewrite flash for nothing. ⇒ the byte is DECLARED, so it is
+    //     zeroed by value-initialisation like every other member. (`TeamKeyRecord::reserved[4]`'s rule, arrived at
+    //     from the other direction: there the named member REMOVES padding, here it REPLACES it.) ⓘ v1 needed THREE
+    //     (12 + 17 × 21 = 369); the count is the arithmetic's, and the static_assert below re-derives it.
+    uint8_t  reserved_tail[1];
 };
 constexpr uint32_t kUiPresetMagic   = 0x4D525531u;   // 'MRU1' — its OWN magic, ⛔ never kMagic ('MRC1'), never
-                                                     // kJoinMagic ('MRJ1'), never kTeamKeyMagic ('MRK1')
-constexpr uint16_t kUiPresetVersion = 1;             // v1: the first /mrui layout. A bump REJECTS the old record
-                                                     // outright (equality policy) -> the node comes up on the
+                                                     // kJoinMagic ('MRJ1'), never kTeamKeyMagic ('MRK1'). ★ It names
+                                                     // the STORE FAMILY, not the accepted version (W6, D8).
+constexpr uint16_t kUiPresetVersion = 2;             // ★ W6 (D7/D8): v2 = 163-byte slots. A bump REJECTS the old
+                                                     // record outright (equality policy) -> the node comes up on the
                                                      // COMPILED DEFAULTS, which is a safe and visible state.
+// ★★ THE OLD v1 RECORD, RECOGNISED BY ITS SIZE, MAGIC AND VERSION ONLY (design r2.23 §7.8, owner-ruled D8): a board
+//    that carries one boots on the compiled defaults and SAYS SO at every boot until its first successful change
+//    replaces it. ⛔ NO MIGRATION: nothing below interprets a v1 slot, flag, generation or padding byte, and no v1
+//    struct exists — 372 is v1's 12-B header + 17 × 21-B slots + 3 named tail bytes, spelled as the number the
+//    classifier compares a read length against.
+constexpr int      kUiPresetV1Bytes   = 12 + 17 * 21 + 3;   // 372
+constexpr uint16_t kUiPresetV1Version = 1;
 // ★ PER-ABI, NOT native-only — the reason PeerRec's, JoinProfile's and TeamKeyRecord's pins are here: `sizeof` IS the
 //   migration policy (load_ui_presets' exact size check), and test/ can only measure the HOST ABI, so pin it where it
-//   compiles on ARM and Xtensa too. 3 + 18 = 21 with alignof 1; blob = 12-B header + 17 × 21 + 3 named tail = 372.
-static_assert(sizeof(UiPresetSlot) == 21, "device_nv.h: the /mrui slot layout moved — bump kUiPresetVersion");
-static_assert(alignof(UiPresetSlot) == 1, "device_nv.h: /mrui slot alignment moved — the 21-byte claim is ABI-dependent");
-static_assert(sizeof(UiPresetBlob) == 12 + 17 * 21 + 3, "device_nv.h: the /mrui blob layout moved — bump kUiPresetVersion");
+//   compiles on ARM and Xtensa too. 3 + 164 = 167 with alignof 1; blob = 12-B header + 17 × 167 + 1 named tail = 2852.
+static_assert(sizeof(UiPresetSlot) == 3 + kUiPresetTextMax + 1, "device_nv.h: the /mrui slot layout moved — bump kUiPresetVersion");
+static_assert(sizeof(UiPresetSlot) == 167, "device_nv.h: the /mrui v2 slot is 167 B (W6 §2.7)");
+static_assert(alignof(UiPresetSlot) == 1, "device_nv.h: /mrui slot alignment moved — the 167-byte claim is ABI-dependent");
+static_assert(sizeof(UiPresetBlob) == 12 + kUiPresets * sizeof(UiPresetSlot) + 1,
+              "device_nv.h: the /mrui blob layout moved — bump kUiPresetVersion");
+static_assert(sizeof(UiPresetBlob) == 2852, "device_nv.h: the /mrui v2 record is 2852 B (W6 §2.7)");
+static_assert(kUiPresetV1Bytes != int(sizeof(UiPresetBlob)),
+              "device_nv.h: the old v1 record must be told apart from v2 by its size");
 // ★★ AND THE POINT OF THE NAMED TAIL, ASSERTED RATHER THAN ARGUED: the declared members must account for EVERY byte,
 //    or an indeterminate hole is back and the coalescing compare is unsound again.
 static_assert(sizeof(UiPresetBlob) % alignof(UiPresetBlob) == 0,
@@ -911,6 +929,7 @@ inline void team_key_blob_init(TeamKeyBlob& b) {
 }
 
 // ---- /mrui: THE SAME FOUR-STATE READ, for the record a wearer's phrases live in (§UI-10/11 P1) --------
+//      ⓘ W6: plus a FIFTH, `old_v1` — see the enum; the four below keep their meaning.
 // ★★★ WHY THE FOUR STATES ARE OWED HERE TOO, and the spec RULES each arm's behaviour rather than leaving it to a
 //     reader (§3-P1): an ABSENT store is an ordinary first boot and the node runs the COMPILED DEFAULTS with ⛔ NO
 //     warning; an INVALID one means the wearer's configured phrases are gone, which he must be TOLD (a counted,
@@ -928,6 +947,9 @@ enum class UiPresetRead : uint8_t {
     absent,    // ★ NO RECORD AT ALL — an ordinary first boot, ⛔ never an error and ⛔ never warned about
     invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
     io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+    // ★ W6 (design r2.23 §7.8, D8) — THE FIFTH CLASSIFICATION: the old v1 record (372 B, `'MRU1'`, version 1). Its
+    //   own boot line tells the wearer to re-enter his phrases; ⛔ nothing reads its contents, nothing converts it.
+    old_v1,
 };
 // The branch ORDER mirrors `join_blob_state`'s and `team_key_blob_state`'s, for their measured reasons: a backend
 // that would not open returns `kSlotAbsent`, so testing `absent` first would launder a dead store into "no catalog
@@ -940,6 +962,10 @@ inline UiPresetRead ui_preset_blob_state(const UiPresetBlob& b, int n, const Slo
     if (io.backend_failed) return UiPresetRead::io_failed;
     if (io.oversize)       return UiPresetRead::invalid;
     if (n == kSlotAbsent)  return UiPresetRead::absent;
+    // ★ W6 — THE OLD v1 RECORD, BEFORE the exact-v2 check: its SIZE, MAGIC AND VERSION ONLY. The header is the one
+    //   thing the two layouts share (12 B, unchanged), so these two fields are read from `b` exactly as v2's are;
+    //   ⛔ the 360 bytes after them are never looked at — no slot, flag, generation or padding of v1 is interpreted.
+    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;
     // EQUALITY on the version, like /mrid, /mrpeers, /mrjoin and /mrteams and ⛔ unlike /mrcfg's range: there is no
     // migration arm for a phrase catalog and there must not be one — a rejected record costs the operator a retype
     // of what he configured and is VISIBLE, whereas a migration path is code that runs once per chip and can then

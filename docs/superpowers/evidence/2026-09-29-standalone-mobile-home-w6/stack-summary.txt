@@ -1,0 +1,21 @@
+# W6 stack — compile-only -fstack-usage frames (-fno-lto), base = git archive 70ff486, final = the frozen tree
+# ⚠ compiler frames and call-chain subtotals only: NOT a task high-water mark and NOT a whole-program bound (pre-check §6 caveat).
+# compiles: base/heltec_mobile/firmware_commands.cpp=exit0, base/heltec_mobile/fw_main.cpp=exit0, base/heltec_mobile/firmware_ui.cpp=exit0, base/gateway/firmware_commands.cpp=exit0, base/gateway/fw_main.cpp=exit0, final/heltec_mobile/firmware_commands.cpp=exit0, final/heltec_mobile/fw_main.cpp=exit0, final/heltec_mobile/firmware_ui.cpp=exit0, final/gateway/firmware_commands.cpp=exit0, final/gateway/fw_main.cpp=exit0
+
+Xtensa heltec_mobile command chain (base): 3472 B = mesh_service_once 2128 + exec_console_line 400 + dispatch 336 + handle_ui 48 + preset_verb 96 + preset_emit_list 224 + preset_emit_record 240
+Xtensa heltec_mobile command chain (final): 3632 B = mesh_service_once 2128 + exec_console_line 400 + dispatch 336 + handle_ui 48 + preset_verb 96 + preset_emit_list 304 + preset_emit_record 320
+  pre-check §6 prediction: 3472 -> 3632 B (loop adds 32)
+Xtensa heltec_mobile setup + boot wrapper (base): 1200 B = setup 992 + preset_boot_restore_console 208
+Xtensa heltec_mobile setup + boot wrapper (final): 1120 B = setup 992 + preset_boot_restore_console 128
+  pre-check §6 prediction: 1200 -> 1280 B with a 244-B boot buffer, or 1120 B with the short (81-B) boot buffer W6 builds
+Xtensa heltec_mobile firmware_ui.cpp (base): void mr_ui_tick(uint32_t) = 1664; void mrui::ui_perform_send(SendTracker&, SendTracker&, UiModel&, const SendReq&, const mrnv::UiPresetBlob&, uint8_t, bool, SendExecFn, void*, uint32_t) = 160; void {anonymous}::ui_perform_send(const mrui::SendReq&, uint32_t) = 48
+Xtensa heltec_mobile firmware_ui.cpp (final): void mr_ui_tick(uint32_t) = 1680; void {anonymous}::ui_perform_send(const mrui::SendReq&, uint32_t) = 64
+  the send chain mr_ui_tick -> {anon}::ui_perform_send (-> mrui::ui_perform_send): base 1664 + 48 + 160 = 1872 B; final 1680 + 64 (pure op inlined) = 1744 B; the 96-B stack line became the one static 199-B s_send_line (.dram0.bss)
+
+Forced-OLED ARM gateway (a PRICING profile only: the stock gateway is headless and has no phrase path):
+  base: bool mrfw::dispatch 256; mrfw::LineExec mrfw::exec_console_line 360; void mrfw::handle_ui 256; void mrfw::preset_boot_restore_console 208; void mrfw::preset_emit_err 192; void mrfw::preset_emit_list 248; void mrfw::preset_render 232
+  final: bool mrfw::dispatch 256; bool mrfw::preset_verb 344; mrfw::LineExec mrfw::exec_console_line 360; void mrfw::handle_ui 32; void mrfw::preset_boot_restore_console 136; void mrfw::preset_emit_err 280; void mrfw::preset_emit_record 320; void mrfw::preset_render 328
+  handler/verb/list/record subtotal: base handle_ui 256 (verb inlined) + emit_list 248 (record inlined) = 504; final handle_ui 32 + preset_verb 344 (list inlined) + emit_record 320 = 696 (pre-check prediction for the all-244 variant: 752)
+  the `reset all` render path: base handle_ui 256 (verb inlined) + preset_render 232 + preset_emit_list 248 (record inlined) = 736; final handle_ui 32 + preset_verb 344 + preset_render 328 (list inlined) + emit_record 320 = 1024 (+288) — the larger ARM phrase path; reported, not predicted by the pre-check; a pricing-only profile (the stock gateway builds no phrase path)
+  setup + boot wrapper (base): 1248 B = setup 1040 + preset_boot_restore_console 208
+  setup + boot wrapper (final): 1176 B = setup 1040 + preset_boot_restore_console 136

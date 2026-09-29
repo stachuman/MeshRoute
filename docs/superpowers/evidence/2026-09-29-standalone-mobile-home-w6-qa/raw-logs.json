@@ -1,0 +1,322 @@
+{
+  "raw": [
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/abi-supplemental.log",
+      "bytes": 5690,
+      "sha256": "6a1a4e18390d6b46ac2d404a437c334ab4779a76a780d0e317eedea6353bb218"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/abi.log",
+      "bytes": 5488,
+      "sha256": "c6d499ec5bf5817a69f2ba13acd7001a2e28506c2220aecae1f598165fcb0fa7"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/alarm-fixture-build.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/board-comparison.json",
+      "bytes": 3555,
+      "sha256": "2d056ce90a2011641dd076ffe87a8b63e855d48e101376bd3710dd9ce2449dba"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/board-step.json",
+      "bytes": 244,
+      "sha256": "ad5699d2baeb38cc746d3010b72aacac8c3f1b0d6d7e3064d3d9fcf6249f569a"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/board-ui.log",
+      "bytes": 18816,
+      "sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/boards.log",
+      "bytes": 924,
+      "sha256": "5d0068136dd2750eec0bb95f48c61e25268a83b623c2bea5dd4b03206d0b2c7c"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/collect-first.py",
+      "bytes": 3060,
+      "sha256": "620d6b83ae7abfe21bafa7f9db6287b73565b41f7d5ccee42917f18b937fb029"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/collect-mutations.py",
+      "bytes": 2156,
+      "sha256": "60e8beb32f4594eb9bb54b0a9b2826b2a7017a82ce34a0296a16cf257befd6df"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/collector-note.txt",
+      "bytes": 685,
+      "sha256": "394743ce52ee41de00b24a2d2725b2c18c8cc5fb621047d1c2987529cfce8ca0"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/command-inventory.log",
+      "bytes": 176,
+      "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/comment-drift.json",
+      "bytes": 1359,
+      "sha256": "a4c34783910c7650671b28592f1c2986141a3711a438458efab6a3fb73a011a9"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/compare-boards.py",
+      "bytes": 2638,
+      "sha256": "0873a11d72f089d0d0149be797054e912e9840013854663d8bcb7e9098138876"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/console-sink.log",
+      "bytes": 36714,
+      "sha256": "e4d545229ed49ad10833a61c19e3c47357f2918d2ab19b2af238d473e2283c94"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/corpus-validate.log",
+      "bytes": 114,
+      "sha256": "03aaf80ee6730868b81cfda14de2ed6bc2af647060db5ea65e62f6f07480430b"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/corpus.log",
+      "bytes": 3347,
+      "sha256": "5cd1717d0eb77ea721bc16775368b3e65625f4207480f071ee7e071c077173c6"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/deferred-actions.log",
+      "bytes": 240,
+      "sha256": "b0ee1f5b06913b1f7990ec1d2504d1ae8830c420746836d2c35abdff9913b311"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/firmware-ui.log",
+      "bytes": 43315,
+      "sha256": "83bc4d5df6a1505cbc0572c82c958a755c45c3e711bfccd02f2cff3ca91a74b5"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/first-results.json",
+      "bytes": 35348,
+      "sha256": "6c701c0891fb59c7f0525139904788448ab7946986198ce6737065dd0fb06474"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/inbox-verbs.log",
+      "bytes": 163637,
+      "sha256": "39d658140a89bc4682fd4211d55ddb385dafb190957ce875c3c498089895b4ca"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/land-docs.py",
+      "bytes": 11625,
+      "sha256": "1633dadd6d6f2ccdc2a7c0f91eda0de1be19b90958cfbea73f9514d041b865f2"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/metal-nv06.md",
+      "bytes": 2384,
+      "sha256": "3a1f7ded08a6f8acb02c0d60c73aff8bdde655197ed8a39acf69c127d26d18eb"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/metal-ui12.md",
+      "bytes": 2806,
+      "sha256": "6a4d4e55ce10b39cf3c8191dfd34fe0bbab4b18d26c237bd1282f8872f16f989"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/metal-ui22.md",
+      "bytes": 2637,
+      "sha256": "165b9df0a42416ce0d608d3f353e73fd90dbd156dff2c62195bf89f3ce7daa12"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-devicenv.log",
+      "bytes": 19913,
+      "sha256": "0e275b0174fbb6f267707983a804ea2ed4f93427f178977660e5bf8ae76cd1eb"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-model.log",
+      "bytes": 101327,
+      "sha256": "5ea9ad519624ee011e035d41acf1829cddd77de330223413e7144612ecb80c61"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-sliceCbudget.log",
+      "bytes": 1839,
+      "sha256": "59d7383f1cb39988229fd3311033e36fa6ce9cfa2b8878d325e83f444e0864b1"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-sliceCsend.log",
+      "bytes": 1858,
+      "sha256": "804efa8412b3eb802c3019811aec46439ef87dad69acf7abb546a8a9b1a9dbb2"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-uipresets.log",
+      "bytes": 19564,
+      "sha256": "f4a426576a46ab9d675cf5015a8f5118a2b8cbf972a71b8e8b0b7e7935e7fdc1"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-uipresetverbs.log",
+      "bytes": 14878,
+      "sha256": "fb9c5f5c4f7312744fbdd84ab38eba67501ec583deab7324d728792bb7c24771"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-uisend.log",
+      "bytes": 15756,
+      "sha256": "43328bfacb1ee6b7f89b8bb4ac6f923ebdf4c01c5daa7d2a590f5c21497a7ca7"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-w4aident.log",
+      "bytes": 8573,
+      "sha256": "4c5bf59174fa8a6b5d6b93fb514c54f116438de8bb749865f89945121b01a1e4"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mut-w4bhome.log",
+      "bytes": 14045,
+      "sha256": "c296f2e0598e997f58c9de93cd25b9a7e2cd056cca9ebf6de25d05e3474e59a3"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mutation-results.json",
+      "bytes": 109143,
+      "sha256": "0144bfb0cd7f5d403ea599393777191724d909f64c39ef7a12ca9df244986f1b"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/mutation-steps.json",
+      "bytes": 2904,
+      "sha256": "463f3f3e64a2ebbdef4247ed828d66db7eac0d3285fefa2697b75e27edecffe8"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/native-build.log",
+      "bytes": 414,
+      "sha256": "c2e2d87350b49cc6af9872992c7390b02a185c23ecd268b3e63147b7200f8b47"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/native.log",
+      "bytes": 409,
+      "sha256": "8eac3b1a27c62cf0c546285de198cd32b4cb74ae847b2acbf049a08fd69a4404"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/paths.json",
+      "bytes": 241,
+      "sha256": "7616fe65637e8cf95723f4c146d72e8e8bae89fc96cac2d5b0764efb9375bb59"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/preserve.py",
+      "bytes": 2559,
+      "sha256": "6ed1d601b3e1a9a5882fdbdc67347124060aa0061c886212c4cf756d5c9d543e"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/render-report.py",
+      "bytes": 15778,
+      "sha256": "8a65ef53f03d79f45bcb4acbee3eea460b6e77488668fa323da604243e6e3236"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/run-board.py",
+      "bytes": 967,
+      "sha256": "c83505a7ef94a3c78ca4cfb9c7e57250f34c500085b20db6cba951a85c2c3fae"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/run-first.py",
+      "bytes": 2059,
+      "sha256": "af56c53d20ea5e19da4baed93a5a23b932f2ed779186af883495f3bce4a859db"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/run-mutations.py",
+      "bytes": 1123,
+      "sha256": "b01b56b994742744ec4dfc44a24e7f0185ba4c7ccb8b7a172b10011e26a867cd"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/sim-build.log",
+      "bytes": 8312,
+      "sha256": "7ddcacb81a16f760ca076a4b13bcaa2bddeb36fd52d7b32c16080992ec29b97a"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/sim-config.log",
+      "bytes": 989,
+      "sha256": "9e452695a9169b8c2d4313185c22dee5ecef449d4fe58939f0cdc45f2f77f185"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/steps.json",
+      "bytes": 4432,
+      "sha256": "5146c699eb0b7ad77a7dcf1ec43ed5212002e4cd766ffe6242070422b3603fc8"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w6-qa/whitespace.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "board": [
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/build.log",
+      "bytes": 16778729,
+      "sha256": "f82f146fe8367bd9a6ef4e725cfeb8cb4a32ffe7f7a5e416ceb14befc5640d59"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/compiler-state.json",
+      "bytes": 1775,
+      "sha256": "2c289db9a591d7f426527dd55cf63370f480bef3d1ebc455540dc8544ceaff8e"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/firmware.elf",
+      "bytes": 769540,
+      "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/firmware.hex",
+      "bytes": 1608800,
+      "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/manifest.json",
+      "bytes": 5104,
+      "sha256": "e5d29d2589ad13828169d1b0f4b1c7c608d561b2ff3cfcd38cdc2f5e006e0407"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/sections.txt",
+      "bytes": 1398,
+      "sha256": "638242b4c1b530b9436f1a5315ccb48924b43568e4b76bed58cefa566774330c"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/gateway/symbols.txt",
+      "bytes": 288129,
+      "sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/build.log",
+      "bytes": 67603,
+      "sha256": "bd2e312a881548dd4165693fccbaf67e1149cb1a0a07c267734b5b62d8be1148"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/compiler-state.json",
+      "bytes": 1835,
+      "sha256": "0c1791c26cc5b5b6e199a90df907dea42dfdcad80a0fb450685be85ca28b4ed7"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/firmware.bin",
+      "bytes": 1400912,
+      "sha256": "6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/firmware.elf",
+      "bytes": 21659708,
+      "sha256": "b2ccef33d8ba7f77403e7b034d8aee19517e2cf103768326e401e0946f69734d"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/manifest.json",
+      "bytes": 5704,
+      "sha256": "92d6239f8508ad42a45c18220f2ba1137610a5a51f565cab73072ed79f72b4bc"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/sections.txt",
+      "bytes": 3673,
+      "sha256": "05455603cb6c92d3227723316d7c8e75058fd58efa228b2cc880526c62d3928b"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/heltec_mobile/symbols.txt",
+      "bytes": 766794,
+      "sha256": "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e"
+    },
+    {
+      "path": "/home/staszek/MeshRoute/.pio-measure/w6-qa/final-1/pair.json",
+      "bytes": 512,
+      "sha256": "8ca7b3956050cfd0130c41fbe82061b6c226930716ffa1c01a96d543c4bee39d"
+    }
+  ],
+  "simulator_binary": {
+    "path": "/tmp/mr-w6-qa-rkz9ymlg/lus/orchestrator/lus",
+    "bytes": 2466296,
+    "sha256": "e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2"
+  },
+  "corpus_directory": "/tmp/mr-w6-qa-rkz9ymlg/corpus"
+}

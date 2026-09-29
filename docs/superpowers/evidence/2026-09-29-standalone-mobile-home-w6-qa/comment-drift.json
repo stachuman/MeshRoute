@@ -1,0 +1,38 @@
+[
+  {
+    "path": "src/firmware_commands.h",
+    "line": 208,
+    "text": "// setup(): load `/mrui` through the four-state read and print the ruled diagnostic line for the two fault states",
+    "unchanged_line_from_base": true
+  },
+  {
+    "path": "src/firmware_ui_preset_verbs.h",
+    "line": 48,
+    "text": "//     \u00b7 \u26d4 NO STORE. The record, its four-state read and its whole write policy are P1's",
+    "unchanged_line_from_base": true
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "line": 73,
+    "text": "//       records and the six reason spellings live in `src/firmware_ui_preset_verbs.h` (pure, natively pinned,",
+    "unchanged_line_from_base": true
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "line": 467,
+    "text": "//   three non-`ok` states. ONE definition, so the three can never be three different catalogs.",
+    "unchanged_line_from_base": true
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "line": 514,
+    "text": "//    WRITE-REFUSING. \u21d2 a shared \"unreadable\" predicate here would be the exact collapse the four states exist to",
+    "unchanged_line_from_base": true
+  },
+  {
+    "path": "tools/probe_inbox_verbs/run.sh",
+    "line": 90,
+    "text": "BOTH ARMS PASS",
+    "scope": "Legacy aggregate wording; the default loop and this QA run execute accept/client/oled, all three pass."
+  }
+]

@@ -1,0 +1,119 @@
+[
+  {
+    "name": "native-build",
+    "args": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "exit": 0,
+    "seconds": 1.936
+  },
+  {
+    "name": "native-binary",
+    "args": [
+      "./.pio/build/native/program"
+    ],
+    "exit": 0,
+    "seconds": 0.75
+  },
+  {
+    "name": "sim-configure",
+    "args": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/meshroute-w6-precheck-9uooq745/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "seconds": 0.507
+  },
+  {
+    "name": "sim-build",
+    "args": [
+      "cmake",
+      "--build",
+      "/tmp/meshroute-w6-precheck-9uooq745/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 32.324
+  },
+  {
+    "name": "corpus",
+    "args": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/meshroute-w6-precheck-9uooq745/corpus",
+      "--lus",
+      "/tmp/meshroute-w6-precheck-9uooq745/sim-build/orchestrator/lus",
+      "--require-anchors",
+      "--jobs",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 52.202
+  },
+  {
+    "name": "abi",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "exit": 0,
+    "seconds": 19.654
+  },
+  {
+    "name": "firmware-ui",
+    "args": [
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 371.412
+  },
+  {
+    "name": "board-ui",
+    "args": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 25.286
+  },
+  {
+    "name": "console-sink",
+    "args": [
+      "tools/probe_console_sink/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 67.879
+  },
+  {
+    "name": "inbox-verbs",
+    "args": [
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 702.934
+  },
+  {
+    "name": "inventory",
+    "args": [
+      "python3",
+      "-B",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "result": "197 rows byte-identical; separate invocation after stopping redundant inbox run"
+  }
+]

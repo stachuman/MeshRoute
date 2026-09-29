@@ -1,0 +1,1261 @@
+{
+  "scope": "Proposed STRUCT-ONLY W6 allocation; scratch copies, no implementation or linked-RAM claim.",
+  "scratch": "/tmp/w6-layout-gqgb5khr",
+  "variants": {
+    "base": {
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": {
+            "size": 21,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 372,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 1144,
+            "align": 8
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 8,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 944,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": {
+            "size": 21,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 372,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 1132,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 8,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": {
+            "size": 21,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 372,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 1132,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 8,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        }
+      },
+      "model_sha256": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286"
+    },
+    "catalog_only": {
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8584,
+            "align": 8
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 8,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 944,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 8,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 8,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 520,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 936,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        }
+      },
+      "model_sha256": "ddf0025148a7723b24b31e0893ee7017506ce2d14b2c17c2e381fd0b76e3e286"
+    },
+    "shared_page": {
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8584,
+            "align": 8
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1016,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 560,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1000,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 560,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1000,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        }
+      },
+      "model_sha256": "438cca8ccbb2ec8b2fce7271f5c27830a84a9d7545483ab08bc756baa220dea0"
+    },
+    "separate_page": {
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8584,
+            "align": 8
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 600,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1048,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 600,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1040,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 600,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1040,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        }
+      },
+      "model_sha256": "ee3ac9daf0e6b2a721ace1d6cde803599a298a7fbd50d231af497c17533d7591"
+    },
+    "separate_body_page": {
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8584,
+            "align": 8
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 600,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1224,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 600,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1208,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": {
+            "size": 167,
+            "align": 1
+          },
+          "mrnv::UiPresetBlob": {
+            "size": 2852,
+            "align": 4
+          },
+          "mrfw::PresetCatalog": {
+            "size": 8572,
+            "align": 4
+          },
+          "mrui::ComposeSlot": {
+            "size": 20,
+            "align": 1
+          },
+          "mrui::ComposeList": {
+            "size": 161,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::UiState": {
+            "size": 600,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1208,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrnv::Blob": {
+            "size": 240,
+            "align": 8
+          },
+          "mrnv::IdBlob": {
+            "size": 80,
+            "align": 4
+          },
+          "mrnv::PeerBlob": {
+            "size": 1160,
+            "align": 4
+          },
+          "mrnv::JoinBlob": {
+            "size": 104,
+            "align": 4
+          },
+          "mrnv::TeamKeyBlob": {
+            "size": 296,
+            "align": 4
+          },
+          "mrnv::AdminIdBlob": {
+            "size": 40,
+            "align": 4
+          },
+          "mrnv::AclBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::MgmtKeyBlob": {
+            "size": 368,
+            "align": 4
+          },
+          "mrnv::TargetBlob": {
+            "size": 2056,
+            "align": 4
+          },
+          "mrfault::FaultLog": {
+            "size": 464,
+            "align": 4
+          }
+        }
+      },
+      "model_sha256": "4b3142e1c5f33882a89f20b8e16a7bf894d1b3b7e3583045a48bd73dbc621e51"
+    }
+  }
+}

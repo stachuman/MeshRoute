@@ -72,10 +72,15 @@ HERE=$(pwd)                      #   once already ([[B82]]). Never make these re
 #    this probe does not compile and could not without the whole U8g2/board_ui canvas. MEASURED, not assumed:
 #    the link fails with exactly that undefined symbol. The OLED axis of the console surface is covered instead by
 #    `tools/probe_console_sink`, whose six-profile matrix includes `mobile_oled`.
+# ★★★ W6 (brief §2.8) — A THIRD ARM, `oled`: ARM 1 + `-DMR_FEAT_OLED=1`, i.e. `[env:heltec_v3]`'s REAL define set, and
+#     the first EXECUTED `ui preset` path through the command TU (`exec_console_line` -> `dispatch` -> `handle_ui` ->
+#     `PresetPrintLines`). The one missing symbol above is supplied by a LABELLED STUB in `probe_main.cpp`, under
+#     `#if MR_FEAT_OLED`, whose only job is the `busy` row. That arm runs ONLY its own W6-O rows and controls; arms 1/2
+#     are unchanged, and so is the builder prefix `tools/probe_deferred_actions/run.py` reuses (it runs `accept`).
 # ================================================================================================================
 if [ -z "${MR_PROBE_ARM:-}" ]; then
   arm_rc=0
-  for _arm in accept client; do
+  for _arm in accept client oled; do
     echo "================================================================================================"
     echo "== ARM: $_arm  (independently compiled; own defines, own objects, own outputs)"
     echo "================================================================================================"
@@ -99,10 +104,13 @@ LINE_SINK="$ROOT/src/dispatch_sink.h"       # the PRODUCTION LineSink the BLE ar
 FAKE_PREFS="$HERE/fakes/Preferences.h"      # the probe-local NV medium — controls C12/C13 make it LIE
 FW_NVH="$ROOT/src/device_nv.h"              # §RADMIN slice 3: the typed wrappers — controls C27..C29 mutate this
 FAKE_RNG="$HERE/fakes/esp_random.h"         # the probe-local deterministic entropy stream
+FW_VERBS="$ROOT/src/firmware_ui_preset_verbs.h"   # W6: the `ui preset` replies — the OLED arm's controls shadow it
 
 DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
 # ★ ARM 2 = ARM 1 + `platformio.ini`'s own `[env:heltec_v3]` -> `[env:heltec_mobile]` delta (see the header note).
 [ "$MR_PROBE_ARM" = client ] && DEFS+=(-DMR_PROFILE_MOBILE)
+# ★ W6 — ARM 3 = ARM 1 + the OLED feature, which is `[env:heltec_v3]`'s own `-DMR_FEAT_OLED=1` (see the header note).
+[ "$MR_PROBE_ARM" = oled ] && DEFS+=(-DMR_FEAT_OLED=1)
 # ★★ [[B321]]'s OBSERVATION SEAM, at LINK time: every `crypto_wipe` call is routed to the probe's `__wrap_` symbol,
 #    which copies the bytes, performs the REAL wipe and re-reads the SAME LIVE storage. ⛔ Production is unmodified
 #    and unaware; the wrapper is a straight forward unless a case arms it.
@@ -246,7 +254,11 @@ PIN_CHECKS_ACCEPT=1400
 # 8b adds ten observer/transport checks and eight real-Node binding-veto checks.
 # W1c: the same six shared X21..X26 rows: 477 + 6 = 483.
 PIN_CHECKS_CLIENT=483
-PIN_CHECKS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CHECKS_CLIENT" || echo "$PIN_CHECKS_ACCEPT")
+# ★ W6 — THE OLED ARM's OWN ROWS (W6-O1..O14b), counted from the clean probe's `  ok  ` lines:
+#     O1 1 · O2 1 · O3/b/c 3 · O4 1 · O5 1 · O6 1 · O7/b/c/e/d 5 · O8 1 · O9 1 · O10 1 · O11 1 · O12/b/c/d 4 ·
+#     O13/b/c/d 4 · O14/b 2 = 1+1+3+1+1+1+5+1+1+1+1+4+4+2 = 27.
+PIN_CHECKS_OLED=27
+case "$MR_PROBE_ARM" in client) PIN_CHECKS=$PIN_CHECKS_CLIENT ;; oled) PIN_CHECKS=$PIN_CHECKS_OLED ;; *) PIN_CHECKS=$PIN_CHECKS_ACCEPT ;; esac
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
 #   reading its record · C25 the Print adapter re-chooses `mrcon` ([[B279]]'s shape) · C26 the read-only boot
@@ -268,7 +280,9 @@ PIN_CONTROLS_ACCEPT=63
 # 8b adds debt status, carrier write binding, disconnect-drop and real Node lookup controls.
 # W1c: the same two shared router controls: 69 + 2 = 71.
 PIN_CONTROLS_CLIENT=71
-PIN_CONTROLS=$([ "$MR_PROBE_ARM" = client ] && echo "$PIN_CONTROLS_CLIENT" || echo "$PIN_CONTROLS_ACCEPT")
+# ★ W6 — the OLED arm: the [[B237]] control-of-the-controls + W6-C1..W6-C6 (below) = 7.
+PIN_CONTROLS_OLED=7
+case "$MR_PROBE_ARM" in client) PIN_CONTROLS=$PIN_CONTROLS_CLIENT ;; oled) PIN_CONTROLS=$PIN_CONTROLS_OLED ;; *) PIN_CONTROLS=$PIN_CONTROLS_ACCEPT ;; esac
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS: the sibling probe once had two `cat` lists
@@ -285,7 +299,8 @@ md5_sources() {
       "$ROOT/lib/core/remote_session.cpp" "$ROOT/lib/core/node.h" "$ROOT/lib/core/node.cpp" \
       "$ROOT/lib/core/node_mac_rx.cpp" "$ROOT/src/firmware_remote_actions.h" \
       "$ROOT/src/firmware_remote_actions.cpp" "$ROOT/src/firmware_remote_client.cpp" \
-      "$ROOT/src/firmware_remote_client.h" "$HERE/remote_client_rows.h" | md5sum | cut -d' ' -f1
+      "$ROOT/src/firmware_remote_client.h" "$HERE/remote_client_rows.h" \
+      "$FW_VERBS" "$ROOT/src/firmware_ui_presets.h" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -418,6 +433,11 @@ ctl() {
     ack)     shadow_hdr "$FW_ACK"    console_json.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     sink)    shadow_hdr "$LINE_SINK" dispatch_sink.h && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     prefs)   shadow_hdr "$FAKE_PREFS" Preferences.h  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
+    # ★ W6: `src/firmware_ui_preset_verbs.h`, which ONLY the router includes (under `MR_FEAT_OLED`). The router is
+    #   compiled from a verbatim COPY outside `src/`, so its quoted include is not found beside it and resolves
+    #   through the shadow dir first — exactly one (mutated) definition in the link.
+    verbs)   shadow_hdr "$FW_VERBS" firmware_ui_preset_verbs.h && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; }
+             cp "$FW_CMDS" "$OUT/mutant_cmds.cpp"; router="$OUT/mutant_cmds.cpp" ;;
     # ★★ §RADMIN slice 3: `src/device_nv.h`'s typed wrappers — and this kind needs a WHOLE-`src/` shadow rather
     #    than the one-header kind above, for a C++ reason worth recording: a QUOTED include resolves against the
     #    INCLUDING FILE'S OWN DIRECTORY FIRST, so a lone `$OUT/shadow/device_nv.h` is picked up by `probe_main.cpp`
@@ -488,6 +508,45 @@ if [ "${1:-}" != "--no-neg" ]; then
   else
     echo "  FAIL the crash repro did not build — the [[B237]] rule is unmeasured"; n_bad=$((n_bad+1))
   fi
+
+  if [ "$MR_PROBE_ARM" = oled ]; then
+  # ================================================ W6 — THE OLED ARM's OWN CONTROLS (the shared ones below measure rows
+  #                                                  this arm does not run, so each would score `passes` = UNUSABLE)
+  # ⛔ Each carries an exactly-one-match guard on its source ([[B449]]'s lesson), then the stock `ctl` classification.
+  w6_ctl() {
+    local label=$1 which=$2 source=$3 needle=$4 script=$5
+    if ! python3 -c 'import pathlib,sys; n=pathlib.Path(sys.argv[1]).read_text().count(sys.argv[2]); print("    source match count",n); sys.exit(0 if n==1 else 1)' "$source" "$needle"; then
+      n_bad=$((n_bad+1)); echo "  FAIL $label — not exactly one source match"; return
+    fi
+    ctl "$label" "$which" "$script"
+  }
+  # ---- W6-C1 (the stage proof's first control): THE REPLY LINE IS THE RETIRED 160 B — every maximum record vanishes.
+  w6_ctl 'W6-C1 the reply line bound is the retired 160 B (every 163-byte record must disappear)' verbs "$FW_VERBS" \
+    'inline constexpr size_t kPresetLineMax = (kPresetRecordMax > kPresetEndMax ? kPresetRecordMax : kPresetEndMax) + 1;' \
+    's|inline constexpr size_t kPresetLineMax = (kPresetRecordMax > kPresetEndMax ? kPresetRecordMax : kPresetEndMax) + 1;|inline constexpr size_t kPresetLineMax = 160;|; s|^static_assert(kPresetLineMax == 244 .*$|static_assert(kPresetLineMax == 160, "W6-C1");|'
+  # ---- W6-C2 (the stage proof's second control): `list` UNPAGED — seventeen maximum records overflow the stage, and
+  #      the instrument must SEE it (`!! CONSOLE_DROP`), which is what proves it can see an overflow at all.
+  w6_ctl 'W6-C2 `list` answers all seventeen records unpaged (the non-draining stage must drop lines)' verbs "$FW_VERBS" \
+    'if (pg) preset_emit_list(cat, out, pg); else' \
+    's|if (pg) preset_emit_list(cat, out, pg); else|if (pg) preset_emit_list(cat, out); else|'
+  # ---- W6-C3: the store binding REPORTS a save it never made — the captured success line must not substitute for
+  #      the stored bytes (W6R-1).
+  w6_ctl 'W6-C3 the /mrui store binding reports success without writing (a success line is not the stored bytes)' router "$FW_CMDS" \
+    '    bool save(const mrnv::UiPresetBlob& b)           override { return mrnv::save_ui_presets(b); }' \
+    's|    bool save(const mrnv::UiPresetBlob\& b)           override { return mrnv::save_ui_presets(b); }|    bool save(const mrnv::UiPresetBlob\& b)           override { (void)b; return true; }|'
+  # ---- W6-C4 ([[B477]]): the NV fake reports a full write it did not store (the pre-W6 shape, restored).
+  w6_ctl 'W6-C4 the NV fake reports the full length for a write it did not store ([[B477]] restored)' prefs "$FAKE_PREFS" \
+    '        return nv.put(_ns, key, b, n) ? n : 0;' \
+    's|        return nv.put(_ns, key, b, n) ? n : 0;|        (void)nv.put(_ns, key, b, n); return n;|'
+  # ---- W6-C5: the old-v1 recognition removed — a v1 record reads `invalid` on the REAL read path.
+  w6_ctl 'W6-C5 the old v1 recognition is removed (a 372-B v1 record reads as invalid)' nvh "$FW_NVH" \
+    '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;' \
+    's|    if (n == kUiPresetV1Bytes \&\& b.magic == kUiPresetMagic \&\& b.version == kUiPresetV1Version) return UiPresetRead::old_v1;||'
+  # ---- W6-C6: the `busy` binding stops asking the emergency seam — a mutation lands mid-alarm.
+  w6_ctl 'W6-C6 the preset emergency gate stops asking the seam (a mutation lands during an alarm)' router "$FW_CMDS" \
+    '    bool emergency_active() const override { return mrfw::ui_emergency_active(); }' \
+    's|    bool emergency_active() const override { return mrfw::ui_emergency_active(); }|    bool emergency_active() const override { return false; }|'
+  else
 
   # ---- C1: THE DISPATCH ARM REMOVED. The verb becomes unreachable; the router answers its unknown-verb path and
   #          every ack in the family becomes unreachable with it. This is QG's first named defect.
@@ -739,9 +798,10 @@ if [ "${1:-}" != "--no-neg" ]; then
   s6_ctl 'S6-C9 remote byte-validation refusal emits a local envelope' \
     'if (ctx.authority != CommandAuthority::local) return r;' \
     's|if (ctx.authority != CommandAuthority::local) return r;|(void)ctx;|'
+  fi   # W6: the OLED arm's controls above, or the shared ones (arms 1/2)
 fi
 
-if [ "${1:-}" != "--no-neg" ]; then
+if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" != oled ]; then
   ctl 'R7-C1 B372 eight-byte truncation restored in medium (positive contents must fail)' probe \
     's|rec\[n_rec\].len = len;|rec[n_rec].len = len < 8 ? len : 8;|'
   if [ "$MR_PROBE_ARM" = accept ]; then

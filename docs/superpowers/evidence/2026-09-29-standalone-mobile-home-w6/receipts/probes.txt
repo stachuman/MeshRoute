@@ -1,0 +1,92 @@
+# final chain step 5 — probes (attempt 3; raw logs under artifacts/2026-09-29-standalone-mobile-home-w6/final-*.log)
+## firmware-UI default (all arms)
+591 passed / 0 failed / 591 total
+       1059 passed / 0 failed / 1059 total
+       591 passed / 0 failed / 591 total
+  ok   W6-L0 the source declares the line ONCE, in firmware_ui.cpp; firmware_ui_send.h declares no line array
+  ok   W6-L1 the linked probe holds exactly ONE writable 199-B data object, and it is `s_send_line`
+  ok   W6-L1a the line back on the STACK (the pre-W6 shape: no static object at all) -> REJECTED (the property, exit 1)
+  ok   W6-L1b the static line UNDERSIZED at the retired 96 B -> REJECTED (the property, exit 1)
+  ok   W6-L1c a SECOND 199-B line beside the owned one, and both used -> REJECTED (the property, exit 1)
+  ok   W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND) -> RED (19 check(s) failed)
+  ok   W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent) -> RED (105 check(s) failed)
+sources unchanged: md5 125264ded64f633136dceabc438e40f3
+checks per arm: l2 562 · v3 1030
+coverage: 872 of 1031 checks (both arms, unioned) are reddened by at least one control
+controls: 240 verified / 0 unusable
+controls accounted: 240 declared, 240 exactly once with the accepted outcome, 0 guard failure(s)
+PASS
+
+## board-UI default
+declarations census: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+identities accounted: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+  negctl/v3         60 expected,   60 observed
+  negctl/v4          3 expected,    3 observed
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+negctl v3 assert_red: 60
+negctl v4 assert_red: 3
+PASS
+
+## console-sink default
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+PASS: probe + structural + controls all green
+
+## inbox-verbs default (accept, client, oled)
+executor symbol ownership: accept PASS
+PASS
+tree unchanged: the real sources' md5 is identical before and after (16f5dbf60bc0f130526e7b093eba3290)
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+PASS
+executor symbol ownership: client PASS
+PASS
+tree unchanged: the real sources' md5 is identical before and after (16f5dbf60bc0f130526e7b093eba3290)
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+PASS
+executor symbol ownership: oled PASS
+PASS
+tree unchanged: the real sources' md5 is identical before and after (16f5dbf60bc0f130526e7b093eba3290)
+probe: 27 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 27)
+controls: 7 verified / 0 unusable (pin 7)
+PASS
+  ok   W6-O1  an absent /mrui boots SILENT, zero writes []
+  ok   W6-O2  a bare `ui preset list` answers page 1 exactly (4 records + the end record, 465 B)
+  ok   W6-O3  pages 1..5 are exact, each ending its own end record with `page`/`pages`
+  ok   W6-O3b every slot, enabled or not, appears on EXACTLY ONE of the five pages
+  ok   W6-O3c ...and reading the pages wrote nothing
+  ok   W6-O4  the BLE LineSink receives page 3 byte-identically
+  ok   W6-O5  every non-canonical page token and a second token answer bad_page, zero writes
+  ok   W6-O6  the usage line names `ui preset list [<1..5>]` (229 B)
+  ok   W6-O7  a 163-byte `set` answers its ONE resulting record, whole
+  ok   W6-O7b ★ the NV medium holds EXACTLY the expected 2852-B v2 blob (sizeof 2852)
+  ok   W6-O7c a FRESH catalog over the real /mrui wrappers reloads the 163-byte phrase and its generation
+  ok   W6-O7e a `set` between two page reads moves the LATER page's generation (O3's pages: one generation)
+  ok   W6-O7d ★ the REAL boot restore reloads the medium: silent, zero writes, the 163-byte phrase kept
+  ok   W6-O8  164 bytes -> bad_text, clear emergency -> mandatory, dm9 -> bad_slot, zero writes
+  ok   W6-O9  an alarm: a NO-OP set answers busy with zero writes; `list` still answers
+  ok   W6-O10 a failed save answers `store`, publishes nothing, and the medium still holds the old record
+  ok   W6-O11 `reset all` answers all 17 records + an end record WITHOUT page fields, and stores the defaults
+  ok   W6-O12 an old v1 record: its own line at EVERY boot, zero boot writes (68 B)
+  ok   W6-O12b ...and the panel runs the compiled defaults
+  ok   W6-O12c the first change REPLACES it — even one restating a default — with the full v2 record
+  ok   W6-O12d ...and the next boot is silent
+  ok   W6-O13 every MAXIMUM `list` page fits the stage whole with a host draining NOTHING (zero drops)
+  ok   W6-O13b ...and a draining host then receives every page exactly, no CONSOLE_DROP
+  ok   W6-O13c the largest page is page 4 at 1097 B (<= 2048)
+  ok   W6-O13d `reset all` fits whole at a ten-digit generation (1517 B) and across the wrap
+  ok   W6-O14 a record of EXACTLY the slot capacity (2852 B) is stored and read back
+  ok   W6-O14b ONE byte more reports a SHORT write and leaves NOTHING behind (reported 0)
+  ok   W6-C1 the reply line bound is the retired 160 B (every 163-byte record must disappear) -> RED (3 check(s) failed: W6-O7 W6-O9 W6-O13b )
+  ok   W6-C2 `list` answers all seventeen records unpaged (the non-draining stage must drop lines) -> RED (9 check(s) failed: W6-O2 W6-O3 W6-O3b W6-O4 W6-O7e W6-O9 W6-O12b W6-O13 W6-O13b )
+  ok   W6-C3 the /mrui store binding reports success without writing (a success line is not the stored bytes) -> RED (7 check(s) failed: W6-O7b W6-O7c W6-O7e W6-O10 W6-O11 W6-O12c W6-O12d )
+  ok   W6-C4 the NV fake reports the full length for a write it did not store ([[B477]] restored) -> RED (1 check(s) failed: W6-O14b )
+  ok   W6-C5 the old v1 recognition is removed (a 372-B v1 record reads as invalid) -> RED (1 check(s) failed: W6-O12 )
+  ok   W6-C6 the preset emergency gate stops asking the seam (a mutation lands during an alarm) -> RED (1 check(s) failed: W6-O9 )
+
+## deferred-actions default (source unchanged: see inputs-*.json readonly_rerun)
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+40 controls compile/assertion RED

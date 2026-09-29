@@ -1,0 +1,117 @@
+{
+  "scope": "Unmodified fake reproduction, not W6 implementation or gate",
+  "source_sha256": "e09ff91c79712a1f335fe4c1bbb29090df402aa763e6009e379e2919360d2c96",
+  "fake_sha256": "67e329fb4f21a90e2c603002e4a6d206d07c7e7f4427d0496ba32c67f382a68b",
+  "compile_command": [
+    "g++",
+    "-std=c++20",
+    "-O2",
+    "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-brief-review/fake-query.cpp",
+    "-o",
+    "/tmp/w6-r2-review-serqepv4/fake-query"
+  ],
+  "output": "requested=2304 opened=1 reported=2304 present=1 stored_len=2304 holds_exact=1\nrequested=2305 opened=1 reported=2305 present=0 stored_len=0 holds_exact=0\nrequested=2852 opened=1 reported=2852 present=0 stored_len=0 holds_exact=0\n",
+  "checks": [
+    {
+      "path": "tools/probe_inbox_verbs/fakes/Preferences.h",
+      "needle": "unsigned char data[2304]",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/fakes/Preferences.h",
+      "needle": "if (!s || n > sizeof s->data) return;",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/fakes/Preferences.h",
+      "needle": "return nv.fail_write ? 0 : n;",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/fakes/Preferences.h",
+      "needle": "bool retain_on_fail = false;",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/fakes/Preferences.h",
+      "needle": "bool drop_on_ok     = false;",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "needle": "rc=0\nif ! build_support;",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "needle": "build_support()",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "needle": "build_variant()",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "needle": "'s|bool retain_on_fail = false;|bool retain_on_fail = true;|'",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "needle": "'s|bool drop_on_ok     = false;|bool drop_on_ok     = true;|'",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_deferred_actions/run.py",
+      "needle": "boundary='rc=0\\nif ! build_support;'",
+      "matches": 1
+    },
+    {
+      "path": "tools/probe_deferred_actions/probe.cpp",
+      "needle": "#include \"../probe_inbox_verbs/probe_main.cpp\"",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override { return mrnv::load_ui_presets(out); }",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "if (dispatch(line, len, stream, ctx.transport))",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "handle_ui(line + 2, len - 2, out); return true;",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "PresetPrintLines lines(out);",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "the six reason spellings",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "FOUR-valued read",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "three 372-B records",
+      "matches": 1
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "needle": "\u2248 1.15 KB",
+      "matches": 1
+    }
+  ],
+  "previous_response_measurement": "Hash-verified historical input; not rerun in scoped review"
+}

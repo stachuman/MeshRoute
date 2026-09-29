@@ -44,6 +44,7 @@ Use `OWED`, `PASS <build> <date>`, `FAIL → B###`, `N/A <reason>`, or `RETIRED 
 | [UI-19](#ui-19) | non-team OLED profile | OWED |
 | [UI-20](#ui-20) | identity-label glyphs, abbreviation and unnamed peers (W4a) | OWED |
 | [UI-21](#ui-21) | Home and My-device rows, name glyphs and list window (W4b) | OWED |
+| [UI-22](#ui-22) | full saved-phrase review, wake/alarm and physical delivery (W6) | OWED |
 | [CUSTODY-01](#custody-01) | static relay failure, persistence and deletion | OWED |
 | [CUSTODY-02](#custody-02) | translated report to the originating mobile | OWED |
 | [CUSTODY-03](#custody-03) | lost correlation and optional re-home | OWED |
@@ -406,14 +407,16 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 <a id="ui-12"></a>
 
-### UI-12 — presets on actual transports and flash
+### UI-12 — v2 presets on actual transports and flash (W6)
 
-1. `ui preset list` on an OLED image yields seventeen `ui_preset` records (including disabled empty texts) then `ui_presets_end` with `capacity:17`, eighteen complete lines and no `CONSOLE_DROP`.
-2. `ui preset set dm3 loc=on "meet at the hut"`; reboot and list: text/location persist and there is no invalid-record boot warning. Repeat identical set; `cfg`'s **presets** `saves=` does not advance. It is not a general NV-write counter.
-3. During an actual emergency attempt, even an identical `ui preset set dm1 loc=off "<current text>"` yields `{"ev":"ui_preset_err","reason":"busy"}`; list still works. After retained outcome the set works. `ui preset clear emergency` refuses `mandatory`.
-4. On a build that combines this catalog with real BLE, compare eighteen reassembled lines with USB. **No stock available nRF52 image enables OLED**, so that specific catalog-over-BLE arm is N/A on the listed stock images; USB-BLE-02 still qualifies real BLE framing.
+1. Before changing presets, test a board carrying a recorded v1 catalog: flash the identified W6 image without erasing that store, then boot twice. Each boot prints exactly `  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)`. Old custom text is not loaded. Capture `ui preset list` on the v1 image before flashing for later re-entry. A board without this fixture leaves this arm OWED; an absent store does not prove it.
+2. `ui preset reset all` returns seventeen `ui_preset` records and one `ui_presets_end`. Then issue `ui preset list 1`, `ui preset list 2`, `ui preset list 3`, `ui preset list 4`, `ui preset list 5`: 4/4/4/4/1 records, each followed by its end record, with `"capacity":17,"text_max":163` and the corresponding `"page":n,"pages":5`. Bare `ui preset list` equals page 1. Read each complete reply before the next command; no `CONSOLE_DROP`. The successful reset replaces a v1 record; the next boot has no old-v1 diagnostic.
+3. Inspect the eight defaults: emergency `I'm in danger` (location on); DM `Are you OK?`, `I'm OK`, `Where are you?`; team `Got your message`, `All good`, `Return to base now`, `On my way` (all seven ordinary phrases location off). On glass the longer team row reads `Return to base n»`; its review shows the full text. Qualify the actual chevron on H1 and V, not just captured host bytes. Emergency transmission is UI-16.
+4. `ui preset set dm3 loc=on "meet at the hut"` returns exactly `{"ev":"ui_preset","slot":"dm3","enabled":true,"text":"meet at the hut","location":true}`. Reboot and `ui preset list 1`: the text/location persist with no invalid-record warning. Repeat the identical set; `cfg`'s **presets** `saves=` does not advance (not a general NV-write counter).
+5. During a real emergency attempt, even an identical `ui preset set dm1 loc=off "Are you OK?"` yields `{"ev":"ui_preset_err","reason":"busy"}`; paged list still works. After the retained outcome, set works. `ui preset clear emergency` answers `{"ev":"ui_preset_err","reason":"mandatory"}`.
+6. A custom image combining OLED catalog and real BLE must reassemble the same per-page records as USB. No stock available nRF52 image enables OLED, so that arm is N/A on the listed stock images; USB-BLE-02 still qualifies real BLE framing. B476's failed-write policy remains separate. Restore saved custom phrases after this defaults test.
 
-**PASS:** complete USB records, persistent preset and live busy guard. **STOP:** fused/dropped lines, false save or a phrase edit reprovisioning the team. Power-cut/reset arms are NV-06/NV-04.
+**PASS:** complete USB pages, all eight defaults and the abbreviation on glass, durable edits, repeated old-v1 diagnosis until replacement, and the live busy guard. **STOP:** dropped/fused lines, false save, missing diagnostic, silent clipping or a phrase edit reprovisioning the team. Power-cut/reset arms are NV-06/NV-04; phrase review and actual maximum delivery are UI-22.
 
 <a id="ui-13"></a>
 
@@ -441,8 +444,8 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 ### UI-15 — ordinary sends and completion
 
-1. SEND → compose the configured `Got your message` preset; peer receives exactly that body. Expect `SENDING...`, possibly brief `QUEUED`, then `SENT, waiting`, finally `PICKED UP` or `NO RELAY HEARD`. Brief QUEUED need not be visible.
-2. TEAM → teammate → configured `Are you OK?`: one DM, `SENT, waiting`, then `DELIVERED to <label>` only with matching acknowledgement. BACK from either unsent compose sends nothing.
+1. SEND → double on `Got your message`: review opens with BACK selected and nothing sent. Short selects SEND; double confirms. The peer receives exactly that body. Expect `SENDING...`, possibly brief `QUEUED`, then `SENT, waiting`, finally `PICKED UP` or `NO RELAY HEARD`. Brief QUEUED need not be visible.
+2. TEAM → teammate → configured `Are you OK?`: open review, short to SEND, double to confirm. One DM, `SENT, waiting`, then `DELIVERED to` with the peer label on its own row only with matching acknowledgement. BACK from either unsent compose or review sends nothing.
 3. Power the peer off; post still reaches SENT, waiting after physical air, then NO RELAY HEARD. An unconfirmed DM ends NO CONFIRM; acknowledge it and send another post successfully.
 4. If a real zero-handle outcome is observed, require `NOT CONFIRMED` / `no send handle`, never SENT. Do not manufacture that arm by merely hiding the peer after a valid handle.
 
@@ -514,6 +517,19 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 5. On an identified OLED fixture with a reachable restart-required setting, save it: `SAVED`, then Home's `RESTART NEEDED` on row 2 and a two-row list window on rows 3–4. Arrow, scrolling and MENU remain legible. The stock BLE-row-disabled image has no BLE restart-setting arm (UI-03); do not fabricate this state or mark it passed from a host probe. Restore the setting.
 
 **PASS:** the real panel draws the counted name, whole ID, position and both list-window sizes legibly, with the stated physical gesture returns. **STOP:** clipping, missing chevron, raw UTF-8/Latin-1, wrong return or a redraw requiring an extra press. No new console command is introduced; the save acknowledgement and `whoami` establish the fixture. Unexercised arms remain OWED.
+
+<a id="ui-22"></a>
+
+### UI-22 — complete saved-phrase review on glass and air (W6)
+
+1. On a controlled two-node team bench, save the current catalog and establish a DM peer's full identity. Generate the exact 163-byte ASCII fixture `("ABCDEFGHI JKLMNOPQRS " * 7) + "ABCDEFGHI JKLMNO"` on the host (seven copies of the 21-byte prefix, then 16 bytes). Substitute it for `<TEXT>` in `ui preset set dm4 loc=on "<TEXT>"`; require the complete `ui_preset` record with `"slot":"dm4"`, that exact text and `"location":true`. Repeat with `channel5` for the team arm; retain the literal fixture with the session.
+2. TEAM → that peer → the new phrase, then double: the review opens, no ordinary frame airs, BACK is selected, and `LOC` occupies columns 12–14. Header is `TO <label> <HASH8>` for the known peer. The team arm names `TO TEAM <ID>`. The list abbreviation is not the review's body.
+3. Film every automatic three-row page through a complete cycle, up to six pages, checking the word-wrapped bytes against the stored fixture. Page changes never transmit. Double on BACK returns to the phrase list without transmission. Reopen; BACK is again selected.
+4. On a later page select SEND with short, then let the panel blank. Wake with short: same review and page, BACK selected, no transmission; paging restarts its two-second interval. This first press only wakes. Short then double deliberately selects and confirms SEND; the receiver's `pull_inbox 0 0` contains the complete 163-byte `inbox_dm`/`inbox_channel` text, never the abbreviated row. Compare decoded text bytes with the fixture, and match the actual message identity. Repeat DM and team.
+5. Reopen an unsent review. A hold released before `long_fire` leaves the review with BACK selected. On the controlled alarm bench, a deliberate long hold fires the emergency instead: no ordinary phrase is submitted, and after the alarm the phrase list requires a fresh review. Use UI-16's physical-air identity checks; a received emergency is not a received ordinary phrase.
+6. Repeat the glass portion on V. Restore the saved catalog and team fixture. Location acceptance and absent-fix semantics remain those of UI-16 and DM-01; `LOC` declares the phrase's request, not a promise of a current fix.
+
+**PASS:** every phrase byte is inspectable on the real panel, safe selection survives wake/hold, and only deliberate review confirmation delivers one complete ordinary body on air. **STOP:** invisible/clipped suffix, spontaneous send, clipped/missing page glyphs, alarm crossover or wrong recipient/body. Host render and send-line proofs do not qualify these physical observations.
 
 ## Custody over real radios
 
@@ -820,14 +836,15 @@ Scratch ACCEPT target with local restart access; finish other target tests first
 
 <a id="nv-06"></a>
 
-### NV-06 — keyring compaction and preset power cuts
+### NV-06 — keyring compaction and 2852-byte preset power cuts
 
 1. Record four disposable `team keys` rows, active binding and decryption controls. Interrupt `team forgetkey <inactive-T> confirm` at varied delays (~10 trials): reboot must yield all four old rows or exactly three survivors in original relative order, with their real keys still usable.
 2. Separately interrupt `team new` with room available: complete old/new state, no lost previous team or silently active uncommitted binding. A failed `/mrcfg` binding save, if actually exercised, must not restore the uncommitted key after reboot.
-3. On OLED ESP32, interrupt `ui preset set dm3 loc=on "cut test"` (~10 delays): each boot old or new complete catalog. `record invalid` after a cut is a failed preservation observation; on an explicitly corrupted fixture the expected diagnosis is `  ui presets = DEFAULTS (record invalid — repaired on next successful change)` and a successful set repairs it.
-4. Verify one inactive key via explicit saved-key use and a sealed post, plus the active key across reboot. Merely matching IDs does not detect smeared key bytes. Record preset backend as N/A on stock non-OLED N, not passed.
+3. On an OLED ESP32 populated with real identity, peers, profiles and keyring records, use a reviewed external NVS-statistics fixture to record actual used/free entries and namespaces before and after repeated successful v2 replacements. Set `dm4` alternately to UI-22's 163-byte fixture and a second recorded 163-byte text using `ui preset set dm4 loc=on "<TEXT>"`; read pages 1..5 and reboot between representative writes. The stored catalog is 2852 bytes. The pre-check's entry arithmetic is not a measurement of this aged partition; if no statistics fixture is available, leave that arm OWED.
+4. Vary power cuts across the entire replacement window (~10 trials, recording timing and the positive completed-write control). Each boot must recover the complete old or new catalog, including all other slots, flags and generation, with no partial record or default fallback. `record invalid` after a cut is a failed preservation observation. On a separately identified intentionally corrupted fixture the exact expected line is `  ui presets = DEFAULTS (record invalid — repaired on next successful change)`; a successful set repairs it.
+5. Verify one inactive key via explicit saved-key use and a sealed post, plus the active key across reboot. Merely matching IDs does not detect smeared key bytes. Record the preset backend as N/A on stock non-OLED N, not passed; ESP32 observations do not qualify the nRF file backend.
 
-**PASS:** exercised writes preserve neighbours and whole records; intentional corruption is diagnosed/repaired honestly. **STOP:** silent key/catalog corruption, false durable binding or neighbour loss.
+**PASS:** exercised writes preserve neighbours and whole old/new records, measured populated-partition headroom supports repeated replacements, and intentional corruption is diagnosed/repaired honestly. **STOP:** silent key/catalog corruption, invalid/partial catalog after a cut, false durable binding, neighbour loss or an unexplained storage refusal.
 
 <a id="nv-07"></a>
 

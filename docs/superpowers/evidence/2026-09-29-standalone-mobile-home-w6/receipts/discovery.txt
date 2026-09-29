@@ -1,0 +1,4 @@
+# final chain step 7
+Ran 406 tests in 809.061s
+OK
+(0 skipped: the OK line carries no 'skipped=' count)

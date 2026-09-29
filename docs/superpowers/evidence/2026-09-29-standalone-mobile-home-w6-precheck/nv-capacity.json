@@ -1,0 +1,392 @@
+{
+  "scope": "Source-sized NVS payload/entry budget, NOT a read of a device's occupied/free pages.",
+  "envs": {
+    "heltec_v3": {
+      "board": "heltec_wifi_lora_32_V3",
+      "board_definition": "/home/staszek/.platformio/platforms/espressif32/boards/heltec_wifi_lora_32_V3.json",
+      "partition": "/home/staszek/.platformio/packages/framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7/tools/partitions/default_8MB.csv",
+      "partition_sha256": "ab2f33c14eb855054613fd3a4ba85457ae281c6f371c25931ccc763bc79cb0e2",
+      "nvs_bytes": 20480,
+      "profile": "accept"
+    },
+    "heltec_v4": {
+      "board": "heltec_v4",
+      "board_definition": "/home/staszek/MeshRoute/boards/heltec_v4.json",
+      "partition": "/home/staszek/.platformio/packages/framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7/tools/partitions/default_16MB.csv",
+      "partition_sha256": "8eab8ddac3fe3b14ab1f5b3a108b8982ac7a6851d7e3e28d1848d37f9a62d2ed",
+      "nvs_bytes": 20480,
+      "profile": "accept"
+    },
+    "gateway_heltec": {
+      "board": "heltec_wifi_lora_32_V3",
+      "board_definition": "/home/staszek/.platformio/platforms/espressif32/boards/heltec_wifi_lora_32_V3.json",
+      "partition": "/home/staszek/.platformio/packages/framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7/tools/partitions/default_8MB.csv",
+      "partition_sha256": "ab2f33c14eb855054613fd3a4ba85457ae281c6f371c25931ccc763bc79cb0e2",
+      "nvs_bytes": 20480,
+      "profile": "accept"
+    },
+    "gateway_heltec_v4": {
+      "board": "heltec_v4",
+      "board_definition": "/home/staszek/MeshRoute/boards/heltec_v4.json",
+      "partition": "/home/staszek/.platformio/packages/framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7/tools/partitions/default_16MB.csv",
+      "partition_sha256": "8eab8ddac3fe3b14ab1f5b3a108b8982ac7a6851d7e3e28d1848d37f9a62d2ed",
+      "nvs_bytes": 20480,
+      "profile": "accept"
+    },
+    "heltec_mobile": {
+      "board": "heltec_wifi_lora_32_V3",
+      "board_definition": "/home/staszek/.platformio/platforms/espressif32/boards/heltec_wifi_lora_32_V3.json",
+      "partition": "/home/staszek/.platformio/packages/framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7/tools/partitions/default_8MB.csv",
+      "partition_sha256": "ab2f33c14eb855054613fd3a4ba85457ae281c6f371c25931ccc763bc79cb0e2",
+      "nvs_bytes": 20480,
+      "profile": "client"
+    },
+    "heltec_v4_mobile": {
+      "board": "heltec_v4",
+      "board_definition": "/home/staszek/MeshRoute/boards/heltec_v4.json",
+      "partition": "/home/staszek/.platformio/packages/framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7/tools/partitions/default_16MB.csv",
+      "partition_sha256": "8eab8ddac3fe3b14ab1f5b3a108b8982ac7a6851d7e3e28d1848d37f9a62d2ed",
+      "nvs_bytes": 20480,
+      "profile": "client"
+    }
+  },
+  "record_sets": {
+    "accept": {
+      "v1": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 372,
+          "fault-log": 464,
+          "admid": 40,
+          "acl": 368,
+          "ibm_dm": 28,
+          "ibm_ch": 28
+        },
+        "payload_bytes": 3180,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 14,
+          "fault-log": 17,
+          "admid": 4,
+          "acl": 14,
+          "ibm_dm": 3,
+          "ibm_ch": 3
+        },
+        "namespace_entries": 2,
+        "logical_entries": 129,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 375,
+        "entry_bytes": 4128
+      },
+      "v2": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 2852,
+          "fault-log": 464,
+          "admid": 40,
+          "acl": 368,
+          "ibm_dm": 28,
+          "ibm_ch": 28
+        },
+        "payload_bytes": 5660,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 92,
+          "fault-log": 17,
+          "admid": 4,
+          "acl": 14,
+          "ibm_dm": 3,
+          "ibm_ch": 3
+        },
+        "namespace_entries": 2,
+        "logical_entries": 207,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 297,
+        "entry_bytes": 6624
+      },
+      "v2_replacement_overlap": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 2852,
+          "fault-log": 464,
+          "admid": 40,
+          "acl": 368,
+          "ibm_dm": 28,
+          "ibm_ch": 28,
+          "ui_new_in_flight": 2852
+        },
+        "payload_bytes": 8512,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 92,
+          "fault-log": 17,
+          "admid": 4,
+          "acl": 14,
+          "ibm_dm": 3,
+          "ibm_ch": 3,
+          "ui_new_in_flight": 92
+        },
+        "namespace_entries": 2,
+        "logical_entries": 299,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 205,
+        "entry_bytes": 9568
+      }
+    },
+    "client": {
+      "v1": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 372,
+          "fault-log": 464,
+          "mkeys": 368,
+          "targets": 2056,
+          "ibm_dm": 28,
+          "ibm_ch": 28
+        },
+        "payload_bytes": 5196,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 14,
+          "fault-log": 17,
+          "mkeys": 14,
+          "targets": 67,
+          "ibm_dm": 3,
+          "ibm_ch": 3
+        },
+        "namespace_entries": 2,
+        "logical_entries": 192,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 312,
+        "entry_bytes": 6144
+      },
+      "v2": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 2852,
+          "fault-log": 464,
+          "mkeys": 368,
+          "targets": 2056,
+          "ibm_dm": 28,
+          "ibm_ch": 28
+        },
+        "payload_bytes": 7676,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 92,
+          "fault-log": 17,
+          "mkeys": 14,
+          "targets": 67,
+          "ibm_dm": 3,
+          "ibm_ch": 3
+        },
+        "namespace_entries": 2,
+        "logical_entries": 270,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 234,
+        "entry_bytes": 8640
+      },
+      "v2_replacement_overlap": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 2852,
+          "fault-log": 464,
+          "mkeys": 368,
+          "targets": 2056,
+          "ibm_dm": 28,
+          "ibm_ch": 28,
+          "ui_new_in_flight": 2852
+        },
+        "payload_bytes": 10528,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 92,
+          "fault-log": 17,
+          "mkeys": 14,
+          "targets": 67,
+          "ibm_dm": 3,
+          "ibm_ch": 3,
+          "ui_new_in_flight": 92
+        },
+        "namespace_entries": 2,
+        "logical_entries": 362,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 142,
+        "entry_bytes": 11584
+      }
+    },
+    "all_retained": {
+      "v1": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 372,
+          "fault-log": 464,
+          "admid": 40,
+          "acl": 368,
+          "mkeys": 368,
+          "targets": 2056,
+          "ibm_dm": 28,
+          "ibm_ch": 28
+        },
+        "payload_bytes": 5604,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 14,
+          "fault-log": 17,
+          "admid": 4,
+          "acl": 14,
+          "mkeys": 14,
+          "targets": 67,
+          "ibm_dm": 3,
+          "ibm_ch": 3
+        },
+        "namespace_entries": 2,
+        "logical_entries": 210,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 294,
+        "entry_bytes": 6720
+      },
+      "v2": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 2852,
+          "fault-log": 464,
+          "admid": 40,
+          "acl": 368,
+          "mkeys": 368,
+          "targets": 2056,
+          "ibm_dm": 28,
+          "ibm_ch": 28
+        },
+        "payload_bytes": 8084,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 92,
+          "fault-log": 17,
+          "admid": 4,
+          "acl": 14,
+          "mkeys": 14,
+          "targets": 67,
+          "ibm_dm": 3,
+          "ibm_ch": 3
+        },
+        "namespace_entries": 2,
+        "logical_entries": 288,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 216,
+        "entry_bytes": 9216
+      },
+      "v2_replacement_overlap": {
+        "record_bytes": {
+          "cfg": 240,
+          "id": 80,
+          "peers": 1160,
+          "join": 104,
+          "teams": 296,
+          "ui": 2852,
+          "fault-log": 464,
+          "admid": 40,
+          "acl": 368,
+          "mkeys": 368,
+          "targets": 2056,
+          "ibm_dm": 28,
+          "ibm_ch": 28,
+          "ui_new_in_flight": 2852
+        },
+        "payload_bytes": 10936,
+        "single_chunk_blob_entries": {
+          "cfg": 10,
+          "id": 5,
+          "peers": 39,
+          "join": 6,
+          "teams": 12,
+          "ui": 92,
+          "fault-log": 17,
+          "admid": 4,
+          "acl": 14,
+          "mkeys": 14,
+          "targets": 67,
+          "ibm_dm": 3,
+          "ibm_ch": 3,
+          "ui_new_in_flight": 92
+        },
+        "namespace_entries": 2,
+        "logical_entries": 380,
+        "conservative_4_page_capacity_entries": 504,
+        "entries_headroom_4_pages": 124,
+        "entry_bytes": 12160
+      }
+    }
+  },
+  "limitations": [
+    "No connected-device NVS stats or flash dump read.",
+    "An estimate of live records is not occupied entries: erased entries, framework keys, abandoned namespaces and fragmentation are not observed.",
+    "Single-chunk geometry is 2+ceil(bytes/32); extra chunks add overhead. All proposed records are below a fresh-page chunk capacity.",
+    "Profiles exclude the other endpoint during normal writes, but retained keys from an older profile may remain; all_retained row includes both. Fault record included conservatively.",
+    "A fresh 20KB NVS image has five 4096-byte pages; budgeting four (504 entries) leaves a GC page."
+  ]
+}

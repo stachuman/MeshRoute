@@ -462,14 +462,23 @@ inline RefuseReason refuse_reason_of(const SendExec& r) {
     return RefuseReason::other;   // -Wswitch covers the enum; this satisfies -Wreturn-type
 }
 
-// Wide enough for the longest line either verb can produce, with the widest `%u` GCC must assume for a promoted
-// `uint8_t` (10 digits) and the longest canned text. Measured worst case is `send_channel` at ~52 B; the excess is
-// deliberate slack against `-Wformat-truncation=`, exactly as `firmware_ui.cpp`'s kLineCap documents.
-// ⓘ RE-MEASURED 2026-08-26 (§UI-10/11 P3), and the cap is UNCHANGED: the widest line is now the channel post with a
-//   full 17-byte configured phrase AND `-l` — `send_channel 255 "<17>" -t -l -e` = **45 B** — against 52 for the
-//   promoted-`%u` worst case the paragraph above sizes for. The bound is `mrnv::kUiPresetTextMax` (OQ-A's 17), so a
-//   phrase can never grow past it without the record's own constant moving.
-inline constexpr std::size_t kSendLineCap = 96;
+// ★★★ W6 (brief §2.5) — THE CAPACITY IS DERIVED, ⛔ never a hand-counted number: the widest line either verb can
+//     produce, with the widest `%u` GCC must assume for a promoted `uint8_t` (10 digits) and the record's own text
+//     bound — `send_channel ` + 10 + ` "` + 163 + `"` + ` -t -l -e` + NUL = **199 B**. A phrase can never grow past
+//     it without `mrnv::kUiPresetTextMax` moving, and the `static_assert`s say so at compile time.
+// ⛔ WITHDRAWN, KEPT VISIBLE: `kSendLineCap = 96`, sized for a 17-byte phrase (*"the widest line is now the channel
+//    post with a full 17-byte configured phrase AND `-l` — 45 B"*). At 163 bytes that line is 191 B and a 96-B buffer
+//    would REFUSE it as a truncation (`ui_compose_send_line`'s C2 arm) — every long phrase unsendable, not clipped.
+// ★ THE BUFFER IS NO LONGER A STACK LOCAL: at 199 B it is the caller's ONE static line (`firmware_ui.cpp`), passed
+//   into `ui_perform_send` (owner-ruled D15). ⛔ Never a `static` inside an inline function here — that would be one
+//   array per TU or test instantiation.
+inline constexpr std::size_t kSendU8Digits = 10;   // the widest `%u` GCC must assume for a promoted `uint8_t`
+inline constexpr std::size_t kSendLineCap =
+    (sizeof "send_channel " - 1) + kSendU8Digits + (sizeof " \"" - 1) + mrnv::kUiPresetTextMax + (sizeof "\"" - 1) +
+    (sizeof " -t -l -e" - 1) + 1;
+static_assert(kSendLineCap == 199, "W6 (brief §2.5): the widest phrase line is 199 B");
+static_assert((sizeof "send " - 1) + kSendU8Digits + (sizeof " \"" - 1) + mrnv::kUiPresetTextMax + (sizeof "\"" - 1) +
+              (sizeof " -t -a -l" - 1) + 1 <= kSendLineCap, "the widest DM phrase line fits the same buffer");
 
 // ================================================================= §UI-10/11 P3 — THE STALE-GENERATION GATE (§3.3)
 // ★★★★ **THE FREEZE, AS A PREDICATE.** Design §3.3: *"If the slot is disabled or the generation no longer matches at
@@ -486,11 +495,27 @@ inline constexpr std::size_t kSendLineCap = 96;
 //      alarm seals no generation (`take_send_request` stamps 0), its slot cannot be disabled or cleared by
 //      construction (`preset_slot_mandatory`), and refusing a distress call because somebody re-worded `dm4` over
 //      BLE would be the worst defect this arc could ship. ⇒ ⛔ never add an emergency arm below.
+// ★★★ W6 (design r2.23 §7.4, brief §2.5) — TWO MORE BINDINGS ARE ASKED AT EXECUTION, each its own typed refusal with
+//     ZERO core submission, ⛔ never a send to whoever holds the ID now:
+//       · `team_changed` — the request's bound `team_id` is not the node's live team (`g_node.config().team_id`);
+//       · `recipient_changed` — a DM whose peer hash was KNOWN at selection no longer resolves to that hash through
+//         the existing authority (`Node::team_key_of_id`), including when it no longer resolves at all.
+//     A DM whose hash was not known at selection is sent by ID exactly as before (`TO T<n> UNVERIFIED` said so).
+//     ⛔ No ID-indexed static array and no cached six-cell label is consulted: the device supplies `SendLive` fresh.
 enum class SendGate : uint8_t {
-    send,             // the sealed slot+generation still describe the live catalog — compose and submit
-    preset_changed,   // ★ §2's ruled refusal: ZERO core submission, `PRESET CHANGED`, repaint from the catalog
+    send,               // the sealed slot+generation still describe the live catalog — compose and submit
+    preset_changed,     // ★ §2's ruled refusal: ZERO core submission, `PRESET CHANGED`, repaint from the catalog
+    team_changed,       // ★ W6: the bound team is not the live team — `TEAM CHANGED`, zero submission
+    recipient_changed,  // ★ W6: a known DM peer hash no longer matches — `RECIPIENT CHANGED`, zero submission
 };
-inline SendGate send_gate_of(const SendReq& req, const mrnv::UiPresetBlob& cat) {
+// ★ W6 — THE LIVE ANSWERS the gate compares a bound request against, read by the device at the instant of asking.
+//   `peer_found` is the resolver's OWN boolean: a zero `peer_hash` with `peer_found` is a known zero, never "unknown".
+struct SendLive {
+    uint32_t team_id    = 0;      // `g_node.config().team_id`
+    bool     peer_found = false;  // `Node::team_key_of_id`'s answer for the request's peer (DM only)
+    uint32_t peer_hash  = 0;      // its hash, meaningful only when `peer_found`
+};
+inline SendGate send_gate_of(const SendReq& req, const mrnv::UiPresetBlob& cat, const SendLive& live) {
     if (req.kind == SendKind::emergency) return SendGate::send;              // ⛔ R-3/§4.1 — never gated
     if (req.generation != cat.generation) return SendGate::preset_changed;   // ★ EQUALITY, never ordering (§3.2.3)
     if (!mrfw::preset_slot_valid(req.slot)) return SendGate::preset_changed; // C2 — a slot this catalog has not got
@@ -500,6 +525,9 @@ inline SendGate send_gate_of(const SendReq& req, const mrnv::UiPresetBlob& cat) 
     //   other way from airing a channel phrase as a DM.
     const mrfw::PresetKind want = (req.kind == SendKind::dm) ? mrfw::PresetKind::dm : mrfw::PresetKind::channel;
     if (mrfw::preset_kind_of(req.slot) != want) return SendGate::preset_changed;
+    if (req.team_id != live.team_id) return SendGate::team_changed;          // ★ W6: EQUALITY with the live team
+    if (req.kind == SendKind::dm && req.peer_known &&                          // ★ W6: only a hash KNOWN at selection
+        (!live.peer_found || live.peer_hash != req.peer_hash)) return SendGate::recipient_changed;
     return SendGate::send;
 }
 
@@ -570,18 +598,25 @@ inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req, 
 //     ordering discipline rather than a reentrancy hazard — but the discipline is free and the hazard would not be.)
 // ⓘ It takes BOTH trackers and picks by kind, so a caller cannot hand an alarm to the normal slot. That choice was a
 //   caller obligation in the plan's listing; here it is one line inside the tested unit.
+// ★ W6: the LINE is the caller's (`line`/`line_cap`, the device's one static buffer) and the gate's live answers
+//   arrive as `live`. ⛔ The executor must not re-enter this function while `line` is live (the device's never does).
 inline void ui_perform_send(SendTracker& emg, SendTracker& normal, UiModel& m, const SendReq& req,
-                            const mrnv::UiPresetBlob& cat, uint8_t team_channel_id, bool have_fix,
-                            SendExecFn exec, void* ctx, uint32_t now_ms) {
+                            const mrnv::UiPresetBlob& cat, const SendLive& live, char* line, std::size_t line_cap,
+                            uint8_t team_channel_id, bool have_fix, SendExecFn exec, void* ctx, uint32_t now_ms) {
     SendTracker& tr = (req.kind == SendKind::emergency) ? emg : normal;
     // ★★★★ §UI-10/11 P3 — **THE FREEZE IS ASKED FIRST, AND ITS REFUSAL COSTS ZERO OF EVERYTHING.** No line is
     //      composed, `exec` is never called, and — the half a reader will look for — ⛔ THE TRACKER IS NOT TOUCHED:
     //      `tr.submit()` is below this, so no slot is opened and none needs closing. §2's ruling is *"ZERO core
     //      submission"*, and the honest way to deliver that is to return before anything can submit.
     // ⛔ IT IS ⛔ NOT `on_send_refused`: that would say the send was attempted and failed. See `on_preset_changed`.
-    if (send_gate_of(req, cat) == SendGate::preset_changed) { m.on_preset_changed(req.kind, now_ms); return; }
-    char line[kSendLineCap];
-    const int n = ui_compose_send_line(line, sizeof line, req, cat, team_channel_id, have_fix);
+    // ★ W6: the two new bindings refuse the same way — typed, zero submission, the tracker untouched.
+    switch (send_gate_of(req, cat, live)) {
+        case SendGate::send:              break;
+        case SendGate::preset_changed:    m.on_preset_changed(req.kind, now_ms);   return;
+        case SendGate::team_changed:      m.on_team_changed(req.kind, now_ms);     return;
+        case SendGate::recipient_changed: m.on_recipient_changed(now_ms);          return;
+    }
+    const int n = ui_compose_send_line(line, line_cap, req, cat, team_channel_id, have_fix);
     // A line we refuse to compose never reaches the core, so there is no `CmdCode` for it — same shape as a parser
     // reject, and `RefuseReason::parser` is the predicate that says "read no code" (see UiModel::refuse_code).
     if (n == 0 || !exec) {
@@ -601,6 +636,59 @@ inline void ui_perform_send(SendTracker& emg, SendTracker& normal, UiModel& m, c
     if (r.ctr == 0) { tr.awaiting_outcome(now_ms); return; }   // ★ rule 2 — no handle, status UNKNOWN, no attempt spent
     tr.accept(r.ctr, now_ms);
     m.on_send_accepted(req.kind, now_ms);
+}
+
+// ================================================================== W6 — THE REVIEW's CAPTURE (design r2.23 §7.3)
+// ★★★ THE TICK's ANSWER TO A REQUESTED REVIEW, AND IT IS PURE FOR THE §UI-6 GLUE REASON: the device supplies only the
+//     live catalog, `SendLive` and the peer's raw counted name. It resolves the bound slot and generation against the
+//     LIVE catalog through the SAME gate an execution asks (U1), and copies the exact bytes into the model before any
+//     frame starts. ⛔ It never marks `_req_pending`, never calls an executor and keeps no pointer into the catalog.
+// ★ The DM peer's hash and its KNOWN bit are bound HERE, from the resolver's own answer — the same tick as the
+//   double, so nothing has run in between (see `UiModel::open_review`).
+inline constexpr uint8_t kReviewLabelCols = 7;   // design §7.3: `TO <label ≤ 7> <8 hex>` = 19 columns at most
+// Row 0 of the review: `TO TEAM <8 hex>` · `TO <label ≤ 7> <8 hex>` · `TO T<n> UNVERIFIED`. The label is the FULL raw
+// name through `ui_fmt_identity` at 7 (a longer one ends in the generated `»`); an unnamed known hash is its member
+// fingerprint, and a known ZERO hash with no name falls back to `T<n>` (`ui_fmt_identity` answers `none` for it).
+inline void ui_review_header(char* out, std::size_t cap, const SendReq& b, const char* name, uint8_t name_len) {
+    if (!out || cap == 0) return;
+    int n = 0;
+    if (b.kind != SendKind::dm) {
+        n = snprintf(out, cap, "TO TEAM %08lX", (unsigned long)b.team_id);
+    } else if (!b.peer_known) {
+        n = snprintf(out, cap, "TO T%u UNVERIFIED", unsigned(b.peer_id));
+    } else {
+        char label[kReviewLabelCols + 1];
+        if (ui_fmt_identity(label, sizeof label, name, name_len, b.peer_hash, kReviewLabelCols) != IdentityFmt::name &&
+            label[0] == '\0')
+            snprintf(label, sizeof label, "T%u", unsigned(b.peer_id));
+        n = snprintf(out, cap, "TO %s %08lX", label, (unsigned long)b.peer_hash);
+    }
+    if (n < 0 || std::size_t(n) >= cap) out[0] = '\0';   // never a clipped destination
+}
+// The broken binding's NOTE on the phrase list (`preset_changed` / `team_changed` / `recipient_changed`).
+inline ReviewPhase review_note_of(SendGate g) {
+    switch (g) {
+        case SendGate::send:              return ReviewPhase::none;
+        case SendGate::preset_changed:    return ReviewPhase::note_preset;
+        case SendGate::team_changed:      return ReviewPhase::note_team;
+        case SendGate::recipient_changed: return ReviewPhase::note_recipient;
+    }
+    return ReviewPhase::none;
+}
+// → true when a requested review was answered (opened, or closed on its broken binding).
+inline bool ui_review_capture(UiModel& m, const mrnv::UiPresetBlob& cat, const SendLive& live,
+                              const char* name, uint8_t name_len, const UiSnapshot& s, uint32_t now_ms) {
+    SendReq b{};
+    if (!m.review_capture_owed(b)) return false;
+    b.peer_known = (b.kind == SendKind::dm) && live.peer_found;   // ★ the resolver's own bit — a known zero stays known
+    b.peer_hash  = b.peer_known ? live.peer_hash : 0u;
+    const SendGate g = send_gate_of(b, cat, live);
+    if (g != SendGate::send) { m.on_review_refused(review_note_of(g), s, cat.generation); return true; }
+    const mrnv::UiPresetSlot& sl = cat.slot[b.slot];              // the gate proved it valid, enabled and of this kind
+    char header[kReviewHeaderCap];
+    ui_review_header(header, sizeof header, b, name, name_len);
+    m.on_review_captured(b.peer_known, b.peer_hash, header, sl.text, sl.len, sl.loc != 0, now_ms);
+    return true;
 }
 
 // Returns true if this push was a RECEIVE this unit owns (diagnostic; the caller routes everything else to

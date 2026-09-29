@@ -1,0 +1,43 @@
+{
+  "fence": {
+    "docs/manual/command-reference.md": "ee1f1b8c68990fa4bf7ba7635833d3a28dc2235bcf32607e6453f65033ed974d",
+    "ios-companion/INBOX_SYNC_CONTRACT.md": "5448666c9372c67ca1043d4a1533a53b10463d02c7c9ccf55f6c3d7555981783",
+    "src/device_nv.h": "5c0e4352ce99460146074a70151f94dde58a26e67ecc98142bbe004d4c9ce79c",
+    "src/firmware_commands.cpp": "ce1113baa75ecc991a9c8219862334fc6354155b99fa06f65d10f961a72fe128",
+    "src/firmware_ui.cpp": "11789f4392624b2e312492ad19c221659df9ccd01276070ef145f1c9fa8a32b1",
+    "src/firmware_ui_model.h": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+    "src/firmware_ui_preset_verbs.h": "fb24f120f82cb70ed7a7b6153c4e1ca8a32ba2dd1e514a9d0f6154a17ff98477",
+    "src/firmware_ui_presets.h": "1d67253f74490dbb43d83eae06b7bb5389151d4256da37b3c97e114000aebe23",
+    "src/firmware_ui_send.h": "2d6b09354adf590f48972013a1e47e3a933614f9ed837d83178a9d5ab18c5563",
+    "test/test_device_nv.cpp": "93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212",
+    "test/test_firmware_ui_chrome.cpp": "b19c08ad5a4e2e841d92f1a1b9972e6f1ec46cdadb7d58ed12d09db2d4b2e478",
+    "test/test_firmware_ui_model.cpp": "5f7d61cadf1b50a66cd07e2f229c9478c8c27c5e1f66a0597ff580a1b8397287",
+    "test/test_firmware_ui_preset_verbs.cpp": "a5b204b30f40833f83714d9bd7a0f3c418f9e4a067dbd64d193872f6cef8235f",
+    "test/test_firmware_ui_presets.cpp": "8811f177de4d94467505758a1b09f294e5f30283f8387865e3ce95e211831c03",
+    "test/test_firmware_ui_send.cpp": "a79e804ac53cd714455232e4cfdc92ec27f599dd262119e52f5ce7ec9bfbe736",
+    "tools/probe_board_abi.py": "fabd78ac4f48177cb27d21181c724dd7a9898d6c062c58c721ca3522f0bd9e2f",
+    "tools/probe_console_sink/probe_main.cpp": "f087651e66daaaca4238042438d60371b79a4817d4659397fd96345efaaa9eb4",
+    "tools/probe_console_sink/run.sh": "f543dbf1829bd09d2e672bdca1f32456b358cb0b5addc507a96f920061588b73",
+    "tools/probe_firmware_ui/probe_main.cpp": "188bb4eab5128de44536dd7897180bdf2bf29227093466f92e44c7e593a6776d",
+    "tools/probe_firmware_ui/run.sh": "ffcb62af6655a1a3a5eec8164f0152cc2136e2ad13b5adee922e75436afcaab5",
+    "tools/probe_inbox_verbs/fakes/Preferences.h": "bd57ac322eafe89e4e882c35b8bc02b9fda60f4738e11bfe1dacb0699b617346",
+    "tools/probe_inbox_verbs/probe_main.cpp": "263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1",
+    "tools/probe_inbox_verbs/run.sh": "098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61",
+    "tools/probe_ui_model_mutations.py": "8dfc782a8e81acea1c52bf70299747665f15bea20643dbf272aa87a95edad5f1",
+    "tools/test_probe_board_abi.py": "c6630098421aed5fc2ad54ea29f512e624ed6ba1f9d19b188a0b1632707951c3",
+    "tools/test_probe_console_sink.py": "4a3c3eae62dbdbe982f226c44777b974008abcf5920628ead907b8cdc2a90a1f"
+  },
+  "preparation": {
+    "MEMORY.md": "b90794dab03a4f8c5073b145a69557d884892878564cf12ae96140fb58834d0b",
+    "docs/2026-07-30-open-bug-register.md": "b78da31ba37ad694f1817265829161fce177d14fc34f2d47fd3746a0bd0a1e85",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-precheck.md": "3b7305a06b699e6188a531b0395b767a0ac7aa0ccf8178bb4879ac87d94831e8",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-precheck/SHA256SUMS": "dfd4b52d1e28717e80d7fb1f707ad4c6115a5b50551ba0adf50afc091023b039",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "d6ad9a12443eb545cb4db181d5b19fcd35f7d02840f47aa87b20ee5ee5d34bca",
+    "tracker.md": "b9472fd2a1e421f28d6dad626bcac3743a17a315bae52aeaed238e71d0d07e21"
+  },
+  "readonly_rerun": {
+    "tools/probe_deferred_actions/probe.cpp": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+    "tools/probe_deferred_actions/run.py": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f"
+  },
+  "brief_sha256": "cdcef1ee1826c14a8e941e05ef4b4bfdb8e7004926cfd22f7e2a44025716828e"
+}

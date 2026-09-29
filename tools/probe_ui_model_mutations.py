@@ -734,7 +734,12 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # W3 (UI-model seams): stage A +7 cases/+74 (test_firmware_ui_model w3-open/w3-prov counted loads) + stage B +4 cases/+133 (w3-pager helpers), 2 budget asserts restated in place = 2973/196111; measured by the full native binary.
 # W4a (identity labels): +10 w4a-ident (model) + 1 team repaint edge + 2 invite (row bound, confirmation names) = +13 cases/+1188 = 2986/197299; measured by the full native binary.
 # W4b (Home + navigation, brief rev 3): model +41 cases (38 w4b- + 3 b457 = +1125 assertions; +59 more in the rewritten navigation expectations), status 12->13 (8 retired STATUS-row cases -> 9 w4b- cases, +67), chrome +3 (w4b-chrome +62, +1 in a re-prefixed case), team/send unchanged = +45 cases/+1314 = 3031/198613; measured by the full native binary per file against a build of HEAD (= the frozen base, which reproduces 2986/197299): model 380/6729->421/7913, status 12/115->13/182, chrome 38/1933->41/1996.
-PIN_CASES, PIN_ASSERTS = 3031, 198613
+# W6 (saved phrases, brief rev 2): +24 cases/+919 = 3055/199532; measured per file by the full native binary with
+#   --source-file against a build of the frozen base 70ff486 (3031/198613): model 421/7913->437/8244 (+16: 15 w6- review/
+#   wrap/race/union cases + 1 reorder branch; the direct-double fixtures now confirm through the review), presets 28/976->
+#   32/1356 (+4 w6-v1/bounds; T=163 re-expressions), verbs 10/559->11/689 (+1 w6-bad_page; pages), send 117/977->120/1051
+#   (+3 w6-line/w6-gate/F2-review), chrome 41/1996->41/2000 (+4 review asserts in chrome-nav), device_nv 27/471 unchanged.
+PIN_CASES, PIN_ASSERTS = 3055, 199532
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -3645,8 +3650,10 @@ MUTS_MODEL = [
  #     ⓘ M27/M28 attack the SAME line from the other two directions (wrong gesture · no close at all); this one is
  #     listed with S01/S02 because after the ruling it is the emergency exception's own control.
  ("S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (§B101's close dropped)",
-  "    close_compose();\n    retain(s.now_ms);",
-  "    retain(s.now_ms);"),
+  # ⓘ RE-ANCHORED BY W6 (brief §2.9), MEANING KEPT: `long_fire` now closes a phrase REVIEW alone (design r2.23 §7.4.1)
+  #   and every other compose exactly as before — this entry drops the latter, the site §B101 put there.
+  "    if (review_active()) close_review(); else close_compose();\n    retain(s.now_ms);",
+  "    if (review_active()) close_review();\n    retain(s.now_ms);"),
  # ⛔⛔ S04 IS THE RULING TAKEN ONE STEP TOO FAR — the "obvious" companion edit, and the reason the source states the
  #     blank is UNCONDITIONAL. If preserving a modal is right, keeping the panel lit for it looks right too; it is
  #     not. `ui_allows_sleep` requires `blanked`, so a node with a forgotten modal open would never blank AND never
@@ -3660,8 +3667,9 @@ MUTS_MODEL = [
  #   unchanged — the cadence must not run on a DARK panel — and the replacement deliberately KEEPS `!blank_due(s)`,
  #   so this entry still reddens ONLY the dark-phase assertions and stays independent of S07.
  ("S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK",
-  "        if (!_st.blanked && !blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&",
-  "        if (!blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&"),
+  # ⓘ RE-ANCHORED BY W6, MEANING KEPT AND WIDENED: the ONE cadence now turns the phrase review's page too (D15).
+  "        if (!_st.blanked && !blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&",
+  "        if (!blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&"),
  # ⛔⛔ S07 IS THE BOTH-DUE BOUNDARY (QG-ruled 2026-08-21), and it is a THIRD independent way to lose the page: drop
  #     the priority and the tick that CROSSES the blank deadline turns the page and hides it in the same pass — the
  #     operator wakes onto a page they never saw.
@@ -3684,8 +3692,9 @@ MUTS_MODEL = [
  #   — no modal closes, no record changes, no store request appears. Each of S05/S06/S07 still fails a set the other
  #   two do not.
  ("S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick",
-  "        if (!_st.blanked && !blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&",
-  "        if (!_st.blanked && _st.detail == InboxModal::body && _st.detail_pages > 1 &&"),
+  # ⓘ RE-ANCHORED BY W6, MEANING KEPT AND WIDENED (the one cadence, both modes).
+  "        if (!_st.blanked && !blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&",
+  "        if (!_st.blanked && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&"),
  # ⛔⛔ S06 — the SUBTLER half, and it is invisible to any harness that does not mirror the real loop's order:
  #     `mr_ui_tick` runs `on_gesture(...)` then `on_tick(s)` on ONE snapshot, so with a stale `_detail_page_at_ms`
  #     the WAKE PASS ITSELF banks the whole dark interval and turns the page before the first frame. ⓘ `(void)` keeps
@@ -4411,8 +4420,9 @@ MUTS_MODEL = [
  #     policy) are `--target=uisend`'s U14/U15; the ones in `src/firmware_ui.cpp` are the probe's C137-C141.
  ("Y01 \u2605\u2605\u2605\u2605 THE SLOT IS DERIVED FROM THE ROW INDEX \u2014 \u00a7B66's exact defect, and on a GAPPED catalog "
   "(dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for",
-  "              compose_row_slot(_st.cursor, list), _st.compose_gen);",
-  "              uint8_t(mrfw::kPresetDmFirst + _st.cursor), _st.compose_gen);"),
+  # ⓘ RE-ANCHORED BY W6 (brief §2.9), MEANING KEPT: the row's slot is bound by the REVIEW now (D5), at the same press.
+  "open_review(dm ? SendKind::dm : SendKind::channel_canned, compose_row_slot(_st.cursor, list), s);",
+  "open_review(dm ? SendKind::dm : SendKind::channel_canned, uint8_t(mrfw::kPresetDmFirst + _st.cursor), s);"),
  ("Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are "
   "empty\". \u00a73.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS",
   "        if (!s.enabled) continue;                                   // \u2605 ENABLED ONLY",
@@ -4442,6 +4452,88 @@ MUTS_MODEL = [
   "RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted",
   "        if (k == SendKind::dm)                   _dm   = DmState::preset_changed;",
   "        if (k == SendKind::dm)                   _dm   = DmState::failed;"),
+ # ================================================================ W6 — THE SAVED-PHRASE REVIEW (brief §2.9, new)
+ # ★★★ Each a TEMPTING WRONG FIX of the review's ruled behaviour (design r2.23 §7.2-§7.4.1, D5/D15): BACK first,
+ #     the review BEFORE queueing, full-text capture, no-send paging, the team/hash/generation races, the owed
+ #     request's coexistence with an alarm, and the union's exclusivity. Native cover: the `w6-` cases.
+ ('W6-M01 ★★★ THE REVIEW OPENS WITH SEND SELECTED — one stray double sends (design §7.3: BACK first, sending costs short + double)',
+  '        _st.review_send  = false;                                     // ★ BACK — sending costs short + double',
+  '        _st.review_send  = true;                                      // ★ BACK — sending costs short + double'),
+ ("W6-M02 ★★★★ A DOUBLE ON A PHRASE QUEUES DIRECTLY — the review is bypassed (D5's whole point)",
+  'open_review(dm ? SendKind::dm : SendKind::channel_canned, compose_row_slot(_st.cursor, list), s);',
+  'queue(dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer, compose_row_slot(_st.cursor, list), _st.compose_gen); _st.compose_result = true;'),
+ ('W6-M03 ★★★ SEND REBUILDS THE REQUEST FIELD BY FIELD — the bound team and peer hash are dropped (U2), so the gate cannot re-ask them',
+  '        queue(_review);                                                // ★ SEND: exactly once, the existing slot',
+  '        queue(_review.kind, _review.peer_id, _review.slot, _review.generation);'),
+ ('W6-M04 ★★★ A PAGE TURN IS A SEND — the time-driven cadence queues the reviewed phrase (no-send paging broken)',
+  '            if (_st.review_phase == ReviewPhase::open) refresh_review_page(); else refresh_detail_page();',
+  '            if (_st.review_phase == ReviewPhase::open) { refresh_review_page(); queue(_review); } else refresh_detail_page();'),
+ ('W6-M05 a SHORT on the review also turns the page — a press becomes a page turn (the cadence is time-only)',
+  '        if (g == Gesture::short_press) { _st.review_send = !_st.review_send; _st.dirty = true; return; }',
+  '        if (g == Gesture::short_press) { _st.review_send = !_st.review_send; _st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages); refresh_review_page(); _st.dirty = true; return; }'),
+ ('W6-M06 ★★ the BLANK keeps SEND selected — the wake press could be the first half of a send nobody saw armed',
+  '            _st.review_send = false;   // ★ W6: blanking KEEPS the review and its page, and resets the action to BACK',
+  '            ;'),
+ ('W6-M07 ★★ `long_arm` leaves SEND selected under the overlay (the alarm must return a review at BACK)',
+  '    if (review_active()) _st.review_send = false;   // ★ W6: an arming alarm keeps the review, reset to BACK',
+  '    ;'),
+ ('W6-M08 `long_fire` closes the whole phrase LIST too — after the alarm the wearer lands elsewhere (§7.4.1: the list)',
+  '    if (review_active()) close_review(); else close_compose();',
+  '    if (review_active()) close_review(); close_compose();'),
+ ('W6-M09 ★★★ `long_fire` LEAVES THE REVIEW OPEN under a committed alarm — an armed confirmation survives the overlay',
+  '    if (review_active()) close_review(); else close_compose();',
+  '    if (!review_active()) close_compose();'),
+ ('W6-M10 ★★★★ THE TEAM RACE: a changed team no longer closes the review — a phrase aimed at team A confirms into team B',
+  '        if (s.team_id != _review.team_id) { review_close_with(ReviewPhase::note_team, s, s.preset_generation); return true; }',
+  '        ;'),
+ ('W6-M11 no team left: the review closes to its LIST instead of Home (§7.4.1: Home if no team remains)',
+  '        if (note == ReviewPhase::note_team && s.team_id == 0) {        // no team left → Home',
+  '        if (false) {'),
+ ('W6-M12 ★★★★ THE HASH RACE: a re-keyed recipient no longer closes the review — the confirmed phrase goes to whoever holds the ID now',
+  '        if (_review.kind == SendKind::dm && _review.peer_known && hash != _review.peer_hash) {',
+  '        if (false) {'),
+ ('W6-M13 the KNOWN bit is ignored: an UNVERIFIED review is closed by a hash that merely appears (a false RECIPIENT CHANGED)',
+  '        if (_review.kind == SendKind::dm && _review.peer_known && hash != _review.peer_hash) {',
+  '        if (_review.kind == SendKind::dm && hash != _review.peer_hash) {'),
+ ('W6-M14 ★★★ THE GENERATION RACE: a moved catalog no longer closes the review with PRESET CHANGED — the DM list is then closed outright',
+  '        if (s.preset_generation != _review.generation) { review_close_with(ReviewPhase::note_preset, s, s.preset_generation); return true; }',
+  '        ;'),
+ ('W6-M15 ★★★ a REMOVED teammate keeps the review open — the confirmation targets an ID nobody on the roster holds',
+  '            if (!present) {                                            // the teammate is gone → the Team list',
+  '            if (false) {'),
+ ("W6-M16 ★★★★ THE REVIEW's BINDING IS `_req` — a later review overwrites a request still owed (e.g. across an alarm)",
+  '        _review = SendReq{k, _st.compose_peer, slot, false, _st.compose_gen, s.team_id, 0u};',
+  '        _req = SendReq{k, _st.compose_peer, slot, false, _st.compose_gen, s.team_id, 0u}; _review = _req;'),
+ ("W6-M17 ★★ the model derives KNOWN from `hash != 0` — a known zero is read as unknown (brief §2.5's forbidden reading)",
+  "        _review.peer_known = (_review.kind == SendKind::dm) && peer_known;   // ★ the RESOLVER's bit, never `hash != 0`",
+  '        _review.peer_known = (_review.kind == SendKind::dm) && peer_hash != 0;'),
+ ('W6-M18 ★★★ FULL-TEXT CAPTURE TRUNCATED to the row width — the review shows the abbreviated row, not what will be sent',
+  '        if (n > mrnv::kUiPresetTextMax) n = mrnv::kUiPresetTextMax;',
+  '        if (n > kComposeTextCols) n = kComposeTextCols;'),
+ ("W6-M19 ★★ THE UNION's EXCLUSIVITY: a closed review leaves its page state in the SHARED storage for the Inbox to inherit",
+  "        _st.detail_page = 0; _st.detail_pages = 1;\n        _detail_len = 0; _detail_body[0] = '\\0';\n        for (uint8_t r = 0; r < kReviewBodyRows; ++r) _st.review_line[r][0] = '\\0';",
+  '        ;'),
+ ('W6-M20 the abbreviation starts one byte early — a 17-byte phrase, which FITS, is shown abbreviated',
+  '        if (s.len <= kComposeTextCols) {                            // fits the row: every byte, as stored',
+  '        if (s.len < kComposeTextCols) {'),
+ ("W6-M21 the abbreviation marker is a dot — the row no longer says the phrase continues (D7's `»`)",
+  '            r.text[kComposeTextCols - 1] = kIdentityMarker;',
+  "            r.text[kComposeTextCols - 1] = '.';"),
+ ("W6-M22 ★★ the NOTE's press falls through and ACTS — the press that clears `TEAM CHANGED` also opens a review / sends",
+  '        if (review_note_text(_st.review_phase)) { _st.review_phase = ReviewPhase::none; _st.dirty = true; return; }',
+  '        if (review_note_text(_st.review_phase)) { _st.review_phase = ReviewPhase::none; _st.dirty = true; }'),
+ ("W6-M23 a capture-time refusal re-seals the DM list on the tick's OLDER snapshot — the next tick closes it and the note is lost",
+  '            _st.compose_gen = live_generation;',
+  '            _st.compose_gen = s.preset_generation;'),
+ ("W6-M24 ★ the wrap's branch (2) dropped — a line that FITS its 19 cells before a space is split early",
+  "    if (body[s + kReviewCols] == ' ' || body[s + kReviewCols - 1] == ' ') return kReviewCols;   // (2)",
+  '    ;'),
+ ("W6-M25 the wrap's branch (3) keeps one byte too many — the space-ending line swallows the next word's first letter",
+  "        if (body[s + i - 1] == ' ') return i;",
+  "        if (body[s + i - 1] == ' ') return uint8_t(i + 1);"),
+ ('W6-M26 the page count forgets the partial last page — the tail of a long phrase is never shown in review',
+  '    return lines == 0 ? uint8_t(1) : uint8_t((lines + kReviewBodyRows - 1) / kReviewBodyRows);   // never 0 pages',
+  '    return lines == 0 ? uint8_t(1) : uint8_t(lines / kReviewBodyRows);'),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -5228,6 +5320,21 @@ MUTS_DEVICENV = [
  #   survived when run. ★ Their EXECUTED cover is `tools/probe_inbox_verbs` C37/C38/C39 (CLIENT arm), which drives
  #   the REAL ESP32 read/write sequence against the byte-counted fake medium; all three are verified RED there.
  #   This is the SAME resolution slice 3 reached for the identical three on `/mradmid` + `/mracl` (its C27..C29).
+ # ================================================================ W6 — THE OLD v1 RECORD (design r2.23 §7.8, D8; brief §2.9)
+ # ★★ Recognised by SIZE, MAGIC and VERSION only, asked after the backend/oversize arms. Native cover: `w6-v1`;
+ #    executed cover on the real ESP32 read path: the inbox-verbs OLED arm's W6-O12 + control W6-C5.
+ ('W6-N1 ★★★ THE OLD v1 RECORD IS NOT RECOGNISED — it reads `invalid` and the wearer is told his phrases are corrupt',
+  '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;',
+  '    ;'),
+ ('W6-N2 the v1 test forgets the VERSION — any 372-byte `MRU1` file is called an old v1 record',
+  '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;',
+  '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic) return UiPresetRead::old_v1;'),
+ ("W6-N3 the v1 test forgets the MAGIC — another record of v1's size is called an old phrase catalog",
+  '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;',
+  '    if (n == kUiPresetV1Bytes && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;'),
+ ("W6-N4 ★★ the v1 test is asked BEFORE the backend — a dead store holding v1's bytes reads as a readable old record",
+  '    if (io.backend_failed) return UiPresetRead::io_failed;',
+  '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;\n    if (io.backend_failed) return UiPresetRead::io_failed;'),
 ]
 
 # ===== §UI-16 K1 — src/firmware_team_keyring.h =====================================================================
@@ -6791,6 +6898,42 @@ MUTS_UISEND = [
   "the wearer configured, and nothing on the panel says so",
   '        n = loc ? snprintf(out, cap, "send_channel %u \\"%.*s\\" -t -l -e", unsigned(team_channel_id), tl, sl.text)',
   '        n = (loc && have_fix) ? snprintf(out, cap, "send_channel %u \\"%.*s\\" -t -l -e", unsigned(team_channel_id), tl, sl.text)'),
+ # ================================================================ W6 — THE TWO NEW GATE QUESTIONS + THE CAPTURE (brief §2.5/§2.9)
+ # ★★★ The team and (known) recipient refusals — typed, zero submission — and the review's pure capture. Native
+ #     cover: `w6-gate`, `w6-line` and the model's `w6-review` cases.
+ ('W6-S01 ★★★★ THE GATE DROPS THE TEAM QUESTION — an owed phrase executes into a team the wearer never chose',
+  '    if (req.team_id != live.team_id) return SendGate::team_changed;          // ★ W6: EQUALITY with the live team',
+  '    ;'),
+ ('W6-S02 ★★★★ THE GATE DROPS THE RECIPIENT QUESTION — a confirmed DM goes to whoever holds the ID now',
+  '    if (req.kind == SendKind::dm && req.peer_known &&                          // ★ W6: only a hash KNOWN at selection',
+  '    if (false && req.peer_known &&'),
+ ('W6-S03 ★★★ a binding that NO LONGER RESOLVES is treated as a match — a vanished key is not a changed recipient',
+  '        (!live.peer_found || live.peer_hash != req.peer_hash)) return SendGate::recipient_changed;',
+  '        (live.peer_found && live.peer_hash != req.peer_hash)) return SendGate::recipient_changed;'),
+ ('W6-S04 the team refusal is typed as PRESET CHANGED — the wearer is told the wrong reason',
+  '        case SendGate::team_changed:      m.on_team_changed(req.kind, now_ms);     return;',
+  '        case SendGate::team_changed:      m.on_preset_changed(req.kind, now_ms);   return;'),
+ ('W6-S05 ★★★★ the recipient refusal STILL SUBMITS — a typed note on the panel and a send on the air',
+  '        case SendGate::recipient_changed: m.on_recipient_changed(now_ms);          return;',
+  '        case SendGate::recipient_changed: m.on_recipient_changed(now_ms);          break;'),
+ ("W6-S06 ★★ the capture takes KNOWN from `hash != 0` — a known zero becomes UNVERIFIED (the resolver's bit ignored)",
+  "    b.peer_known = (b.kind == SendKind::dm) && live.peer_found;   // ★ the resolver's own bit — a known zero stays known",
+  '    b.peer_known = (b.kind == SendKind::dm) && live.peer_hash != 0;'),
+ ('W6-S07 ★★★ THE CAPTURE SKIPS THE GATE — a review opens on a catalog that already moved',
+  '    if (g != SendGate::send) { m.on_review_refused(review_note_of(g), s, cat.generation); return true; }',
+  '    (void)g;'),
+ ("W6-S08 ★★★ the capture copies at most the ROW's 17 bytes — the review is not the exact phrase that will be sent",
+  'sl.text, sl.len, sl.loc != 0, now_ms);',
+  'sl.text, uint8_t(sl.len > 17 ? 17 : sl.len), sl.loc != 0, now_ms);'),
+ ('W6-S09 ★★ `LOC` is never captured — a located phrase is confirmed without the wearer seeing it carries a position (D6)',
+  'sl.loc != 0, now_ms);',
+  'false, now_ms);'),
+ ('W6-S10 ★★★ THE OPERATION COMPOSES INTO A 96-B LINE — every long phrase is refused as a truncation (the retired cap)',
+  '    const int n = ui_compose_send_line(line, line_cap, req, cat, team_channel_id, have_fix);',
+  '    const int n = ui_compose_send_line(line, line_cap < 96 ? line_cap : 96, req, cat, team_channel_id, have_fix);'),
+ ("W6-S11 ★★ an UNVERIFIED DM's row 0 claims a hash — the wearer is shown a verification that never happened",
+  '        n = snprintf(out, cap, "TO T%u UNVERIFIED", unsigned(b.peer_id));',
+  '        n = snprintf(out, cap, "TO T%u %08lX", unsigned(b.peer_id), (unsigned long)b.peer_hash);'),
 ]
 
 MUTS_TEAMGRANT = [
@@ -7511,9 +7654,11 @@ MUTS_UIPRESETS = [
   "        const mrnv::UiPresetRead st = read_store();",
   "        const mrnv::UiPresetRead st = read_store();"),
  # --- VALIDATION: OQ-A's bound and §3.2.2's content rules ----------------------------------------------------------
- ("U25 ★★★ OQ-A'S WITHDRAWN DRAFT BOUND RESTORED (18) — the row always shows a location marker, so byte 18 is one the wearer cannot inspect",
+ ("U25 ★★★ OQ-A'S WITHDRAWN DRAFT BOUND RESTORED (T + 1; W6: 164, was 18) — the bound is ONE for every preset in both location states",
   "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
-  "    if (len == 0 || len > 18) return PresetErr::bad_text;"),
+  # ⓘ W6 (D7): re-expressed at the NEW bound — the SAME "one past it accepted" shape the 18 was at T = 17 (a literal 18
+  #   at T = 163 would now test a too-TIGHT bound, a different and weaker property).
+  "    if (len == 0 || len > mrnv::kUiPresetTextMax + 1) return PresetErr::bad_text;"),
  ("U26 the '≥ one non-space' rule dropped — a slot of spaces renders as a row the wearer believes is configured and cannot see",
   "    return non_space ? PresetErr::none : PresetErr::bad_text;",
   "    return PresetErr::none;"),
@@ -7527,13 +7672,37 @@ MUTS_UIPRESETS = [
  # ★★★ THE TWO HALVES OF THE FIX GET ONE ENTRY EACH, because they fail in DIFFERENT PLACES and a reviewer's reflex
  #     ("the record's field is a uint8_t, so the parameter should be too") reaches for either. U31 narrows INSIDE the
  #     validator; U32 narrows AT THE PUBLIC BOUNDARY, before one line of the service runs. 273 & 0xFF = 17.
- ("U31 ★★★★ THE BOUND IS TESTED AFTER A NARROW: a 273-byte phrase becomes 17 and is ACCEPTED as valid",
+ ("U31 ★★★★ THE BOUND IS TESTED AFTER A NARROW: a 419-byte phrase becomes 163 and is ACCEPTED as valid (W6; was 273 -> 17)",
   "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
   "    len = static_cast<uint8_t>(len);\n"
   "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;"),
  ("U32 ★★★★ THE PUBLIC BOUNDARY IS NARROWED BACK to the record's own width — the length is laundered AT THE CALL, before any check runs",
   "    PresetResult set(long slot, bool loc, const char* text, size_t len) {",
   "    PresetResult set(long slot, bool loc, const char* text, uint8_t len) {"),
+ # ================================================================ W6 — v1 STATE TABLE, PAGES, THE 163/164 EDGE, D9 (brief §2.9)
+ # ★★ The old-v1 line and its zero boot writes, the first-change replacement, the page geometry and token, the
+ #    tight edge of the T bound (U25 is the loose one), and D9's location-off defaults.
+ ("W6-P1 ★★ THE OLD v1 BOOT IS SILENT — the wearer's phrases are gone and nothing says so (D8's line)",
+  '        case mrnv::UiPresetRead::old_v1:    return kPresetOldV1Line;    // W6 — at EVERY boot until replaced',
+  '        case mrnv::UiPresetRead::old_v1:    return nullptr;'),
+ ('W6-P2 ★★★ AN OLD v1 RECORD BECOMES A BASELINE — a restated default writes nothing and the v1 record is never replaced',
+  '        if (st == mrnv::UiPresetRead::absent &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }',
+  '        if (st == mrnv::UiPresetRead::old_v1) preset_defaults(_cur);\n        if ((st == mrnv::UiPresetRead::absent || st == mrnv::UiPresetRead::old_v1) &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }'),
+ ('W6-P3 ★★★ THE BOOT WRITES an old v1 record over with the defaults (a migration by the back door; D8: zero boot writes)',
+  '        preset_defaults(_live);\n        return st;\n    }',
+  '        preset_defaults(_live);\n        if (st == mrnv::UiPresetRead::old_v1) (void)_store.save(_live);\n        return st;\n    }'),
+ ('W6-P4 ★★ THE PAGE SIZE grows to five — a maximum page outgrows what the 2048-B stage was proved to hold (D14)',
+  'inline constexpr uint8_t kPresetPageSize = 4;',
+  'inline constexpr uint8_t kPresetPageSize = 5;'),
+ ('W6-P5 the page token accepts one past the last page — `list 6` answers an empty page instead of `bad_page`',
+  "    return (t && n == 1 && t[0] >= '1' && t[0] <= char('0' + kPresetPages)) ? uint8_t(t[0] - '0') : uint8_t(0);",
+  "    return (t && n == 1 && t[0] >= '1' && t[0] <= char('1' + kPresetPages)) ? uint8_t(t[0] - '0') : uint8_t(0);"),
+ ("W6-P6 ★★ THE BOUND GOES ONE TIGHT — a 163-byte phrase (D7's own limit) is refused",
+  '    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;',
+  '    if (len == 0 || len >= mrnv::kUiPresetTextMax) return PresetErr::bad_text;'),
+ ('W6-P7 ★★ a D9 DEFAULT ASKS FOR LOCATION — `Return to base now` would carry coordinates the wearer never enabled',
+  '    { "Return to base now", 0 },   // 11 channel3',
+  '    { "Return to base now", 1 },   // 11 channel3'),
 ]
 
 # ===== §UI-10/11 P2 — src/firmware_ui_preset_verbs.h ===============================================================
@@ -7559,17 +7728,21 @@ MUTS_UIPRESETVERBS = [
   '            preset_emit_err(r.err, out);',
   '            preset_emit_err(PresetErr::store, out);'),
  ("V03 ★★★ `list` SKIPS THE DISABLED SLOTS — an editor can no longer address `dm5` to turn it on (§3.2.3's own words)",
-  '    for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);',
-  '    for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) if (cat.slot(i).enabled) preset_emit_record(cat, i, out);'),
+  # ⓘ RE-ANCHORED BY W6 (D14), MEANING KEPT: the one list emitter now serves pages and `reset all`'s whole list.
+  '    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);',
+  '    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) if (cat.slot(i).enabled) preset_emit_record(cat, i, out);'),
  ("V04 ★★ the end record's `capacity` becomes a HAND-WRITTEN literal — the number the companion sizes its editor from can now drift from the record",
-  '    j.lit("{\\"ev\\":\\"ui_presets_end\\",\\"capacity\\":"); j.u32(mrnv::kUiPresets);',
-  '    j.lit("{\\"ev\\":\\"ui_presets_end\\",\\"capacity\\":"); j.u32(16);'),
+  # ⓘ RE-ANCHORED BY W6, MEANING KEPT: the fixed spellings are P1's named lexemes now (`kPresetEndHead`, §7.7).
+  'j.lit(kPresetEndHead); j.u32(mrnv::kUiPresets);',
+  'j.lit(kPresetEndHead); j.u32(16);'),
  ('V05 ★★ THE GENERATION IS DROPPED FROM THE END RECORD — a list no longer says WHICH catalog it just described',
-  '    j.lit(",\\"generation\\":");     j.u32(generation);',
+  # ⓘ RE-ANCHORED BY W6, MEANING KEPT (the named lexeme).
+  '    j.lit(kPresetEndGen);      j.u32(generation);',
   '    ;'),
- ('V06 the two ACTIVE COUNTS are swapped in the end record — invisible on the compiled defaults, where both are 2',
-  '                                             cat.enabled_count(PresetKind::dm),\n                                             cat.enabled_count(PresetKind::channel),',
-  '                                             cat.enabled_count(PresetKind::channel),\n                                             cat.enabled_count(PresetKind::dm),'),
+ ('V06 the two ACTIVE COUNTS are swapped in the end record — invisible on the compiled defaults, where both are 2 (W6: D9 makes them 3 / 4)',
+  # ⓘ RE-ANCHORED BY W6, MEANING KEPT: the one emitter's call, now also carrying the page.
+  'write_ui_presets_end(b, sizeof b, cat.enabled_count(PresetKind::dm),\n                                             cat.enabled_count(PresetKind::channel), cat.generation(), page)',
+  'write_ui_presets_end(b, sizeof b, cat.enabled_count(PresetKind::channel),\n                                             cat.enabled_count(PresetKind::dm), cat.generation(), page)'),
  # --- the RESULT -> OUTPUT rule (§3.2.3: "return the resulting record, or the full list for `reset all`") ----------
  ('V07 ★★★ A MUTATING VERB ANSWERS WITH A DUMP — the companion must diff seventeen records to find what it just changed',
   '            if (whole_list) preset_emit_list(cat, out);\n            else            preset_emit_record(cat, static_cast<uint8_t>(slot), out);',
@@ -7608,12 +7781,34 @@ MUTS_UIPRESETVERBS = [
  ('V17 an ABSENT text term becomes `bad_text` instead of the grammar — an incomplete line is answered with a reason code instead of the shape',
   '        if (a.exhausted()) return false;\n        const long slot = preset_slot_of_token(st, sn);',
   '        const long slot = preset_slot_of_token(st, sn);'),
- ('V18 a TRAILING TOKEN on `list` is IGNORED rather than refused (C2) — `ui preset list all` silently runs a plain list',
-  '        if (!a.exhausted()) return false;                              // C2 — a trailing token is a MISTYPE',
-  '        ;'),
+ ('V18 a TRAILING TOKEN on `list` is IGNORED rather than refused (C2) — `ui preset list 1 2` silently runs page 1',
+  # ⓘ RE-ANCHORED BY W6 (D14), MEANING KEPT: a token after the page is still refused — as `bad_page` now, not usage.
+  '(a.exhausted() ? preset_page_of_token(t, n) : uint8_t(0))',
+  'preset_page_of_token(t, n)'),
  ('V19 ★★ THE MUTATING VERBS STOP DISTINGUISHING `refused` FROM A SUCCESS: a refusal renders the UNCHANGED record, so a companion reads a rejected edit as applied',
   '        case PresetVerdict::refused:\n        case PresetVerdict::nv_failed:',
   '        case PresetVerdict::refused:\n            preset_emit_record(cat, static_cast<uint8_t>(slot), out);\n            return;\n        case PresetVerdict::nv_failed:'),
+ # ================================================================ W6 — THE PAGED REPLIES (D14; brief §2.9)
+ # ★★ `bad_page`, the whole-reply bound (pages of four, never the unpaged list), the page fields, `text_max`, and
+ #    the boot line's own derived buffer. Executed cover of the stage: the inbox-verbs OLED arm (W6-C1/C2).
+ ('W6-V1 ★★ A BAD PAGE ANSWERS THE USAGE LINE — the companion gets prose instead of `bad_page` (D14)',
+  '        if (pg) preset_emit_list(cat, out, pg); else preset_emit_err(PresetErr::bad_page, out);   // W6 D14: bare = 1',
+  '        if (pg) preset_emit_list(cat, out, pg); else return false;'),
+ ('W6-V2 ★★★ `list` ANSWERS UNPAGED — the whole-reply bound is gone (seventeen maximum records overflow the stage)',
+  '        if (pg) preset_emit_list(cat, out, pg); else',
+  '        if (pg) preset_emit_list(cat, out); else'),
+ ('W6-V3 ★★ a page does not stop at its four — every page runs to the end of the catalog',
+  '    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);',
+  '    for (uint8_t i = first; i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);'),
+ ("W6-V4 ★★ a page's end record loses `page`/`pages` — a client cannot tell which page it read or when to stop",
+  '    if (page != 0) { j.lit(kPresetEndPage); j.u32(page); j.lit(kPresetEndPages); j.u32(kPresetPages); }',
+  '    (void)page;'),
+ ('W6-V5 `text_max` reports the SLOT count — the companion sizes its text field from the wrong number',
+  'j.lit(kPresetEndTextMax); j.u32(mrnv::kUiPresetTextMax);',
+  'j.lit(kPresetEndTextMax); j.u32(mrnv::kUiPresets);'),
+ ("W6-V6 the boot line's buffer is sized short of its own derived bound — a boot diagnostic is clipped",
+  '    char b[kPresetBootLineMax];',
+  '    char b[kPresetBootLineMax - 10];'),
 ]
 
 # ===== §B20/B21 — lib/core/node_mac.cpp: the seal's CAP and the DST_HASH guard's TWO conditions ==================

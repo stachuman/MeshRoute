@@ -1,0 +1,3498 @@
+[
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M01 sync matches `seq` ONLY (the kind clause dropped)",
+    "matches": 1,
+    "old": "if (s.inbox[i].kind != _inbox_sel_kind || s.inbox[i].seq != _inbox_sel_seq) continue;",
+    "new": "if (s.inbox[i].seq != _inbox_sel_seq) continue;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M02 the highlight does NOT follow a moved record (sync is inert)",
+    "matches": 1,
+    "old": "        if (_st.cursor != i) { _st.cursor = i; _st.dirty = true; }     // the record MOVED -> the highlight follows\n            return;",
+    "new": "        return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M03 a vanished pick is KEPT rather than dropped (the tempting clamp)",
+    "matches": 1,
+    "old": "_inbox_sel_valid = false; _st.inbox_pick_gone = true; _st.dirty = true;\n    }\n    // The WRITE side",
+    "new": "_st.dirty = true;\n    }\n    // The WRITE side"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M04 the GESTURE path stops re-anchoring the cursor (the highlight goes stale)",
+    "matches": 1,
+    "old": "sync_inbox_cursor(s);            // \u2605 \u00a7UI-7D: the same re-anchoring for the INBOX row, by `(kind, seq)`",
+    "new": ";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M05 activation CLAMPS instead of refusing a lost selection",
+    "matches": 1,
+    "old": "if (!_inbox_sel_valid) {\n                if (s.inbox_shown > 0) _st.inbox_pick_gone = true;",
+    "new": "if (false) {\n                if (s.inbox_shown > 0) _st.inbox_pick_gone = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M06 a row with seq 0 is selected anyway",
+    "matches": 1,
+    "old": "                if (s.inbox[_st.cursor].seq != 0) {",
+    "new": "                if (true) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M07 the erase target assumes the DM store ([[B133]]'s exact shape)",
+    "matches": 1,
+    "old": "_inbox_req = { InboxWhat::erase, _st.detail_kind, _st.detail_seq };",
+    "new": "_inbox_req = { InboxWhat::erase, InboxKind::dm, _st.detail_seq };"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M08 the erase target is the NEIGHBOUR (an off-by-one row)",
+    "matches": 1,
+    "old": "_inbox_req = { InboxWhat::erase, _st.detail_kind, _st.detail_seq };",
+    "new": "_inbox_req = { InboxWhat::erase, _inbox_nb_kind, _inbox_nb_seq };"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M09 the answer's identity is not checked at all",
+    "matches": 1,
+    "old": "return _inbox_taken && _inbox_req.what == w && _inbox_req.kind == k && _inbox_req.seq == seq;",
+    "new": "(void)k; (void)seq; return _inbox_taken && _inbox_req.what == w;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M10 an UNSOLICITED answer is accepted (the `_inbox_taken` guard dropped)",
+    "matches": 1,
+    "old": "return _inbox_taken && _inbox_req.what == w &&",
+    "new": "return _inbox_req.what == w &&"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M11 the budget's ring is chosen from the WRONG kind",
+    "matches": 1,
+    "old": "const bool dm = (r.kind == InboxKind::dm);",
+    "new": "const bool dm = (r.kind == InboxKind::channel);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M12 the body length is found by scanning for NUL (i.e. strlen)",
+    "matches": 1,
+    "old": "uint8_t n = body ? body_len : 0;                      // no body at all is a legitimate record, not an error",
+    "new": "uint8_t n = 0; if (body) { while (n < MESHROUTE_NS::protocol::inbox_max_body && body[n]) ++n; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M13 the sanitizer passes raw bytes through",
+    "matches": 1,
+    "old": "inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }",
+    "new": "inline char ui_display_byte(uint8_t b) { return char(b); }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M14 pages FLOORS instead of ceiling",
+    "matches": 1,
+    "old": "const uint32_t p = (uint32_t(len) + per - 1) / per;",
+    "new": "const uint32_t p = uint32_t(len) / per;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M15 an empty body yields ZERO pages",
+    "matches": 1,
+    "old": "return p ? uint8_t(p) : uint8_t(1);",
+    "new": "return uint8_t(p);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M16 the page advance STOPS at the last page instead of cycling",
+    "matches": 1,
+    "old": "_st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages);",
+    "new": "if (_st.detail_page + 1 < _st.detail_pages) _st.detail_page = uint8_t(_st.detail_page + 1);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M17 a page turn also refreshes the inactivity deadline",
+    "matches": 1,
+    "old": "_detail_page_at_ms = s.now_ms;",
+    "new": "_detail_page_at_ms = s.now_ms; _last_input_ms = s.now_ms;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M18 both body rows render the SAME 19 columns",
+    "matches": 1,
+    "old": "const uint32_t i = off + uint32_t(row) * Cols + n;",
+    "new": "const uint32_t i = off + n;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M20 a freshly opened modal selects `delete`",
+    "matches": 1,
+    "old": "_st.detail_action = InboxAction::back;                // spec \u00a73.5: deletion costs short -> double, always",
+    "new": "_st.detail_action = InboxAction::del;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M21 short press does not toggle the action",
+    "matches": 1,
+    "old": "_st.detail_action = (_st.detail_action == InboxAction::back) ? InboxAction::del : InboxAction::back;",
+    "new": ";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M22 `io_error` CLOSES the modal (a disappearance without durable success)",
+    "matches": 1,
+    "old": "                _st.detail_del_failed = true;\n                _st.detail_action = InboxAction::back;",
+    "new": "                close_detail();\n                _st.detail_action = InboxAction::back;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M23 `io_error` leaves the selection on `delete` (a retry one press away)",
+    "matches": 1,
+    "old": "                _st.detail_del_failed = true;\n                _st.detail_action = InboxAction::back;",
+    "new": "                _st.detail_del_failed = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M24 `not_found` is treated as a success and closes the modal",
+    "matches": 1,
+    "old": "_st.detail = InboxModal::gone;        // TERMINAL, and it has no Delete action at all",
+    "new": "close_detail();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M25 the terminal MESSAGE GONE state still accepts an action press",
+    "matches": 1,
+    "old": "        if (_st.detail == InboxModal::gone) {\n            if (g == Gesture::short_press || g == Gesture::double_press) close_detail();\n            return;\n        }",
+    "new": "        if (false) { return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M26 a successful delete keeps the DELETED record as the selection",
+    "matches": 1,
+    "old": "                _inbox_sel_kind  = _inbox_nb_kind; _inbox_sel_seq = _inbox_nb_seq;\n                _inbox_sel_valid = _inbox_nb_valid;",
+    "new": "                ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M27 the modal is closed at `long_fire` (compose's rule, copied)",
+    "matches": 1,
+    "old": "if (_st.detail != InboxModal::closed) close_detail();",
+    "new": "if (g == Gesture::long_fire && _st.detail != InboxModal::closed) close_detail();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M28 the modal is not closed by a long press at all",
+    "matches": 1,
+    "old": "if (_st.detail != InboxModal::closed) close_detail();",
+    "new": ";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M29 a completed DETAIL frame clears the unread counters",
+    "matches": 1,
+    "old": "st.detail == InboxModal::closed && st.screen == Screen::inbox);",
+    "new": "st.screen == Screen::inbox);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M30 the DELETE FAILED header is dropped (the failure becomes invisible)",
+    "matches": 1,
+    "old": "if (del_failed) { snprintf(out, cap, \"DELETE FAILED %u/%u\", unsigned(page) + 1u, unsigned(pages)); return; }",
+    "new": "(void)del_failed;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M31 the channel header omits the channel number",
+    "matches": 1,
+    "old": "else                       snprintf(from, sizeof from, \"CH%u from %u\", unsigned(channel_id), unsigned(origin));",
+    "new": "else                       snprintf(from, sizeof from, \"CH from %u\", unsigned(origin));"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M32 the page indicator is 0-based on the panel",
+    "matches": 1,
+    "old": "snprintf(out, cap, \"%-14s %u/%u\", from, unsigned(page) + 1u, unsigned(pages));",
+    "new": "snprintf(out, cap, \"%-14s %u/%u\", from, unsigned(page), unsigned(pages));"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM)",
+    "matches": 1,
+    "old": "if (s.team_build || cand == Screen::status || cand == Screen::inbox || cand == Screen::settings) return cand;",
+    "new": "if (s.team_build || cand == Screen::status || cand == Screen::inbox) return cand;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M34 the SETTINGS screen is not list-aware (one press leaves it)",
+    "matches": 1,
+    "old": "if (_st.screen == Screen::settings) return entered ? settings_row_list(s).n : uint8_t(1);",
+    "new": ";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M35 `short` WALKS THE ROWS while editing (the double-duty trap)",
+    "matches": 1,
+    "old": "if (_st.settings == Settings::editing) { settings_edit_gesture(g, s); return; }",
+    "new": ";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M36 the editor closes at `long_fire` instead of `long_arm` (compose's rule, copied)",
+    "matches": 1,
+    "old": "if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }\n    if (g == Gesture::long_arm)",
+    "new": "if (g == Gesture::long_fire && _st.settings == Settings::editing) { _st.settings = Settings::browsing; }\n    if (g == Gesture::long_arm)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M37 a long press does not leave the editor at all",
+    "matches": 1,
+    "old": "if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }\n    if (g == Gesture::long_arm)",
+    "new": ";\n    if (g == Gesture::long_arm)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M38 `BACK` DISCARDS the draft (the forbidden silent discard, through the door)",
+    "matches": 1,
+    "old": "if (_cfg) _cfg->on_back();",
+    "new": "if (_cfg) _cfg->discard();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M39 blanking DISCARDS the draft (the forbidden discard, through the timer)",
+    "matches": 1,
+    "old": "if (_cfg) _cfg->on_blank();",
+    "new": "if (_cfg) _cfg->discard();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M40 the RELOAD row stands permanently, not only while it applies",
+    "matches": 1,
+    "old": "if (conflict) l.row[l.n++] = CfgRow::reload;",
+    "new": "(void)conflict; l.row[l.n++] = CfgRow::reload;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M41 the BLE row is rendered unconditionally (the transport condition ignored)",
+    "matches": 1,
+    "old": "if (ble_row) l.row[l.n++] = CfgRow::ble_mode;",
+    "new": "(void)ble_row; l.row[l.n++] = CfgRow::ble_mode;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M42 an out-of-range row index CLAMPS to row 0 instead of failing closed",
+    "matches": 1,
+    "old": "bool at(uint8_t i, CfgRow& out) const { if (i >= n) return false; out = row[i]; return true; }",
+    "new": "bool at(uint8_t i, CfgRow& out) const { out = row[i >= n ? 0 : i]; return true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M43 the cursor does NOT follow its row when the list changes under it",
+    "matches": 1,
+    "old": "            if (_st.cursor != i) { _st.cursor = i; _st.dirty = true; }   // the row MOVED -> the highlight follows\n            return;",
+    "new": "            return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M44 a REFUSED save reads as SAVED (the success that isn't)",
+    "matches": 1,
+    "old": "        case mrfw::CfgSave::invalid:      return \"BAD VALUE\";",
+    "new": "        case mrfw::CfgSave::invalid:      return \"SAVED\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M45 the SAVE outcome is recorded BEFORE the service returns it",
+    "matches": 1,
+    "old": "if (_cfg) { _st.cfg_save = _cfg->save(); _st.cfg_have_save = true; }",
+    "new": "if (_cfg) { _st.cfg_save = mrfw::CfgSave::saved; _st.cfg_have_save = true; (void)_cfg->save(); }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M46 the unsaved marker is dropped from \u00a73.3's row",
+    "matches": 1,
+    "old": "return unsaved ? \"CFG* UNSAVED\" : \"\";",
+    "new": "(void)unsaved; return \"\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M47 the conflict headline is re-spelled here instead of called from the service",
+    "matches": 1,
+    "old": "if (conflict) return mrfw::cfg_save_panel(mrfw::CfgSave::conflict);   // \"CFG! RELOAD\" \u2014 the SERVICE's string",
+    "new": "if (conflict) return \"CFG RELOAD!\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M48 the transient note is never retired (a stale outcome under a fresh act)",
+    "matches": 1,
+    "old": "note_settings_cursor(s);\n                                          clear_settings_note(); _st.dirty = true; }",
+    "new": "note_settings_cursor(s);\n                                          _st.dirty = true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M49 the editor SETS instead of cycling (one press can never turn a value off)",
+    "matches": 1,
+    "old": "(void)_cfg->set(f, cfg_menu_next(f, _cfg->draft().at(f)));",
+    "new": "(void)_cfg->set(f, uint8_t(1));"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M51 the home confirmation age is carried as uint32_t (the ~49.7-day wrap, re-created in the snapshot)",
+    "matches": 1,
+    "old": "    uint64_t home_confirm_age_ms = 0;",
+    "new": "    uint32_t home_confirm_age_ms = 0;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only)",
+    "matches": 1,
+    "old": "inline constexpr uint8_t  kDetailCols      = 19;",
+    "new": "inline constexpr uint8_t  kDetailCols      = 21;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
+    "matches": 1,
+    "old": "inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);",
+    "new": "inline constexpr uint8_t  kDetailPageChars = 42;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit)",
+    "matches": 1,
+    "old": "        _st.settings = Settings::browsing;\n        provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite);",
+    "new": "        _st.settings = Settings::browsing;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
+    "matches": 1,
+    "old": "    arm = Provision::closed;",
+    "new": "    if (arm == Provision::menu) arm = Provision::closed;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M55 the \u00a74 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan \u00a74's conflation, through the ORDER)",
+    "matches": 1,
+    "old": "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }\n        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
+    "new": "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }\n        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M56 the UNSAVED cell is dropped \u2014 PROVISION opens over an unsaved draft (\u00a73.6.3's precondition gone)",
+    "matches": 1,
+    "old": "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M57 the CONFLICT cell is dropped \u2014 the two states collapse into one",
+    "matches": 1,
+    "old": "        if (_cfg->conflict())       { _st.prov_block = ProvBlock::conflict; return false; }",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
+    "matches": 1,
+    "old": "        case ProvBlock::conflict:    return \"RELOAD OR DISCARD\";\n        case ProvBlock::unsaved:     return \"SAVE OR DISCARD\";",
+    "new": "        case ProvBlock::conflict:    return \"SAVE OR DISCARD\";\n        case ProvBlock::unsaved:     return \"RELOAD OR DISCARD\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
+    "matches": 1,
+    "old": "        if (_cfg->config_unsaved()) { _st.prov_block = ProvBlock::unsaved;  return false; }",
+    "new": "        if (_cfg->config_unsaved()) { (void)_cfg->save(); return true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M60 static join is hidden because the TEAM plane is off (plan \u00a76's named defect, verbatim)",
+    "matches": 1,
+    "old": "    if (join_static) l.row[l.n++] = ProvRow::join_static;",
+    "new": "    if (create_team && join_static) l.row[l.n++] = ProvRow::join_static;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M61 an unsupported child is rendered anyway (the refusing stub [[B209]] forbids)",
+    "matches": 1,
+    "old": "    if (create_team) l.row[l.n++] = ProvRow::create_team;",
+    "new": "    (void)create_team; l.row[l.n++] = ProvRow::create_team;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M62 a confirmation opens with CONFIRM selected (the destructive default \u00a73.6.3 rules out)",
+    "matches": 1,
+    "old": "        _st.prov_confirm = ProvConfirm::back;\n        _st.cursor = 0;                        // each arm's list starts at its own first row",
+    "new": "        _st.prov_confirm = ProvConfirm::confirm;\n        _st.cursor = 0;                        // each arm's list starts at its own first row"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M63 the sub-view does NOT own the press (the SETTINGS menu walks underneath it)",
+    "matches": 1,
+    "old": "if (_st.settings == Settings::provisioning) { provision_gesture(g, s); return; }",
+    "new": ";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M64 the SETTINGS cursor is re-anchored while the sub-view owns it (the highlight leaves the child list)",
+    "matches": 1,
+    "old": "        if (_st.settings == Settings::provisioning) return;\n        const CfgRowList l = settings_row_list(s);",
+    "new": "        const CfgRowList l = settings_row_list(s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M65 the child menu WALKS OFF instead of cycling (a sub-view left by the ordinary screen advance)",
+    "matches": 1,
+    "old": "            if (l.n) _st.cursor = uint8_t((_st.cursor + 1) % l.n);   // CYCLES \u2014 a sub-view is never walked out of",
+    "new": "            if (l.n && _st.cursor + 1u < l.n) _st.cursor = uint8_t(_st.cursor + 1);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M66 the provisioning sub-view survives the alarm (\u00a73.6.5 rule 1's pre-emption dropped)",
+    "matches": 1,
+    "old": "    if (_st.settings == Settings::provisioning) close_provisioning();",
+    "new": "    ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M68 \u2605\u2605 the confirmation fires the transaction on BACK too (the safe action performs the destructive one)",
+    "matches": 1,
+    "old": "        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n        run_create_team();",
+    "new": "        run_create_team();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
+    "matches": 1,
+    "old": "        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }\n        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n        run_create_team();",
+    "new": "        if (g == Gesture::short_press) { run_create_team(); return; }\n        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n        run_create_team();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M70 \u2605\u2605 the RESULT screen is entered BEFORE the transaction runs (\u00a78 pin 2, inverted)",
+    "matches": 1,
+    "old": "        UiProvAnswer a{};\n        if (_prov) {",
+    "new": "        UiProvAnswer a{};\n        enter_provision(Provision::create_result);\n        if (_prov) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M71 the answer is never retired, so a stale verdict survives into the next screen",
+    "matches": 1,
+    "old": "        _st.prov_answer = UiProvAnswer{};",
+    "new": "        // (the answer is not retired)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M72 the result arm RE-RUNS the transaction on the press that leaves it",
+    "matches": 1,
+    "old": "            case Provision::create_result:  create_result_gesture();          return;",
+    "new": "            case Provision::create_result:  run_create_team(); return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2)",
+    "matches": 1,
+    "old": "            a.outcome = UiProvOutcome::refused;\n            a.reason  = \"no service\";",
+    "new": "            return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M74 the PHY refusal loses its ruled remedy (it borrows the save failure's line instead)",
+    "matches": 1,
+    "old": "        case UiProvOutcome::phy_differs: return \"USE SERIAL\";",
+    "new": "        case UiProvOutcome::phy_differs: return \"NOTHING CHANGED\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M75 the PHY refusal renders as a SUCCESS headline (the two outcomes collapse)",
+    "matches": 1,
+    "old": "        case UiProvOutcome::phy_differs: return \"PHY DIFFERS\";",
+    "new": "        case UiProvOutcome::phy_differs: return \"TEAM CREATED\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M76 the PROVISION row is unconditional again (the parent-row ruling not applied)",
+    "matches": 1,
+    "old": "    if (provision) l.row[l.n++] = CfgRow::provision;",
+    "new": "    l.row[l.n++] = CfgRow::provision;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION",
+    "matches": 1,
+    "old": "        if (l.row[i] != ProvRow::back) return true;",
+    "new": "        return true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M78 the JOIN entry never reads the profile store (the list opens on whatever the last visit left)",
+    "matches": 1,
+    "old": "            case ProvRow::join_static: load_join_profiles(); enter_provision(Provision::join_select); return;",
+    "new": "            case ProvRow::join_static: enter_provision(Provision::join_select); return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M79 \u2605\u2605 the join confirmation fires the transaction on BACK too (the safe action performs the join)",
+    "matches": 1,
+    "old": "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }\n        run_join_static(s);",
+    "new": "        run_join_static(s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M80 `short` in the join confirmation ACTS instead of toggling (one press starts a join)",
+    "matches": 1,
+    "old": "        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }\n        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }",
+    "new": "        if (g == Gesture::short_press) { run_join_static(s); return; }\n        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M81 \u2605\u2605 the RESULT screen is entered BEFORE the join transaction runs (\u00a78 pin 2, inverted, join half)",
+    "matches": 1,
+    "old": "        UiProvAnswer a{};\n        const uint8_t sel = _st.join_sel;",
+    "new": "        UiProvAnswer a{};\n        enter_provision(Provision::join_result);\n        const uint8_t sel = _st.join_sel;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M82 \u26d4\u26d4 60 s becomes a TERMINAL FAILURE (plan \u00a72.3 rule 5's forbidden deadline, and retries are unbounded)",
+    "matches": 1,
+    "old": "            if (still != _st.join_still) { _st.join_still = still; _st.dirty = true; }",
+    "new": "            if (still != _st.join_still) { _st.join_still = still; _st.dirty = true;\n                if (still) { _join.active = false; enter_provision(Provision::join_result);\n                    UiProvAnswer f{}; f.outcome = UiProvOutcome::join_refused; f.reason = \"timeout\";\n                    _st.prov_answer = f; } }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M83 \u26d4 BACK from the waiting screen CANCELS the persisted join (plan \u00a72.3 rule 4's forbidden rollback)",
+    "matches": 1,
+    "old": "            case Provision::join_waiting:   provision_menu_exit(); return;",
+    "new": "            case Provision::join_waiting:   _join.active = false; provision_menu_exit(); return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M84 \u26d4 the ALARM cancels the persisted join (\u00a73.6.5 pre-empts the SCREEN, never the operation)",
+    "matches": 1,
+    "old": "    if (_st.settings == Settings::provisioning) close_provisioning();",
+    "new": "    if (_st.settings == Settings::provisioning) { _join.active = false; close_provisioning(); }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M85 \u26d4\u26d4 ANY `join_refused` push FAILS the screen (plan \u00a72.3 rule 6: no reason terminally fails v1)",
+    "matches": 1,
+    "old": "        if (!join_push_correlates(_join, pu.kind, pu.layer_id, pu.dst, persisted_layer0_id, canonical_node_id))\n            return;",
+    "new": "        if (pu.kind == MESHROUTE_NS::PushKind::join_refused && _st.provisioning == Provision::join_waiting) {\n            _join.active = false; enter_provision(Provision::join_result);\n            UiProvAnswer f{}; f.outcome = UiProvOutcome::join_refused; f.reason = \"refused\";\n            _st.prov_answer = f; return; }\n        if (!join_push_correlates(_join, pu.kind, pu.layer_id, pu.dst, persisted_layer0_id, canonical_node_id))\n            return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M86 the session is armed on EVERY verdict, so a refusal leaves a correlation window open for a BOOT DAD",
+    "matches": 1,
+    "old": "        if (a.outcome == UiProvOutcome::joining) {",
+    "new": "        _join.active = true; _join.requested_layer = requested_layer;\n        if (a.outcome == UiProvOutcome::joining) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M87 a correlated adopt NAVIGATES the panel from whatever screen is up (a push that moves the operator)",
+    "matches": 1,
+    "old": "        if (_st.provisioning == Provision::join_waiting) {\n            enter_provision(Provision::join_result);",
+    "new": "        if (true) {\n            enter_provision(Provision::join_result);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M88 the adopted answer carries no node id (plan \u00a72.3 rule 2's `resulting node id` never shows)",
+    "matches": 1,
+    "old": "            a.node_id = pu.dst;                     // \u2605 the ADOPTED id, read off the push the rule accepted",
+    "new": "            a.node_id = 0;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M89 the SELECT list activates the row INDEX as a slot number (\u00a7B66 \u2014 slot 3 is joined as slot 2)",
+    "matches": 1,
+    "old": "        _st.join_sel = r.slot1;",
+    "new": "        _st.join_sel = uint8_t(_st.cursor + 1);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M90 the join intent carries no profile, so the adapter is handed an empty slot",
+    "matches": 1,
+    "old": "            in.join = _st.join_list.rec.prof[sel - 1];   // \u2605 WHAT WAS SHOWN IS WHAT IS JOINED (U2 \u2014 the whole record)",
+    "new": "            in.join = mrnv::JoinProfile{};"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model)",
+    "matches": 1,
+    "old": "            requested_layer = in.join.layer;             // the FULL byte, cached for the correlation's term 2/3",
+    "new": "            requested_layer = uint8_t(in.join.layer & 0x0F);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M92 [[B231]] the DM block is published OLDEST-FIRST again (the newest message back at the BOTTOM)",
+    "matches": 1,
+    "old": "        for (uint8_t i = _n_dm; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _dm[i - 1];",
+    "new": "        for (uint8_t i = 0; i < _n_dm && k < kMaxInboxRows; ++i) s.inbox[k++] = _dm[i];"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M93 [[B231]] the CHANNEL block is published OLDEST-FIRST (only half the ruling applied)",
+    "matches": 1,
+    "old": "        for (uint8_t i = _n_ch; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _ch[i - 1];",
+    "new": "        for (uint8_t i = 0; i < _n_ch && k < kMaxInboxRows; ++i) s.inbox[k++] = _ch[i];"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M94 [[B233]] the serviced-mutation latch asks for NO repaint (the stale row stands for ever)",
+    "matches": 1,
+    "old": "        if (_inbox_rows_stale) { _inbox_rows_stale = false; _st.dirty = true; }",
+    "new": "        if (_inbox_rows_stale) { _inbox_rows_stale = false; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M95 [[B233]] the latch is never consumed (a permanent repaint, not one more frame)",
+    "matches": 1,
+    "old": "        if (_inbox_rows_stale) { _inbox_rows_stale = false; _st.dirty = true; }",
+    "new": "        if (_inbox_rows_stale) { _st.dirty = true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M96 [[B233]] every erase ANSWER claims the rows are stale, including the ones that deleted nothing",
+    "matches": 1,
+    "old": "        if (!inbox_answer_is(InboxWhat::erase, kind, seq)) return;",
+    "new": "        if (!inbox_answer_is(InboxWhat::erase, kind, seq)) return;\n        _inbox_rows_stale = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M97 [[B232]] SETTINGS auto-enters the menu on arrival again (up to 9 presses to pass the screen)",
+    "matches": 1,
+    "old": "if (_st.settings == Settings::closed) return;",
+    "new": "if (_st.settings == Settings::closed) { _st.settings = Settings::browsing; _st.dirty = true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel",
+    "matches": 1,
+    "old": "if (_st.screen == Screen::settings) return entered ? settings_row_list(s).n : uint8_t(1);",
+    "new": "if (_st.screen == Screen::settings) return settings_row_list(s).n;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in)",
+    "matches": 1,
+    "old": "            if (_st.settings == Settings::closed) {\n                if (_cfg && _cfg->is_open()) open_settings_menu();\n                return;\n            }",
+    "new": "            ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M105 [[B232]] the menu opens over an UNAVAILABLE config (a walk over rows nothing draws)",
+    "matches": 1,
+    "old": "                if (_cfg && _cfg->is_open()) open_settings_menu();",
+    "new": "                open_settings_menu();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
+    "matches": 1,
+    "old": "        ensure_config_open();                                   // \u2605 ON ARRIVAL, above the closed-view return below",
+    "new": "        if (_st.settings != Settings::closed) ensure_config_open();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M101 [[B232]] REVISED BY W4b (design \u00a76.1): the Settings menu walks off its last row to the closed view instead of WRAPPING",
+    "matches": 1,
+    "old": "        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }",
+    "new": "        if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }\n        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M102 [[B232]] REVISED BY W4b (design \u00a76.1): MENU closes the menu but stays on SETTINGS instead of menu mode on HOME",
+    "matches": 1,
+    "old": "                close_settings_menu();\n                go_menu_home(s);\n                break;",
+    "new": "                close_settings_menu();\n                break;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M104 [[B232]] the entry row has no label (an entry nobody can read \u2014 C2)",
+    "matches": 1,
+    "old": "inline constexpr const char* kSettingsEnterText = \"ENTER SETTINGS\";",
+    "new": "inline constexpr const char* kSettingsEnterText = \"\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose)",
+    "matches": 1,
+    "old": "        _st.screen = next_screen(_st.screen, s); _st.cursor = 0;",
+    "new": "        _st.screen = next_screen(_st.screen, s); _st.cursor = 0; if (_st.screen == Screen::team || _st.screen == Screen::inbox) _st.list_view = ListView::interactive;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M107 [[UI-17]] a passive list reports its rows, so `short` walks a preview nobody entered",
+    "matches": 1,
+    "old": "    return entered ? uint8_t(shown + 1) : uint8_t(1);",
+    "new": "    return shown;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M108 [[UI-17]] the BACK row is resolved one row early, so the LAST teammate becomes the exit",
+    "matches": 1,
+    "old": "    return (cursor >= shown) ? ListRow::back : ListRow::member;",
+    "new": "    return (cursor + 1 >= shown) ? ListRow::back : ListRow::member;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M109 [[UI-17]] REVISED BY W4b (design \u00a76.1): the MENU row returns to the PASSIVE SAME screen instead of menu mode on HOME",
+    "matches": 1,
+    "old": "                case ListAct::leave:  go_menu_home(s);    return;",
+    "new": "                case ListAct::leave:  _st.list_view = ListView::passive; _st.cursor = 0; _st.dirty = true; return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped)",
+    "matches": 1,
+    "old": "        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M111 [[B223]] the leave reset never resets \u2014 an entered list outlives its screen",
+    "matches": 1,
+    "old": "    const bool changed = view != ListView::passive;\n    view = ListView::passive;\n    return changed;",
+    "new": "    const bool changed = view != ListView::passive;\n    return changed;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M112 [[UI-17]] the pick is recorded on a PASSIVE preview (a refusal for a choice nobody made)",
+    "matches": 1,
+    "old": "    if (!entered)   return ListNote::keep;",
+    "new": "    ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M114 [[UI-17]] `is this screen entered` is inverted for the two list screens",
+    "matches": 1,
+    "old": "        case Screen::inbox:    return view == ListView::interactive;",
+    "new": "        case Screen::inbox:    return view == ListView::passive;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M115 [[UI-17]] the BACK row OUTRANKS the refusal, so a lost pick silently LEAVES instead",
+    "matches": 1,
+    "old": "    if (!entered)  return ListAct::enter;\n    if (pick_gone) return ListAct::refuse;",
+    "new": "    if (!entered)  return ListAct::enter;\n    if (list_row_kind(cursor, shown) == ListRow::back) return ListAct::leave;\n    if (pick_gone) return ListAct::refuse;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M116 [[UI-17]] the BACK row activates as a MEMBER row (the exit SENDS)",
+    "matches": 1,
+    "old": "    return (list_row_kind(cursor, shown) == ListRow::back) ? ListAct::leave : ListAct::member;",
+    "new": "    return ListAct::member;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M117 [[UI-17]] a `double` on a PASSIVE preview acts on the row instead of entering",
+    "matches": 1,
+    "old": "    if (!entered)  return ListAct::enter;",
+    "new": "    ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M118 [[UI-17]] resting on BACK no longer retires the refusal (the dead end)",
+    "matches": 1,
+    "old": "    return (list_row_kind(cursor, shown) == ListRow::member) ? ListNote::record : ListNote::retire;",
+    "new": "    return (list_row_kind(cursor, shown) == ListRow::member) ? ListNote::record : ListNote::keep;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M119 [[B223]] leaving the screen no longer retires its message (a stale refusal a lap later)",
+    "matches": 1,
+    "old": "    if (!on_screen) return ListNote::retire;",
+    "new": "    ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "M120 [[UI-17]] entering the list records no pick, so the first double inside it refuses",
+    "matches": 1,
+    "old": "        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;\n        note_team_cursor(s); note_inbox_cursor(s);",
+    "new": "        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S01 [[UI-17]] the compose sub-view's kBlankMs auto-exit is re-instated (\u00a73.2.1 restored over \u00a73.3)",
+    "matches": 1,
+    "old": "        tick_emergency(s);\n",
+    "new": "        tick_emergency(s);\n        if (_st.compose != Compose::none && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_compose();\n"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S02 [[UI-17]] the detail modal's kBlankMs auto-exit is re-instated (\u00a73.5 restored over \u00a73.3)",
+    "matches": 1,
+    "old": "        tick_emergency(s);\n",
+    "new": "        tick_emergency(s);\n        if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();\n"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (\u00a7B101's close dropped)",
+    "matches": 1,
+    "old": "    if (review_active()) close_review(); else close_compose();\n    retain(s.now_ms);",
+    "new": "    if (review_active()) close_review();\n    retain(s.now_ms);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK",
+    "matches": 1,
+    "old": "        if (!_st.blanked && !blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&",
+    "new": "        if (!blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick",
+    "matches": 1,
+    "old": "        if (!_st.blanked && !blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&",
+    "new": "        if (!_st.blanked && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page",
+    "matches": 1,
+    "old": "    void unblank(uint32_t now_ms) {\n        _st.blanked = false;\n        _detail_page_at_ms = now_ms;\n    }",
+    "new": "    void unblank(uint32_t now_ms) {\n        _st.blanked = false;\n        (void)now_ms;\n    }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open",
+    "matches": 1,
+    "old": "        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&\n               elapsed(s.now_ms, _last_input_ms) >= kBlankMs;",
+    "new": "        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&\n               _st.compose == Compose::none && _st.detail == InboxModal::closed &&\n               elapsed(s.now_ms, _last_input_ms) >= kBlankMs;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S08 [[UI-17]] the wake marks the model dirty but leaves the panel DARK (\u00a7R1's exact defect, one plane over)",
+    "matches": 1,
+    "old": "        if (_st.blanked) { unblank(now_ms); _st.dirty = true; }",
+    "new": "        if (_st.blanked) { _st.dirty = true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S09 [[UI-17]] the wake stamps the input clock the way `on_gesture` does (and consumes [[B65]]'s seed)",
+    "matches": 1,
+    "old": "        _msg_wake_until_ms = now_ms + kBlankMs;\n        _msg_wake_armed = true;",
+    "new": "        _msg_wake_until_ms = now_ms + kBlankMs;\n        _msg_wake_armed = true;\n        _last_input_ms = now_ms; _seeded = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S10 [[UI-17]] the wake deadline is dropped from the blank condition (the one-frame flash)",
+    "matches": 1,
+    "old": "        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&",
+    "new": "        return !_st.blanked && !hold_active(s.now_ms) &&"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S11 [[UI-17]] `wake_active` is INVERTED \u2014 the window is live everywhere except during it",
+    "matches": 1,
+    "old": "        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window",
+    "new": "        return _msg_wake_armed && !(left != 0 && left <= kBlankMs);          // i.e. now < deadline, at most one window"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S12 [[UI-17]] the ARMED flag is dropped, so a quiet node past 2^31 ms never blanks again",
+    "matches": 1,
+    "old": "        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window",
+    "new": "        return left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S17 [[UI-17]] the wake window loses its upper bound, so a month-old wake revives",
+    "matches": 1,
+    "old": "        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window",
+    "new": "        return _msg_wake_armed && left != 0 && left < (1u << 31);           // i.e. now < deadline, at most one window"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S13 [[UI-17]] a wake on an ALREADY-LIT panel restarts the display cadence (the unconditional unblank)",
+    "matches": 1,
+    "old": "        if (_st.blanked) { unblank(now_ms); _st.dirty = true; }",
+    "new": "        unblank(now_ms); _st.dirty = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S14 [[UI-17]] the wake NAVIGATES to INBOX (the [[B233]] class: the operator's place taken by a push)",
+    "matches": 1,
+    "old": "        _msg_wake_armed = true;\n        if (_st.blanked)",
+    "new": "        _msg_wake_armed = true;\n        _st.screen = Screen::inbox;\n        if (_st.blanked)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S15 [[UI-17]] the wake clears the emergency, so a message dismisses a retained distress outcome",
+    "matches": 1,
+    "old": "        _msg_wake_armed = true;\n        if (_st.blanked)",
+    "new": "        _msg_wake_armed = true;\n        _emg = Emergency::idle;\n        if (_st.blanked)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message",
+    "matches": 1,
+    "old": "        _msg_wake_until_ms = now_ms + kBlankMs;",
+    "new": "        _msg_wake_until_ms = _last_input_ms + kBlankMs;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N01 \u2605\u2605 the JOIN TEAM child is FOLDED into the CREATE predicate \u2014 the coincidence encoded as a rule",
+    "matches": 1,
+    "old": "    if (join_team)   l.row[l.n++] = ProvRow::join_team;",
+    "new": "    if (create_team) l.row[l.n++] = ProvRow::join_team;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N02 \u2605\u2605 the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list \u2014 the third child opens a sub-view no visible row leads to",
+    "matches": 1,
+    "old": "    const ProvRowList l = provision_rows(create_team, join_static, join_team, invite, saved_keys);\n    for (uint8_t i = 0; i < l.n; ++i)\n        if (l.row[i] != ProvRow::back) return true;\n    return false;",
+    "new": "    return create_team || join_static;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N03 \u2605\u2605 the own-team id is not handed to the capture \u2014 the team we are already in is offered as a candidate",
+    "matches": 1,
+    "old": "        _st.nearby = nearby_capture(s.nearby, s.nearby_n, s.team_id);",
+    "new": "        _st.nearby = nearby_capture(s.nearby, s.nearby_n, 0);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N04 \u2605\u2605\u2605 the scan is RE-READ EVERY TICK \u2014 owner ruling R-10's frozen-per-entry snapshot is gone and a team that walks into range inserts a row under the operator's cursor",
+    "matches": 1,
+    "old": "        tick_invite(s);",
+    "new": "        tick_invite(s);\n        if (_st.provisioning == Provision::nearby) load_nearby(s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N05 \u2605\u2605 BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)",
+    "matches": 1,
+    "old": "        if (!l.at(_st.cursor, r)) return;                            // fails closed \u2014 see NearbySelList::at\n        if (r.back) { provision_menu_exit(); return; }",
+    "new": "        if (!l.at(_st.cursor, r)) return;                            // fails closed \u2014 see NearbySelList::at\n        if (r.back) { close_settings_menu(); return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N06 \u2605\u2605 ANY double ACTS, not just the one on a TEAM row \u2014 leaving the list opens a JOIN confirmation",
+    "matches": 1,
+    "old": "        if (r.back) { provision_menu_exit(); return; }\n        // \u2605\u2605\u2605 THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID",
+    "new": "        // \u2605\u2605\u2605 THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N07 \u2605\u2605 the confirmation opens on CONFIRM (P-13's safe default gone: one press from a membership change)",
+    "matches": 1,
+    "old": "        _st.nearby_sel_id = r.team.team_id;\n        enter_provision(Provision::nearby_confirm);",
+    "new": "        _st.nearby_sel_id = r.team.team_id;\n        enter_provision(Provision::nearby_confirm);\n        _st.prov_confirm = ProvConfirm::confirm;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N08 \u2605\u2605\u2605 the act is handed the CURSOR INDEX instead of the row identity (\u00a7B66)",
+    "matches": 1,
+    "old": "        _st.nearby_sel_id = r.team.team_id;",
+    "new": "        _st.nearby_sel_id = _st.cursor;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N09 \u2605\u2605\u2605 the id is RE-DERIVED from the six-hex fingerprint the panel shows (the low 24 bits, [[B48]])",
+    "matches": 1,
+    "old": "        _st.nearby_sel_id = r.team.team_id;",
+    "new": "        _st.nearby_sel_id = r.team.team_id & 0x00FFFFFFu;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N10 \u2605\u2605 the confirmation BACK returns to the MENU instead of the NEARBY list (the containment contract)",
+    "matches": 1,
+    "old": "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }",
+    "new": "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N11 \u2605\u2605 `team_joined` is mapped onto CREATE's string \u2014 a JOIN reports TEAM CREATED (F-4, at its source)",
+    "matches": 1,
+    "old": "        case UiProvOutcome::team_joined: return \"TEAM JOINED\";",
+    "new": "        case UiProvOutcome::team_joined: return \"TEAM CREATED\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N12 \u2605\u2605 a double on BACK falls through into the act (one press means the other)",
+    "matches": 1,
+    "old": "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }\n        run_join_team();",
+    "new": "        run_join_team();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "N13 the zero-pick floor is dropped, so a row naming no team performs `team 0` \u2014 a LEAVE",
+    "matches": 1,
+    "old": "        if (_prov && _st.nearby_sel_id != 0) {",
+    "new": "        if (_prov) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V01 \u2605\u2605 the diff is keyed on the row's FRESHNESS (`last_heard_s`) instead of the opening snapshot \u2014 the `last_seen_ms` defect \u00a71.3 names, at the one site where that field is in scope",
+    "matches": 1,
+    "old": "        const InviteSelList l = invite_sel_rows(_st.invite, s.member, s.team_shown);",
+    "new": "        InviteSelList l{};\n        for (uint8_t i = 0; i < s.team_shown && i < kMaxInviteRows; ++i)\n            if (s.team[i].last_heard_s < 60u && s.member[i].key_hash32 != 0) {\n                l.row[l.n].cand = s.member[i]; l.row[l.n].back = false; ++l.n; }\n        l.row[l.n].back = true; ++l.n;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V02 \u2605\u2605\u2605 the snapshot is re-taken at every RENDER instead of at the window's OPEN \u2014 so the candidate the window exists to surface is inside the snapshot by the time it is drawn",
+    "matches": 1,
+    "old": "    void tick_invite(const UiSnapshot& s) {\n        if (!provision_is_invite(_st.provisioning)) return;",
+    "new": "    void tick_invite(const UiSnapshot& s) {\n        if (!provision_is_invite(_st.provisioning)) return;\n        _st.invite = invite_snapshot_take(s.member, s.team_shown);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V03 \u2605\u2605 the snapshot is NEVER taken \u2014 the window opens with no authorities at all",
+    "matches": 1,
+    "old": "            case ProvRow::invite:\n                load_invite(s);",
+    "new": "            case ProvRow::invite:\n                ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "B249-1 \u2605\u2605\u2605 the fresh INVITE open never requests the existing triggered team announcement",
+    "matches": 1,
+    "old": "            case ProvRow::invite:\n                load_invite(s);\n                enter_provision(Provision::invite);\n                if (_invite_dev) _invite_dev->request_team_announcement();",
+    "new": "            case ProvRow::invite:\n                load_invite(s);\n                enter_provision(Provision::invite);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "B249-2 \u2605\u2605\u2605 the fresh INVITE open requests the announcement TWICE",
+    "matches": 1,
+    "old": "            case ProvRow::invite:\n                load_invite(s);\n                enter_provision(Provision::invite);\n                if (_invite_dev) _invite_dev->request_team_announcement();",
+    "new": "            case ProvRow::invite:\n                load_invite(s);\n                enter_provision(Provision::invite);\n                if (_invite_dev) { _invite_dev->request_team_announcement(); _invite_dev->request_team_announcement(); }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "B249-3 \u2605\u2605\u2605 the announcement request precedes the member snapshot and established invitation arm",
+    "matches": 1,
+    "old": "            case ProvRow::invite:\n                load_invite(s);\n                enter_provision(Provision::invite);\n                if (_invite_dev) _invite_dev->request_team_announcement();",
+    "new": "            case ProvRow::invite:\n                if (_invite_dev) _invite_dev->request_team_announcement();\n                load_invite(s);\n                enter_provision(Provision::invite);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V04 \u2605\u2605\u2605 the expiry RENEWS the window instead of closing it \u2014 the bounded window is unbounded and the panel never says WINDOW CLOSED (P-11)",
+    "matches": 1,
+    "old": "        enter_provision(Provision::invite_closed);",
+    "new": "        _invite_until_ms = s.now_ms + kInviteWindowMs;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V05 \u2605\u2605\u2605 the open window WRITES `_last_input_ms` on every tick \u2014 the panel never blanks and the node never light-sleeps while it is up (OQ-3's refusal)",
+    "matches": 1,
+    "old": "        if (!provision_is_invite(_st.provisioning)) return;\n        if (window_active(s.now_ms)) return;",
+    "new": "        if (!provision_is_invite(_st.provisioning)) return;\n        _last_input_ms = s.now_ms;\n        if (window_active(s.now_ms)) return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V06 \u2605\u2605\u2605 the handled set is made PERSISTENT \u2014 a candidate rejected in one window stays suppressed in the next, which the ruling forbids (F-13: it is discarded when the window closes)",
+    "matches": 1,
+    "old": "        if (!provision_is_invite(p)) _st.invite = InviteWindow{};",
+    "new": "        if (!provision_is_invite(p)) { const InviteWindow keep = _st.invite; _st.invite = InviteWindow{};\n            _st.invite.handled_n = keep.handled_n;\n            for (uint8_t i = 0; i < kMaxInviteRows; ++i) _st.invite.handled[i] = keep.handled[i]; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V07 \u2605\u2605\u2605 the confirmation does NOT freeze the selection \u2014 every refresh re-points it at the row under the cursor, so a member arriving between the two presses moves the target (F-14)",
+    "matches": 1,
+    "old": "        if (window_active(s.now_ms)) return;",
+    "new": "        if (_st.provisioning == Provision::invite_confirm) {\n            InviteSelRow rr{};\n            if (invite_sel_rows(_st.invite, s.member, s.team_shown).at(_st.cursor, rr) && !rr.back) {\n                _st.invite.sel_hash = rr.cand.key_hash32; _st.invite.sel_id = rr.cand.id; }\n        }\n        if (window_active(s.now_ms)) return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V08 \u2605\u2605\u2605 the row is keyed by the DISPLAY NAME instead of the hash \u2014 N4's selection and N5's reqpubkey target both carry the name-derived value, and the name is MUTABLE (P-7d, node_hashlocate.cpp:346)",
+    "matches": 1,
+    "old": "        _st.invite.sel_hash = r.cand.key_hash32;",
+    "new": "        { uint32_t k = 0; for (const char* p = r.cand.name; *p; ++p) k = uint32_t(k * 31u + uint8_t(*p));\n          _st.invite.sel_hash = k; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V09 \u2605\u2605\u2605 the window's `left != 0` term is dropped \u2014 at the EXACT deadline the window is still open, so the five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost)",
+    "matches": 1,
+    "old": "               left != 0 && left < (1u << 31);                       // i.e. now < deadline, STRICTLY",
+    "new": "               left < (1u << 31);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V10 \u2605\u2605\u2605 the request is AUTO-ISSUED on candidate entry \u2014 the operator never selected REQUEST PUBKEY or double-confirmed it (the owner-ratified ban reversed)",
+    "matches": 1,
+    "old": "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n                      ? Provision::invite_confirm : Provision::invite_need_pubkey);",
+    "new": "        if (_invite_dev) _invite_dev->issue(invite_reqpubkey_command(_st.invite.sel_hash));\n        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n                      ? Provision::invite_confirm : Provision::invite_need_pubkey);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V11 \u2605\u2605 the NEED PUBKEY confirmation defaults to REQUEST PUBKEY instead of BACK \u2014 an immediate double airs it",
+    "matches": 1,
+    "old": "        _st.prov_confirm = ProvConfirm::back;",
+    "new": "        _st.prov_confirm = (p == Provision::invite_need_pubkey) ? ProvConfirm::confirm : ProvConfirm::back;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V12 \u2605\u2605\u2605 the request timeout ENABLES GRANT KEY although no matching key arrived",
+    "matches": 1,
+    "old": "        if (window_active(s.now_ms)) return;\n        enter_provision(Provision::invite_closed);",
+    "new": "        if (_st.provisioning == Provision::invite_wait_pubkey &&\n            elapsed(s.now_ms, _last_input_ms) >= MESHROUTE_NS::protocol::hash_locate_giveup_ms) {\n            enter_provision(Provision::invite_confirm); return; }\n        if (window_active(s.now_ms)) return;\n        enter_provision(Provision::invite_closed);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V13 \u2605\u2605\u2605 the PRESENCE OF A NAME enables GRANT KEY even when the key is only overheard (display metadata makes an airtime-and-secret decision)",
+    "matches": 1,
+    "old": "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n                      ? Provision::invite_confirm : Provision::invite_need_pubkey);",
+    "new": "        enter_provision((r.cand.name[0] || invite_grant_preflight(_invite_dev, _st.invite.sel_hash))\n                      ? Provision::invite_confirm : Provision::invite_need_pubkey);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V14 \u2605\u2605\u2605 the WAITING FOR PUBKEY screen is entered whatever the seam answered \u2014 an unattached seam and a synchronous refusal both claim an outstanding request (the QG blocker, restored)",
+    "matches": 1,
+    "old": "        if (invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash))\n            enter_provision(Provision::invite_wait_pubkey);",
+    "new": "        (void)invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash);\n        enter_provision(Provision::invite_wait_pubkey);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V15 \u2605\u2605\u2605 THE GRANT TARGET IS TAKEN FROM THE DISPLAY NAME (P-7d) \u2014 the private key is shipped to whatever the MUTABLE label hashes to, so two members sharing a name are one target and a rename re-aims the act",
+    "matches": 1,
+    "old": "        run_invite_grant(_st.invite.sel_hash);",
+    "new": "        { uint32_t k = 0;\n          for (const char* p = invite_name_of(s.member, s.team_shown, _st.invite.sel_hash); *p; ++p)\n              k = uint32_t(k * 31u + uint8_t(*p));\n          run_invite_grant(k); }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V16 \u2605\u2605\u2605 `REJECT` CALLS THE SEND \u2014 the SAFE default arm, the one selected on entry, ships the team's private key; one double-press on an unchanged confirmation grants instead of declining",
+    "matches": 1,
+    "old": "    void run_invite_reject(const UiSnapshot& s) {\n        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);",
+    "new": "    void run_invite_reject(const UiSnapshot& s) {\n        run_invite_grant(_st.invite.sel_hash);\n        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V17 \u2605\u2605 `REJECT` no longer adds the hash to the handled set (F-13) \u2014 the local refresh re-offers the candidate the operator has just declined, one tick later",
+    "matches": 1,
+    "old": "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);\n        leave_grant_chain(GrantExit::resume, s);",
+    "new": "        leave_grant_chain(GrantExit::resume, s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V18 \u2605\u2605\u2605 the window's own deadline is not consulted by the act \u2014 a grant fires out of an EXPIRED window because the closing tick has not run yet",
+    "matches": 1,
+    "old": "        if (!window_active(s.now_ms)) { enter_provision(Provision::invite_closed); return; }",
+    "new": "        (void)s;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V19 \u2605\u2605 the verdict is retired by the entry that OPENS it \u2014 the result screen renders the empty word for the act that just ran, and the correlated edge has nothing to promote",
+    "matches": 1,
+    "old": "        if (p != Provision::invite_result) _st.grant = InviteGrantResult{};",
+    "new": "        _st.grant = InviteGrantResult{};"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V20 \u2605\u2605 a push may promote the verdict on ANY screen \u2014 an alarm (or a menu) left a queued handle in RAM, and a correlated edge upgrades a verdict nobody can see",
+    "matches": 1,
+    "old": "        if (_st.provisioning != Provision::invite_result) return false;",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V21 \u2605\u2605\u2605 THE CORRELATION dst IS TAKEN FROM THE FROZEN SELECTION instead of the core's SEND-TIME resolution \u2014 a re-DAD inside the window leaves the verdict permanently unpromotable (\u00a7UI-16 N6b, QG blocker 2)",
+    "matches": 1,
+    "old": "        _st.grant = r;\n        enter_provision(Provision::invite_result);",
+    "new": "        r.dst = _st.invite.sel_id;\n        _st.grant = r;\n        enter_provision(Provision::invite_result);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V22 \u2605\u2605\u2605 THE TWO RULED SENTENCES ARE SWAPPED \u2014 a save that FAILED renders `TEAM KEY RECEIVED`, which is the one word spec \u00a74-K4 forbids on that path (the key is live in RAM and will not survive a reboot)",
+    "matches": 1,
+    "old": "        note.outcome = saved ? UiProvOutcome::team_key_received : UiProvOutcome::team_key_unsaved;",
+    "new": "        note.outcome = saved ? UiProvOutcome::team_key_unsaved : UiProvOutcome::team_key_received;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V23 \u2605\u2605\u2605 THE NOTE NAVIGATES \u2014 a radio arrival opens the provisioning result arm under the operator's thumb, which is the one thing spec \u00a74-K4 pin 3 rules out in as many words",
+    "matches": 1,
+    "old": "        _st.dirty = true;                      // a repaint is owed; \u26d4 a wake is not (see above)",
+    "new": "        enter_provision(Provision::create_result);\n        _st.dirty = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V24 \u2605\u2605\u2605 THE NOTE WAKES A DARK PANEL \u2014 \u00a7UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post; widening it here is a new owner ruling nobody made",
+    "matches": 1,
+    "old": "        _st.dirty = true;                      // a repaint is owed; \u26d4 a wake is not (see above)",
+    "new": "        unblank(now_ms);\n        _st.dirty = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V25 \u2605\u2605 THE NOTE IS WRITTEN WITHOUT CLEARING THE SLOT \u2014 a previous verdict's `reason` / `team_id` / `node_id` survive under the new headline, so the panel renders another act's data beside this one's word",
+    "matches": 1,
+    "old": "        UiProvAnswer note{};",
+    "new": "        UiProvAnswer note = _st.prov_answer;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V26 \u2605\u2605 THE SUCCESS LEXEME IS RE-SPELLED \u2014 S-25 is \u00a73.6.4's own word carried VERBATIM, and it is declared once so an owner re-ruling changes it in exactly one place",
+    "matches": 1,
+    "old": "        case UiProvOutcome::team_key_received: return \"TEAM KEY RECEIVED\";",
+    "new": "        case UiProvOutcome::team_key_received: return \"KEY RECEIVED\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V27 \u2605\u2605 THE FAILURE'S SECOND ROW IS CLIPPED INTO THE FIRST \u2014 the ruled 26-column sentence is truncated to fit the 19-column body instead of rendering across two rows (\u00a77.1 rule 5 \u2014 a durability claim may not be clipped)",
+    "matches": 1,
+    "old": "        case UiProvOutcome::team_key_unsaved: return \"NOT SAVED\";",
+    "new": "        case UiProvOutcome::team_key_unsaved: return \"NOT SAVED - LOST ON\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V28 \u2605 THE THIRD ROW BECOMES A GENERAL SLOT \u2014 `save_failed` grows one too, so the row stops meaning \"the ruled sentence continues here\" and the arm that owns it can no longer be told from the arms that do not",
+    "matches": 1,
+    "old": "        case UiProvOutcome::save_failed:\n        case UiProvOutcome::refused:",
+    "new": "        case UiProvOutcome::save_failed:       return \"RETRY\";\n        case UiProvOutcome::refused:"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V29 \u2605\u2605\u2605\u2605 `BACK` PERFORMS THE INSTALL \u2014 the SAFE default arm activates the saved key, so declining the offer does the thing the offer was asking about (P-2b, the model's headline)",
+    "matches": 1,
+    "old": "        if (_st.prov_confirm == ProvConfirm::back) { provision_menu_exit(); return; }\n        run_use_saved_key();",
+    "new": "        run_use_saved_key();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V30 \u2605\u2605\u2605 THE OFFER OPENS WITHOUT THE KEYRING'S REPORT \u2014 every nearby join lands on `SAVED KEY FOUND`, so the operator is offered a key for a team no record exists for",
+    "matches": 1,
+    "old": "        if (a.outcome == UiProvOutcome::team_joined && a.saved_key && a.team_id != 0) {",
+    "new": "        if (a.outcome == UiProvOutcome::team_joined && a.team_id != 0) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V31 \u2605\u2605 THE OFFER OPENS ON **ANY** ACKNOWLEDGEMENT \u2014 a CREATE's result screen leads into a saved-key offer for a team whose key was just minted",
+    "matches": 1,
+    "old": "        if (a.outcome == UiProvOutcome::team_joined && a.saved_key && a.team_id != 0) {",
+    "new": "        if (a.saved_key && a.team_id != 0) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V32 \u2605\u2605\u2605 THE ACT IS KEYED ON THE **FINGERPRINT** \u2014 the low 24 bits the offer screen printed, which 255 other teams share, instead of the id the transaction joined ([[B48]]'s class, over a stored secret)",
+    "matches": 1,
+    "old": "            in.team_id = _st.saved_key_team;     // \u2605 the JOINED team's identity, whole (U2)",
+    "new": "            in.team_id = _st.saved_key_team & 0x00FFFFFFu;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V33 \u2605\u2605\u2605 THE OFFER OPENS ON THE **ACT** \u2014 `prov_confirm` is moved to CONFIRM after the entry, so the first `double` installs a stored secret (P-13 broken at the one screen that reaches a key)",
+    "matches": 1,
+    "old": "            enter_provision(Provision::saved_key);\n            _st.saved_key_team = a.team_id;           // \u2605 the joined team's identity, whole (U2)",
+    "new": "            enter_provision(Provision::saved_key);\n            _st.prov_confirm = ProvConfirm::confirm;\n            _st.saved_key_team = a.team_id;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V34 \u2605\u2605\u2605 THE UNFINISHED OFFER SURVIVES THE BLANK \u2014 the operator wakes onto a screen they may not remember opening, one `double` from installing a key (OQ-3, and the arm is the one that reaches a secret)",
+    "matches": 1,
+    "old": "            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);",
+    "new": "            ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V35 \u2605\u2605 THE OFFER'S TARGET IS NOT RETIRED BY THE ENTRY \u2014 a stale team id survives into later screens, so a later act can be aimed at a team the operator left",
+    "matches": 1,
+    "old": "        _st.saved_key_team = 0;",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V36 \u2605\u2605 THE SUCCESS AND FAILURE ENDINGS COLLAPSE INTO ONE WORD \u2014 a failed activation renders `TEAM KEY ACTIVE`, which is the 'success that isn't' over a node that holds no key",
+    "matches": 1,
+    "old": "        case UiProvOutcome::saved_key_failed:  return kSavedKeyFailedText;",
+    "new": "        case UiProvOutcome::saved_key_failed:  return \"TEAM KEY ACTIVE\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V37 \u2605\u2605 THE SUCCESS SCREEN GROWS THE DURABILITY WARNING \u2014 `NOT SAVED` under a key that IS durable, i.e. S-27's ruled sentence said about the one path where it is false",
+    "matches": 1,
+    "old": "        case UiProvOutcome::saved_key_used:\n        // \u24d8 `team_key_received`'s second row is deliberately EMPTY",
+    "new": "        case UiProvOutcome::saved_key_used:    return \"NOT SAVED\";\n        // \u24d8 `team_key_received`'s second row is deliberately EMPTY"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V38 \u2605 the ruled offer lexeme is re-spelled \u2014 S-28 is owner-ruled and declared once, so a re-ruling must change it in exactly one place",
+    "matches": 1,
+    "old": "inline constexpr const char* kSavedKeyTitle = \"SAVED KEY FOUND\";",
+    "new": "inline constexpr const char* kSavedKeyTitle = \"SAVED KEY\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V39 \u2605 the ruled ACTION lexeme is re-spelled \u2014 S-29 is owner-ruled, and the word the operator presses is the one place the offer states what it will do",
+    "matches": 1,
+    "old": "        case ProvConfirm::confirm: return \"USE SAVED KEY\";",
+    "new": "        case ProvConfirm::confirm: return \"INSTALL KEY\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V40 \u2605\u2605\u2605\u2605 THE LANDING IS REVERTED TO THE MENU \u2014 the owner's ask undone, and undone in the shape it would really arrive in: the helper stays, and simply goes back where every other terminal goes",
+    "matches": 1,
+    "old": "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;\n        home_return();",
+    "new": "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;\n        enter_provision(Provision::menu);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V41 \u2605\u2605\u2605 THE SCOPE OVERRUN \u2014 the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the operator away from the flow the remedies are in (the \u26d4 consistency extension nobody ruled)",
+    "matches": 1,
+    "old": "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;",
+    "new": "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received\n                && _st.prov_answer.outcome != UiProvOutcome::team_key_unsaved) return false;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V42 \u2605\u2605\u2605\u2605 THE **ARRIVAL** NAVIGATES, THROUGH THE NEW LANDING \u2014 a radio receipt moves the panel to STATUS under the operator's thumb. \u26d4 Spec \u00a74-K4 pin 3 is unchanged by the ruling: only the PRESS may choose a destination",
+    "matches": 1,
+    "old": "        _st.dirty = true;                      // a repaint is owed; \u26d4 a wake is not (see above)",
+    "new": "        team_key_note_ack_landed();\n        _st.dirty = true;                      // a repaint is owed; \u26d4 a wake is not (see above)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V43 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS BYPASSED \u2014 `double` on **BACK** falls through into the removal, so one press destroys a stored secret the operator was still looking at (P-13 broken at the one screen that is irreversible)",
+    "matches": 1,
+    "old": "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::saved_keys); return; }",
+    "new": "        if (_st.prov_confirm == ProvConfirm::back) { }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V44 \u2605\u2605\u2605\u2605 THE **ACTIVE** ROW IS GIVEN THE DESTRUCTIVE CONFIRMATION \u2014 the protected record lands on a screen that offers `FORGET KEY`, so the panel invites the one removal the service must refuse (and the operator learns the refusal only after pressing it)",
+    "matches": 1,
+    "old": "        enter_provision(r.key.active ? Provision::saved_keys_active : Provision::saved_keys_confirm);",
+    "new": "        enter_provision(Provision::saved_keys_confirm);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V45 \u2605\u2605\u2605\u2605 THE REMOVAL IS KEYED ON THE **CURSOR** \u2014 a row INDEX stands in for the record's identity, and the list skips a corrupt zero-id record, so the index names a different record than the panel drew (\u00a7B66, over a delete)",
+    "matches": 1,
+    "old": "        _st.forget_team = r.key.team_id;",
+    "new": "        _st.forget_team = _st.cursor;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V46 \u2605\u2605\u2605\u2605 THE CREATE IS **AUTOMATICALLY RESUMED** after the full-keyring refusal \u2014 the ruling's *two explicit transactions* collapsed into one, so a create that fails its second write can destroy an unrelated saved key on the way, and the operator never chose either half",
+    "matches": 1,
+    "old": "        if (a.outcome == UiProvOutcome::refused && a.keyring_full) {\n            load_saved_keys();\n            enter_provision(Provision::saved_keys);\n            return;\n        }",
+    "new": "        if (a.outcome == UiProvOutcome::refused && a.keyring_full) {\n            run_create_team();\n            return;\n        }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V47 \u2605\u2605\u2605 THE \"REFRESHED LIST\" IS NOT REFRESHED \u2014 acknowledging `KEY FORGOTTEN` returns to the FROZEN copy, so the record just removed is still on the panel: a screen contradicting an act it reported as complete",
+    "matches": 1,
+    "old": "    void saved_keys_result_gesture() {\n        load_saved_keys();\n        enter_provision(Provision::saved_keys);\n    }",
+    "new": "    void saved_keys_result_gesture() {\n        enter_provision(Provision::saved_keys);\n    }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V48 \u2605\u2605\u2605 A FAILED REMOVAL RENDERS THE SUCCESS WORD \u2014 `KEY FORGOTTEN` for a store that refused or a write that did not land, which is the 'success that isn't' over a key that is still there (spec \u00a74-K6 pin 5)",
+    "matches": 1,
+    "old": "        case UiProvOutcome::key_forget_failed: return kKeyNotForgottenText;",
+    "new": "        case UiProvOutcome::key_forget_failed: return kKeyForgottenText;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V49 \u2605\u2605 THE FULL-STORE DOOR OPENS ON THE DISPLAY TOKEN \u2014 the navigation decision is taken by comparing `reason`'s TEXT instead of the typed flag, so a re-worded service token silently closes the one route out of the dead end ([[B48]]'s class at the navigation layer)",
+    "matches": 1,
+    "old": "        if (a.outcome == UiProvOutcome::refused && a.keyring_full) {",
+    "new": "        if (a.outcome == UiProvOutcome::refused && a.reason[0] == 'k' && a.reason[8] == 'f') {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V51 \u2605\u2605\u2605\u2605 THE RECEIVED-GRANT FULL LANDING IS DROPPED \u2014 the fifth received grant shows three correct rows and then acknowledges into the MENU, which is the QG blocker restored at the layer that owns the landing",
+    "matches": 1,
+    "old": "        if (!_st.prov_answer.keyring_full) return false;",
+    "new": "        return false;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V52 \u2605\u2605\u2605 **EVERY** UNSAVED RECEIPT ACKNOWLEDGES INTO THE REMOVAL LIST \u2014 a corrupt store, an unreadable record or a failed activation all walk the operator into a screen that offers to delete a key, which is a FALSE remedy",
+    "matches": 1,
+    "old": "        if (!_st.prov_answer.keyring_full) return false;",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V53 \u2605\u2605\u2605 THE FLAG IS ACCEPTED ON THE **SAVED** ARM \u2014 a `TEAM KEY RECEIVED` screen whose acknowledgement opens a removal list, i.e. the 'success that isn't' from the other side",
+    "matches": 1,
+    "old": "        note.keyring_full = !saved && keyring_full;",
+    "new": "        note.keyring_full = keyring_full;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V54 \u2605\u2605\u2605 THE FULL LANDING IS KEYED ON THE **ARM** INSTEAD OF THE ANSWER \u2014 the static-join result screen renders the same note and would then give ONE receipt TWO endings",
+    "matches": 1,
+    "old": "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_unsaved) return false;",
+    "new": "        if (_st.provisioning != Provision::create_result) return false;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W01 \u2605\u2605\u2605\u2605 THE ACT AUTO-FIRES ON ROW SELECTION \u2014 merely opening a member's act sub-view opens the grant chain, so the operator is put one press from shipping a private key by an act they did not ask for (P-12, the no-unsolicited shape, and the headline control of this slice)",
+    "matches": 1,
+    "old": "            _st.compose_grant_hash = team_member_hash_of(s.member, s.team_shown, _team_sel_id);\n            _st.compose_grant_row  = compose_grant_offered(/*dm=*/true, s.prov_invite, s.team_key_present,\n                                                           _st.compose_grant_hash, s.my_key_hash32);",
+    "new": "            _st.compose_grant_hash = team_member_hash_of(s.member, s.team_shown, _team_sel_id);\n            _st.compose_grant_row  = compose_grant_offered(/*dm=*/true, s.prov_invite, s.team_key_present,\n                                                           _st.compose_grant_hash, s.my_key_hash32);\n            if (_st.compose_grant_row) { run_roster_grant(s); return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W02 \u2605\u2605\u2605\u2605 THE CONFIRMATION IS SKIPPED \u2014 the act performs the grant itself instead of opening the chain's REJECT-default screen, so ONE double ships the key (P-13: the deliberate short-then-double is the whole guard)",
+    "matches": 1,
+    "old": "        enter_provision(invite_grant_preflight(_invite_dev, target)\n                      ? Provision::invite_confirm : Provision::invite_need_pubkey);",
+    "new": "        if (invite_grant_preflight(_invite_dev, target)) { run_invite_grant(target); return; }\n        enter_provision(Provision::invite_need_pubkey);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W03 \u2605\u2605\u2605\u2605 A **SECOND OUTCOME MAPPING IS FORKED** \u2014 the act stops going through the ONE reused call and maps the dispatch itself, so the panel's word and the core's word are free to disagree (the other headline; the anchor IS the reused call, which is what makes 'K7 adds no mapping' measurable rather than argued)",
+    "matches": 1,
+    "old": "        run_invite_grant(_st.invite.sel_hash);",
+    "new": "        { InviteGrantResult r{}; uint16_t c = 0; uint8_t d = 0;\n          const MESHROUTE_NS::Node::TeamKeyGrantTx tx =\n              _invite_dev ? _invite_dev->grant(_st.invite.sel_hash, kInviteGrantPlane, &c, &d)\n                          : MESHROUTE_NS::Node::TeamKeyGrantTx::queued;\n          r.hash = _st.invite.sel_hash; r.ctr = c; r.dst = d;\n          r.st = (tx == MESHROUTE_NS::Node::TeamKeyGrantTx::queued) ? InviteGrantState::sent\n                                                                    : InviteGrantState::failed;\n          _st.grant = r; enter_provision(Provision::invite_result); }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W04 \u2605\u2605\u2605 THE TARGET IS RE-RESOLVED AT PRESS TIME FROM THE MUTABLE TEAM-LOCAL ID instead of the hash frozen when the operator pointed at the row \u2014 a member that re-ran team-DAD between the two is granted to whoever now wears its id, or to nobody (P-7d)",
+    "matches": 1,
+    "old": "        const uint32_t target = _st.compose_grant_hash;",
+    "new": "        const uint32_t target = team_member_hash_of(s.member, s.team_shown, _st.compose_peer);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W05 \u2605\u2605\u2605 THE TARGET IS KEYED BY THE **DISPLAY NAME** \u2014 a mutable, self-asserted label decides whose private key is shipped, which is [[B48]]'s class at the worst possible site (P-7d)",
+    "matches": 1,
+    "old": "    for (uint8_t i = 0; i < n; ++i) if (mem[i].id == id) return mem[i].key_hash32;",
+    "new": "    for (uint8_t i = 0; i < n; ++i) if (mem[i].name[0] != '\\0') return mem[i].key_hash32;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W06 \u2605\u2605\u2605 THE SELF REFUSAL IS DROPPED \u2014 the roster row that is US offers a GRANT KEY, and the operator is invited to run a pubkey ceremony against themselves",
+    "matches": 1,
+    "old": "    if (member_hash32 == own_hash32) return false;",
+    "new": "    // (the self veto dropped)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W07 \u2605\u2605\u2605 THE KEYLESS OFFER APPEARS \u2014 a node with NO team content key offers to grant one, so the act's own precondition is discovered at the seam instead of never being offered (\u00a7K7 pin 6)",
+    "matches": 1,
+    "old": "    if (!dm || !can_grant || !team_key_present) return false;",
+    "new": "    if (!dm || !can_grant) return false;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W08 \u2605\u2605 THE AUTHORITATIVE FLOOR IS DROPPED \u2014 a ROUTE-ONLY member (no binding, no seal target) is offered as a grant target, which is the same fail-OPEN F-7 keeps off the invite list",
+    "matches": 1,
+    "old": "    if (member_hash32 == 0) return false;\n    if (member_hash32 == own_hash32) return false;",
+    "new": "    if (member_hash32 == own_hash32) return false;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W09 \u2605\u2605\u2605 THE ROSTER ENTRY TAKES THE WINDOW'S SNAPSHOT \u2014 the door that deliberately bypasses the F-11 diff starts feeding it, so the two authorities and the volatile handled set acquire a second, unruled writer",
+    "matches": 1,
+    "old": "        _st.invite = InviteWindow{};\n        _st.invite.sel_hash = target;",
+    "new": "        _st.invite = invite_snapshot_take(s.member, s.team_shown);\n        _st.invite.sel_hash = target;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W10 \u2605\u2605 THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (\u00a7B66) \u2014 the grant's slot is claimed whether or not the act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row",
+    "matches": 1,
+    "old": "    if (grant && idx == l.n) return ComposeRow::grant;",
+    "new": "    if (idx == l.n) return ComposeRow::grant;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W11 \u2605\u2605 THE RULED FIVE-MINUTE BOUND IS NOT ARMED \u2014 the approval opened from the roster has no deadline at all, so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
+    "matches": 1,
+    "old": "        _invite_until_ms    = s.now_ms + kInviteWindowMs;",
+    "new": "        // (no deadline armed)"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W12 \u2605\u2605\u2605\u2605 THE ROSTER-ORIGIN BINDING IS DELETED while the rest of run_roster_grant remains \u2014 every shared exit sees `none` and falls to PROVISION instead of returning to the member who opened it",
+    "matches": 1,
+    "old": "        _grant_return = {GrantOrigin::team_roster, peer};     // bind the caller and navigation identity together",
+    "new": "        clear_grant_return();                                // caller binding deleted"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W13 \u2605\u2605\u2605 THE CALLER IS DERIVED FROM InviteWindow::taken instead of bound by the roster action \u2014 the empty roster carrier is treated as having no caller and terminal acknowledgement loses its parent",
+    "matches": 1,
+    "old": "        _grant_return = {GrantOrigin::team_roster, peer};     // bind the caller and navigation identity together",
+    "new": "        _grant_return = {_st.invite.taken ? GrantOrigin::invite_window : GrantOrigin::none, peer};"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W14 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE INVITATION LANDING \u2014 a roster REJECT/ack opens PROVISION's invitation parent instead of returning to TEAM",
+    "matches": 1,
+    "old": "            case GrantOrigin::team_roster:\n                return_to_team_roster(back.team_local_id, s);\n                return;",
+    "new": "            case GrantOrigin::team_roster:\n                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n                return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W15 \u2605\u2605\u2605 BOTH ORIGINS COLLAPSE TO THE TEAM LANDING \u2014 an invitation-window REJECT leaves its window and selects a roster row the invitation never named",
+    "matches": 1,
+    "old": "            case GrantOrigin::invite_window:\n                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }\n                enter_provision(how == GrantExit::resume ? Provision::invite : Provision::menu);\n                return;",
+    "new": "            case GrantOrigin::invite_window:\n                return_to_team_roster(back.team_local_id, s);\n                return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W16 \u2605\u2605\u2605 GrantOrigin::none INFERS THE INVITATION PARENT instead of failing closed \u2014 the natural no-selection expiry re-opens an invitation list it has no selected caller for",
+    "matches": 1,
+    "old": "            case GrantOrigin::none:\n                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }\n                enter_provision(Provision::menu);\n                return;",
+    "new": "            case GrantOrigin::none:\n                if (how == GrantExit::terminal && _setup_origin == SetupOrigin::home) { home_return(); return; }\n                enter_provision(Provision::invite);\n                return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W17 \u2605\u2605\u2605 THE ROSTER IS RESTORED PASSIVE \u2014 the caller's entered list is lost and the next double only enters row zero instead of operating at the saved member",
+    "matches": 1,
+    "old": "        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)\n        _st.list_view = ListView::interactive;",
+    "new": "        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)\n        _st.list_view = ListView::passive;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W18 \u2605\u2605\u2605 SETTINGS/PROVISIONING IS LEFT OPEN BEHIND THE TEAM BODY \u2014 the top-level screen says TEAM while the sub-state still owns SETTINGS",
+    "matches": 1,
+    "old": "        settings_follow_screen();              // closes SETTINGS/provisioning through the existing primitive (U1)",
+    "new": "        ;                                       // SETTINGS/provisioning left open"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W19 \u2605\u2605\u2605 THE RETURN RESTORES ROW ZERO instead of the saved TEAM-local identity \u2014 selecting member 1 and returning silently points at member 0",
+    "matches": 1,
+    "old": "        _team_sel_id = team_local_id;",
+    "new": "        _team_sel_id = s.team[0].id;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W20 \u2605\u2605\u2605 THE B64 IDENTITY-FOLLOW STEP IS REMOVED \u2014 a member reordered while the terminal screen was up leaves the highlight at the old row",
+    "matches": 1,
+    "old": "        _st.dirty = true;\n        sync_team_cursor(s);",
+    "new": "        _st.dirty = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W21 \u2605\u2605\u2605 A GONE RETURN SELECTS ITS NEIGHBOUR \u2014 the existing B64 refusal is replaced by row zero, so the next double opens a DM for somebody else",
+    "matches": 1,
+    "old": "        _team_sel_valid = false; _st.team_pick_gone = true; _st.dirty = true;",
+    "new": "        _team_sel_id = s.team[0].id; _team_sel_valid = true; _st.team_pick_gone = false; _st.dirty = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W22 \u2605\u2605\u2605 A MATCHING ROSTER PUBKEY PUSH RETURNS TO THE INVITATION LIST \u2014 it loses the operation the operator started instead of opening the safe-default confirmation",
+    "matches": 1,
+    "old": "            case GrantOrigin::team_roster:\n                enter_provision(Provision::invite_confirm);\n                return;",
+    "new": "            case GrantOrigin::team_roster:\n                enter_provision(Provision::invite);\n                return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W23 \u2605\u2605\u2605 A MATCHING INVITATION PUBKEY PUSH OPENS THE ROSTER CONFIRMATION \u2014 invite-origin behaviour is no longer byte-identical and the refreshed candidate list is skipped",
+    "matches": 1,
+    "old": "            case GrantOrigin::invite_window:\n                enter_provision(Provision::invite);\n                return;",
+    "new": "            case GrantOrigin::invite_window:\n                enter_provision(Provision::invite_confirm);\n                return;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W24 \u2605\u2605\u2605 A RETURN REPEATS THE PUBKEY REQUEST \u2014 cancellation/acknowledgement grows an unauthorised second device command instead of being navigation-only",
+    "matches": 1,
+    "old": "            case GrantOrigin::team_roster:\n                return_to_team_roster(back.team_local_id, s);",
+    "new": "            case GrantOrigin::team_roster:\n                (void)invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash);\n                return_to_team_roster(back.team_local_id, s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W25 \u2605\u2605\u2605 A TERMINAL ACKNOWLEDGEMENT REPEATS THE GRANT \u2014 the result's frozen hash is sent a second time before the roster landing",
+    "matches": 1,
+    "old": "            case GrantOrigin::team_roster:\n                return_to_team_roster(back.team_local_id, s);",
+    "new": "            case GrantOrigin::team_roster:\n                if (_st.grant.hash) run_invite_grant(_st.grant.hash);\n                return_to_team_roster(back.team_local_id, s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W26 \u2605\u2605\u2605 AN UNRELATED CLOSE CLEARS ONLY THE ROSTER PAYLOAD, NOT ITS ORIGIN \u2014 a later invitation window with no selected candidate inherits TEAM as its terminal parent instead of failing closed to PROVISION",
+    "matches": 1,
+    "old": "    void clear_grant_return() { _grant_return = GrantReturn{}; }",
+    "new": "    void clear_grant_return() { _grant_return.team_local_id = 0; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W27 \u2605\u2605\u2605 EMERGENCY RETIRES INVITATION CALLERS BUT LEAVES A ROSTER CALLER ARMED \u2014 after pre-emption, a fresh unbound expiry jumps to TEAM instead of the fail-closed PROVISION parent",
+    "matches": 1,
+    "old": "    void clear_grant_return() { _grant_return = GrantReturn{}; }",
+    "new": "    void clear_grant_return() {\n        if (_grant_return.origin == GrantOrigin::invite_window) _grant_return = GrantReturn{};\n    }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "V50 \u2605 the ruled RETENTION lexemes are re-spelled \u2014 S-40/S-42 are owner-ruled and declared once, so a re-ruling must change each in exactly one place (the V38/V39 treatment, one screen over)",
+    "matches": 1,
+    "old": "inline constexpr const char* kSavedKeysTitle    = \"SAVED KEYS\";      // S-40 \u2014 the PROVISION child row AND the title",
+    "new": "inline constexpr const char* kSavedKeysTitle    = \"SAVED KEY LIST\";"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y01 \u2605\u2605\u2605\u2605 THE SLOT IS DERIVED FROM THE ROW INDEX \u2014 \u00a7B66's exact defect, and on a GAPPED catalog (dm1/dm4/dm8) row 1 then sends dm2's phrase to somebody the wearer picked dm4 for",
+    "matches": 1,
+    "old": "open_review(dm ? SendKind::dm : SendKind::channel_canned, compose_row_slot(_st.cursor, list), s);",
+    "new": "open_review(dm ? SendKind::dm : SendKind::channel_canned, uint8_t(mrfw::kPresetDmFirst + _st.cursor), s);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y02 \u2605\u2605\u2605 A DISABLED SLOT IS RENDERED \u2014 the tempting \"show them all, the wearer can see which are empty\". \u00a73.2.2 says the OLED lists only ENABLED slots, and a disabled row is a ZEROED row: a blank line that SENDS",
+    "matches": 1,
+    "old": "        if (!s.enabled) continue;                                   // \u2605 ENABLED ONLY",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y03 \u2605\u2605\u2605\u2605 THE L / - COLUMN IS DROPPED FROM A PRESET ROW \u2014 OQ-A's premise is that BOTH location states are shown, because the wearer CONFIRMS the marker as part of the double press. A blank column reads as `-`",
+    "matches": 1,
+    "old": "        case ComposeRow::text:  return l.row[idx].loc ? 'L' : '-';",
+    "new": "        case ComposeRow::text:  return '\\0';"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y04 \u2605\u2605\u2605 THE FIXED TABLE IS RESURRECTED \u2014 the projection bypassed and the retired kDmTexts re-created inside the row resolver. The panel then shows the compiled defaults for ever while the verbs edit a record nothing reads",
+    "matches": 1,
+    "old": "        case ComposeRow::text:  return l.row[idx].text;",
+    "new": "        case ComposeRow::text:  { static const char* const t[] = { \"Are you OK?\", \"I'm OK\" };\n                                  return idx < 2 ? t[idx] : l.row[idx].text; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y05 \u2605\u2605\u2605\u2605 K7's GRANT KEY ROW IS DISPLACED \u2014 pinned at the COMPILED list's length instead of the projection's, which is R-1's \"may not move K7's row\" broken the moment the wearer enables a third preset",
+    "matches": 1,
+    "old": "    if (grant && idx == l.n) return ComposeRow::grant;",
+    "new": "    if (grant && idx == 2) return ComposeRow::grant;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y06 \u2605\u2605\u2605\u2605 THE MODAL CLOSES ON A NO-OP \u2014 the equality dropped, so ANY ui preset verb (including an identical set that wrote nothing) shuts an open compose. Spec \u00a72's table rules the opposite in two of its rows",
+    "matches": 1,
+    "old": "        return _st.compose != Compose::none && !_st.compose_result && _st.compose_gen != s.preset_generation;",
+    "new": "        return _st.compose != Compose::none && !_st.compose_result;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y07 \u2605\u2605\u2605 THE EMPTY STATE IS BYPASSED \u2014 \u00a73.2.1's note never answered, so a wearer who cleared every preset gets a sub-view with one unexplained back row and no reason for it",
+    "matches": 1,
+    "old": "inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }",
+    "new": "inline const char* compose_empty_note(const ComposeList& l) { (void)l; return nullptr; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "Y08 \u2605\u2605\u2605\u2605 PRESET CHANGED FALLS THROUGH TO THE GENERIC FAILURE \u2014 spec \u00a72 gives the refusal a RULED VISIBLE WORD precisely to forbid this: the operator is told his message FAILED when NOTHING was submitted",
+    "matches": 1,
+    "old": "        if (k == SendKind::dm)                   _dm   = DmState::preset_changed;",
+    "new": "        if (k == SendKind::dm)                   _dm   = DmState::failed;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M01 \u2605\u2605\u2605 THE REVIEW OPENS WITH SEND SELECTED \u2014 one stray double sends (design \u00a77.3: BACK first, sending costs short + double)",
+    "matches": 1,
+    "old": "        _st.review_send  = false;                                     // \u2605 BACK \u2014 sending costs short + double",
+    "new": "        _st.review_send  = true;                                      // \u2605 BACK \u2014 sending costs short + double"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M02 \u2605\u2605\u2605\u2605 A DOUBLE ON A PHRASE QUEUES DIRECTLY \u2014 the review is bypassed (D5's whole point)",
+    "matches": 1,
+    "old": "open_review(dm ? SendKind::dm : SendKind::channel_canned, compose_row_slot(_st.cursor, list), s);",
+    "new": "queue(dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer, compose_row_slot(_st.cursor, list), _st.compose_gen); _st.compose_result = true;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M03 \u2605\u2605\u2605 SEND REBUILDS THE REQUEST FIELD BY FIELD \u2014 the bound team and peer hash are dropped (U2), so the gate cannot re-ask them",
+    "matches": 1,
+    "old": "        queue(_review);                                                // \u2605 SEND: exactly once, the existing slot",
+    "new": "        queue(_review.kind, _review.peer_id, _review.slot, _review.generation);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M04 \u2605\u2605\u2605 A PAGE TURN IS A SEND \u2014 the time-driven cadence queues the reviewed phrase (no-send paging broken)",
+    "matches": 1,
+    "old": "            if (_st.review_phase == ReviewPhase::open) refresh_review_page(); else refresh_detail_page();",
+    "new": "            if (_st.review_phase == ReviewPhase::open) { refresh_review_page(); queue(_review); } else refresh_detail_page();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M05 a SHORT on the review also turns the page \u2014 a press becomes a page turn (the cadence is time-only)",
+    "matches": 1,
+    "old": "        if (g == Gesture::short_press) { _st.review_send = !_st.review_send; _st.dirty = true; return; }",
+    "new": "        if (g == Gesture::short_press) { _st.review_send = !_st.review_send; _st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages); refresh_review_page(); _st.dirty = true; return; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M06 \u2605\u2605 the BLANK keeps SEND selected \u2014 the wake press could be the first half of a send nobody saw armed",
+    "matches": 1,
+    "old": "            _st.review_send = false;   // \u2605 W6: blanking KEEPS the review and its page, and resets the action to BACK",
+    "new": "            ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M07 \u2605\u2605 `long_arm` leaves SEND selected under the overlay (the alarm must return a review at BACK)",
+    "matches": 1,
+    "old": "    if (review_active()) _st.review_send = false;   // \u2605 W6: an arming alarm keeps the review, reset to BACK",
+    "new": "    ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M08 `long_fire` closes the whole phrase LIST too \u2014 after the alarm the wearer lands elsewhere (\u00a77.4.1: the list)",
+    "matches": 1,
+    "old": "    if (review_active()) close_review(); else close_compose();",
+    "new": "    if (review_active()) close_review(); close_compose();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M09 \u2605\u2605\u2605 `long_fire` LEAVES THE REVIEW OPEN under a committed alarm \u2014 an armed confirmation survives the overlay",
+    "matches": 1,
+    "old": "    if (review_active()) close_review(); else close_compose();",
+    "new": "    if (!review_active()) close_compose();"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M10 \u2605\u2605\u2605\u2605 THE TEAM RACE: a changed team no longer closes the review \u2014 a phrase aimed at team A confirms into team B",
+    "matches": 1,
+    "old": "        if (s.team_id != _review.team_id) { review_close_with(ReviewPhase::note_team, s, s.preset_generation); return true; }",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M11 no team left: the review closes to its LIST instead of Home (\u00a77.4.1: Home if no team remains)",
+    "matches": 1,
+    "old": "        if (note == ReviewPhase::note_team && s.team_id == 0) {        // no team left \u2192 Home",
+    "new": "        if (false) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M12 \u2605\u2605\u2605\u2605 THE HASH RACE: a re-keyed recipient no longer closes the review \u2014 the confirmed phrase goes to whoever holds the ID now",
+    "matches": 1,
+    "old": "        if (_review.kind == SendKind::dm && _review.peer_known && hash != _review.peer_hash) {",
+    "new": "        if (false) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M13 the KNOWN bit is ignored: an UNVERIFIED review is closed by a hash that merely appears (a false RECIPIENT CHANGED)",
+    "matches": 1,
+    "old": "        if (_review.kind == SendKind::dm && _review.peer_known && hash != _review.peer_hash) {",
+    "new": "        if (_review.kind == SendKind::dm && hash != _review.peer_hash) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M14 \u2605\u2605\u2605 THE GENERATION RACE: a moved catalog no longer closes the review with PRESET CHANGED \u2014 the DM list is then closed outright",
+    "matches": 1,
+    "old": "        if (s.preset_generation != _review.generation) { review_close_with(ReviewPhase::note_preset, s, s.preset_generation); return true; }",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M15 \u2605\u2605\u2605 a REMOVED teammate keeps the review open \u2014 the confirmation targets an ID nobody on the roster holds",
+    "matches": 1,
+    "old": "            if (!present) {                                            // the teammate is gone \u2192 the Team list",
+    "new": "            if (false) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M16 \u2605\u2605\u2605\u2605 THE REVIEW's BINDING IS `_req` \u2014 a later review overwrites a request still owed (e.g. across an alarm)",
+    "matches": 1,
+    "old": "        _review = SendReq{k, _st.compose_peer, slot, false, _st.compose_gen, s.team_id, 0u};",
+    "new": "        _req = SendReq{k, _st.compose_peer, slot, false, _st.compose_gen, s.team_id, 0u}; _review = _req;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M17 \u2605\u2605 the model derives KNOWN from `hash != 0` \u2014 a known zero is read as unknown (brief \u00a72.5's forbidden reading)",
+    "matches": 1,
+    "old": "        _review.peer_known = (_review.kind == SendKind::dm) && peer_known;   // \u2605 the RESOLVER's bit, never `hash != 0`",
+    "new": "        _review.peer_known = (_review.kind == SendKind::dm) && peer_hash != 0;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M18 \u2605\u2605\u2605 FULL-TEXT CAPTURE TRUNCATED to the row width \u2014 the review shows the abbreviated row, not what will be sent",
+    "matches": 1,
+    "old": "        if (n > mrnv::kUiPresetTextMax) n = mrnv::kUiPresetTextMax;",
+    "new": "        if (n > kComposeTextCols) n = kComposeTextCols;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M19 \u2605\u2605 THE UNION's EXCLUSIVITY: a closed review leaves its page state in the SHARED storage for the Inbox to inherit",
+    "matches": 1,
+    "old": "        _st.detail_page = 0; _st.detail_pages = 1;\n        _detail_len = 0; _detail_body[0] = '\\0';\n        for (uint8_t r = 0; r < kReviewBodyRows; ++r) _st.review_line[r][0] = '\\0';",
+    "new": "        ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M20 the abbreviation starts one byte early \u2014 a 17-byte phrase, which FITS, is shown abbreviated",
+    "matches": 1,
+    "old": "        if (s.len <= kComposeTextCols) {                            // fits the row: every byte, as stored",
+    "new": "        if (s.len < kComposeTextCols) {"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M21 the abbreviation marker is a dot \u2014 the row no longer says the phrase continues (D7's `\u00bb`)",
+    "matches": 1,
+    "old": "            r.text[kComposeTextCols - 1] = kIdentityMarker;",
+    "new": "            r.text[kComposeTextCols - 1] = '.';"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M22 \u2605\u2605 the NOTE's press falls through and ACTS \u2014 the press that clears `TEAM CHANGED` also opens a review / sends",
+    "matches": 1,
+    "old": "        if (review_note_text(_st.review_phase)) { _st.review_phase = ReviewPhase::none; _st.dirty = true; return; }",
+    "new": "        if (review_note_text(_st.review_phase)) { _st.review_phase = ReviewPhase::none; _st.dirty = true; }"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M23 a capture-time refusal re-seals the DM list on the tick's OLDER snapshot \u2014 the next tick closes it and the note is lost",
+    "matches": 1,
+    "old": "            _st.compose_gen = live_generation;",
+    "new": "            _st.compose_gen = s.preset_generation;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M24 \u2605 the wrap's branch (2) dropped \u2014 a line that FITS its 19 cells before a space is split early",
+    "matches": 1,
+    "old": "    if (body[s + kReviewCols] == ' ' || body[s + kReviewCols - 1] == ' ') return kReviewCols;   // (2)",
+    "new": "    ;"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M25 the wrap's branch (3) keeps one byte too many \u2014 the space-ending line swallows the next word's first letter",
+    "matches": 1,
+    "old": "        if (body[s + i - 1] == ' ') return i;",
+    "new": "        if (body[s + i - 1] == ' ') return uint8_t(i + 1);"
+  },
+  {
+    "target": "model",
+    "path": "src/firmware_ui_model.h",
+    "label": "W6-M26 the page count forgets the partial last page \u2014 the tail of a long phrase is never shown in review",
+    "matches": 1,
+    "old": "    return lines == 0 ? uint8_t(1) : uint8_t((lines + kReviewBodyRows - 1) / kReviewBodyRows);   // never 0 pages",
+    "new": "    return lines == 0 ? uint8_t(1) : uint8_t(lines / kReviewBodyRows);"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N01 \u2605\u2605\u2605 THE DEFECT ITSELF: the mount result is discarded again, so a dead FS reads as a fresh device",
+    "matches": 1,
+    "old": "    if (!fs.mount())    { if (io) io->backend_failed = true; return kSlotAbsent; }",
+    "new": "    fs.mount();"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N02 the mount failure is recorded but the read continues (a half-fix: the fact is set, the early return dropped)",
+    "matches": 1,
+    "old": "    if (!fs.mount())    { if (io) io->backend_failed = true; return kSlotAbsent; }",
+    "new": "    if (!fs.mount() && io) io->backend_failed = true;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N03 \u2605\u2605 THE ESP32 CLASSIFIER IS INVERTED: a first boot is called a STORAGE FAILURE (the same lie, other way)",
+    "matches": 1,
+    "old": "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
+    "new": "    if (!nvs.open(ns)) { if (io) io->backend_failed = true; return kSlotAbsent; }"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N04 the ESP32 classifier is dropped, so 'NVS would not open' is a fresh device again",
+    "matches": 1,
+    "old": "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
+    "new": "    if (!nvs.open(ns)) return kSlotAbsent;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N05 \u2605\u2605 the backend fact is consulted AFTER the absent test \u2014 the ordering that loses it entirely",
+    "matches": 1,
+    "old": "    if (io.backend_failed) return JoinRead::io_failed;\n    // \u2605 AN OVER-LENGTH RECORD IS `invalid`, \u26d4 never `ok`. `n` alone cannot see it: nRF52 reads `len` bytes out of a\n    //   longer file and returns EXACTLY `len`, so a valid PREFIX would pass every check below.\n    if (io.oversize) return JoinRead::invalid;\n    if (n == kSlotAbsent) return JoinRead::absent;",
+    "new": "    if (n == kSlotAbsent) return JoinRead::absent;\n    if (io.backend_failed) return JoinRead::io_failed;\n    if (io.oversize) return JoinRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N06 a storage failure is folded into `invalid` (the tempting collapse \u2014 it prints the WRONG remedy)",
+    "matches": 1,
+    "old": "    if (io.backend_failed) return JoinRead::io_failed;",
+    "new": "    if (io.backend_failed) return JoinRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N13 \u2605\u2605\u2605 THE REOPENED DEFECT: ANY lookup error is absent again \u2014 a metadata error reads as a fresh device",
+    "matches": 1,
+    "old": "        if (rc != FsT::kFoundRc)  { io->backend_failed = true; return kSlotAbsent; }  // (1) metadata error \u2014 \u26d4 the open is NOT attempted",
+    "new": "        if (rc != FsT::kFoundRc)  return kSlotAbsent;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N14 \u2605\u2605\u2605 present-but-unopenable collapses to absent \u2014 four possibly-intact profiles read as NO PROFILES",
+    "matches": 1,
+    "old": "        if (!fs.open(path)) { io->backend_failed = true; return kSlotAbsent; }",
+    "new": "        if (!fs.open(path)) return kSlotAbsent;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N15 \u26d4 the lookup is issued for EVERY record ('compute first, gate later') \u2014 the four bool records pay a stat each",
+    "matches": 1,
+    "old": "    if (io) {\n        // \u2605 ONLY",
+    "new": "    { const int probe = fs.lookup(path); (void)probe; }   // the stat asked unconditionally\n    if (io) {\n        // \u2605 ONLY"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N07 \u2605\u2605\u2605 THE OVER-LENGTH CHECK IS DROPPED, so a longer file is accepted on its valid PREFIX",
+    "matches": 1,
+    "old": "    if (io && fs.size() > len) io->oversize = true;          // \u2605 a longer file would otherwise read as a valid PREFIX",
+    "new": ";"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N08 the size comparison is `>=`, so an EXACTLY-sized record is rejected too (the off-by-one wrong fix)",
+    "matches": 1,
+    "old": "    if (io && fs.size() > len) io->oversize = true;          // \u2605 a longer file would otherwise read as a valid PREFIX",
+    "new": "    if (io && fs.size() >= len) io->oversize = true;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N09 the ESP32 over-length check is dropped",
+    "matches": 1,
+    "old": "    if (io && nvs.blob_len(key) > len) io->oversize = true;       // \u2605 the same PREFIX hazard, seen from the other arm",
+    "new": ";"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N10 an over-length record is accepted anyway (the fact is gathered and then ignored)",
+    "matches": 1,
+    "old": "    if (io.oversize) return JoinRead::invalid;",
+    "new": ";"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N11 \u26d4 the extra FS question is asked for EVERY record (\u26d4 /mrcfg, /mrid, /mrpeers, /mrfault must not move)",
+    "matches": 1,
+    "old": "    if (io && fs.size() > len) io->oversize = true;          // \u2605 a longer file would otherwise read as a valid PREFIX",
+    "new": "    const bool over = fs.size() > len;\n    if (io) io->oversize = over;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N12 \u26d4 the ESP32 nvs_open classification runs for every record, on every open failure",
+    "matches": 1,
+    "old": "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
+    "new": "    if (!nvs.open(ns)) { const bool miss = nvs.ns_absent(ns); if (io && !miss) io->backend_failed = true; return kSlotAbsent; }"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N17 \u2605\u2605 the keyring's backend-failure arm is ordered AFTER `absent`, so a dead flash reports NO STORED KEYS",
+    "matches": 1,
+    "old": "    if (io.backend_failed) return TeamKeyRead::io_failed;\n    if (io.oversize)       return TeamKeyRead::invalid;\n    if (n == kSlotAbsent)  return TeamKeyRead::absent;",
+    "new": "    if (n == kSlotAbsent)  return TeamKeyRead::absent;\n    if (io.backend_failed) return TeamKeyRead::io_failed;\n    if (io.oversize)       return TeamKeyRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N18 an OVER-LENGTH keyring is accepted as a valid PREFIX (the nRF52 short-read hazard, one record over)",
+    "matches": 1,
+    "old": "    if (io.oversize)       return TeamKeyRead::invalid;",
+    "new": "    ;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N19 \u2605 the keyring's version policy is RELAXED from equality to a range \u2014 an unknown layout is parsed as keys",
+    "matches": 1,
+    "old": "    return blob_valid_exact(b, n, kTeamKeyMagic, kTeamKeyVersion) ? TeamKeyRead::ok : TeamKeyRead::invalid;",
+    "new": "    return blob_valid_range(b, n, kTeamKeyMagic, 1, 0xFFFFu) ? TeamKeyRead::ok : TeamKeyRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N20 the keyring seed does not STAMP the version, so a fresh record is rejected by its own read policy",
+    "matches": 1,
+    "old": "    b.version = kTeamKeyVersion;",
+    "new": "    ;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N21 \u2605\u2605\u2605 THE CATALOG IS ADDRESSED AT `/mrcfg`: a phrase edit now writes the record whose version mismatch REPROVISIONS the node",
+    "matches": 1,
+    "old": "inline constexpr Slot kSlotUi    { \"/mrui\",    \"mr\",      \"ui\"    };",
+    "new": "inline constexpr Slot kSlotUi    { \"/mrcfg\",   \"mr\",      \"cfg\"   };"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N22 \u2605\u2605 the catalog carries `/mrcfg`'s MAGIC \u2014 the two records become mutually readable, which is the same collapse one layer in",
+    "matches": 1,
+    "old": "constexpr uint32_t kUiPresetMagic   = 0x4D525531u;   // 'MRU1' \u2014 its OWN magic, \u26d4 never kMagic ('MRC1'), never",
+    "new": "constexpr uint32_t kUiPresetMagic   = kMagic;        //"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N23 \u2605\u2605 the /mrui seed stamps generation ZERO \u2014 the value reserved for 'no generation', which a SendReq can never seal",
+    "matches": 1,
+    "old": "    b.generation = 1;",
+    "new": "    b.generation = 0;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N24 the /mrui version policy is RELAXED from equality to a range \u2014 an unknown layout is parsed as the wearer's phrases",
+    "matches": 1,
+    "old": "    return blob_valid_exact(b, n, kUiPresetMagic, kUiPresetVersion) ? UiPresetRead::ok : UiPresetRead::invalid;",
+    "new": "    return blob_valid_range(b, n, kUiPresetMagic, 1, 0xFFFFu) ? UiPresetRead::ok : UiPresetRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N25 \u2605\u2605 the /mrui read tests `absent` FIRST, so a store that would not open announces 'no catalog configured'",
+    "matches": 1,
+    "old": "    if (io.backend_failed) return UiPresetRead::io_failed;\n    if (io.oversize)       return UiPresetRead::invalid;\n    if (n == kSlotAbsent)  return UiPresetRead::absent;",
+    "new": "    if (n == kSlotAbsent)  return UiPresetRead::absent;\n    if (io.backend_failed) return UiPresetRead::io_failed;\n    if (io.oversize)       return UiPresetRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N40 \u2605\u2605 /mradmid's VERSION POLICY becomes a RANGE \u2014 a record written under another layout is adopted",
+    "matches": 1,
+    "old": "    return blob_valid_exact(b, n, kAdminIdMagic, kAdminIdVersion) ? AdminIdRead::ok : AdminIdRead::invalid;",
+    "new": "    return blob_valid_range(b, n, kAdminIdMagic, 0, kAdminIdVersion) ? AdminIdRead::ok : AdminIdRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N41 /mracl's version policy becomes a range",
+    "matches": 1,
+    "old": "    return blob_valid_exact(b, n, kAclMagic, kAclVersion) ? AclRead::ok : AclRead::invalid;",
+    "new": "    return blob_valid_range(b, n, kAclMagic, 0, kAclVersion) ? AclRead::ok : AclRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N42 \u2605\u2605 /mradmid's backend fact is consulted AFTER the absent test \u2014 a dead store reads as a fresh device",
+    "matches": 1,
+    "old": "inline AdminIdRead admin_id_blob_state(const AdminIdBlob& b, int n, const SlotIo& io = SlotIo{}) {\n    if (io.backend_failed) return AdminIdRead::io_failed;\n    if (io.oversize)       return AdminIdRead::invalid;\n    if (n == kSlotAbsent)  return AdminIdRead::absent;",
+    "new": "inline AdminIdRead admin_id_blob_state(const AdminIdBlob& b, int n, const SlotIo& io = SlotIo{}) {\n    if (n == kSlotAbsent)  return AdminIdRead::absent;\n    if (io.backend_failed) return AdminIdRead::io_failed;\n    if (io.oversize)       return AdminIdRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N43 \u2605\u2605 /mracl's backend fact is consulted after the absent test",
+    "matches": 1,
+    "old": "inline AclRead acl_blob_state(const AclBlob& b, int n, const SlotIo& io = SlotIo{}) {\n    if (io.backend_failed) return AclRead::io_failed;\n    if (io.oversize)       return AclRead::invalid;\n    if (n == kSlotAbsent)  return AclRead::absent;",
+    "new": "inline AclRead acl_blob_state(const AclBlob& b, int n, const SlotIo& io = SlotIo{}) {\n    if (n == kSlotAbsent)  return AclRead::absent;\n    if (io.backend_failed) return AclRead::io_failed;\n    if (io.oversize)       return AclRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N44 \u2605 /mradmid's OVER-LENGTH check is dropped \u2014 a longer file is accepted on its valid PREFIX",
+    "matches": 1,
+    "old": "    if (io.oversize)       return AdminIdRead::invalid;",
+    "new": "    (void)io.oversize;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N45 \u2605 /mracl's over-length check is dropped",
+    "matches": 1,
+    "old": "    if (io.oversize)       return AclRead::invalid;",
+    "new": "    (void)io.oversize;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N50 \u2605 `admin_id_blob_init` leaves the header UNSTAMPED, so a minted record reads back as invalid",
+    "matches": 1,
+    "old": "    b = AdminIdBlob{};\n    b.magic   = kAdminIdMagic;\n    b.version = kAdminIdVersion;",
+    "new": "    b = AdminIdBlob{};\n    b.version = kAdminIdVersion;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N51 `acl_blob_init` stamps the WRONG magic (the two target records become interchangeable)",
+    "matches": 1,
+    "old": "    b = AclBlob{};\n    b.magic   = kAclMagic;",
+    "new": "    b = AclBlob{};\n    b.magic   = kAdminIdMagic;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N52 `acl_blob_init` no longer value-initialises, so `reserved`/holes carry indeterminate bytes",
+    "matches": 1,
+    "old": "inline void acl_blob_init(AclBlob& b) {\n    b = AclBlob{};\n    b.magic   = kAclMagic;",
+    "new": "inline void acl_blob_init(AclBlob& b) {\n    b.magic   = kAclMagic;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N53 \u2605 the ACL slot table names the ADMIN record's file (both records share one file)",
+    "matches": 1,
+    "old": "inline constexpr Slot kSlotAcl   { \"/mracl\",   \"mr\",      \"acl\"   };",
+    "new": "inline constexpr Slot kSlotAcl   { \"/mradmid\", \"mr\",      \"admid\" };"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N54 \u2605\u2605 /mradmid moves OUT of the factory-reset namespace \u2014 a factory reset would keep the root",
+    "matches": 1,
+    "old": "inline constexpr Slot kSlotAdmid { \"/mradmid\", \"mr\",      \"admid\" };",
+    "new": "inline constexpr Slot kSlotAdmid { \"/mradmid\", \"mradmid\", \"admid\" };"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-1 \u00a7RADMIN-4: `/mrmkeys` and `/mrtargets` share ONE backend key \u2014 an update to one lands on the other",
+    "matches": 1,
+    "old": "inline constexpr Slot kSlotTargets  { \"/mrtargets\", \"mr\", \"targets\" };",
+    "new": "inline constexpr Slot kSlotTargets  { \"/mrtargets\", \"mr\", \"mkeys\" };"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-2 \u00a7RADMIN-4: the CONTROLLER keyring lands in the fault namespace \u2014 a factory reset would spare the seeds",
+    "matches": 1,
+    "old": "inline constexpr Slot kSlotMgmtKeys { \"/mrmkeys\",   \"mr\", \"mkeys\"   };",
+    "new": "inline constexpr Slot kSlotMgmtKeys { \"/mrmkeys\",   \"mrfault\", \"mkeys\"   };"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-3 \u00a7RADMIN-4: `/mrmkeys` reuses the ACL magic \u2014 one record becomes readable as another",
+    "matches": 1,
+    "old": "constexpr uint32_t kMgmtKeyMagic   = 0x4D524D4Bu;",
+    "new": "constexpr uint32_t kMgmtKeyMagic   = 0x4D524C31u;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-4 \u00a7RADMIN-4: `/mrtargets` accepts ANY version \u2014 a v2 record is adopted under a v1 layout guess",
+    "matches": 1,
+    "old": "    return blob_valid_exact(b, n, kTargetMagic, kTargetVersion) ? TargetRead::ok : TargetRead::invalid;",
+    "new": "    return b.magic == kTargetMagic ? TargetRead::ok : TargetRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-5 \u00a7RADMIN-4: a dead backend reads as a FRESH controller \u2014 the keyring's io_failed arm is gone",
+    "matches": 1,
+    "old": "    if (io.backend_failed) return MgmtKeyRead::io_failed;\n    if (io.oversize)       return MgmtKeyRead::invalid;\n    if (n == kSlotAbsent)  return MgmtKeyRead::absent;",
+    "new": "    if (n == kSlotAbsent)  return MgmtKeyRead::absent;\n    if (io.backend_failed) return MgmtKeyRead::io_failed;\n    if (io.oversize)       return MgmtKeyRead::invalid;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-6 \u00a7RADMIN-4: an OVER-LENGTH target book passes on its valid prefix",
+    "matches": 1,
+    "old": "    if (io.oversize)       return TargetRead::invalid;\n    if (n == kSlotAbsent)  return TargetRead::absent;",
+    "new": "    if (n == kSlotAbsent)  return TargetRead::absent;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "N-S4-7 \u00a7RADMIN-4: `mgmt_key_blob_init` stops stamping the magic \u2014 every fresh keyring reads as invalid",
+    "matches": 1,
+    "old": "    b.magic   = kMgmtKeyMagic;\n    b.version = kMgmtKeyVersion;\n}",
+    "new": "    b.version = kMgmtKeyVersion;\n}"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "W6-N1 \u2605\u2605\u2605 THE OLD v1 RECORD IS NOT RECOGNISED \u2014 it reads `invalid` and the wearer is told his phrases are corrupt",
+    "matches": 1,
+    "old": "    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;",
+    "new": "    ;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "W6-N2 the v1 test forgets the VERSION \u2014 any 372-byte `MRU1` file is called an old v1 record",
+    "matches": 1,
+    "old": "    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;",
+    "new": "    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic) return UiPresetRead::old_v1;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "W6-N3 the v1 test forgets the MAGIC \u2014 another record of v1's size is called an old phrase catalog",
+    "matches": 1,
+    "old": "    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;",
+    "new": "    if (n == kUiPresetV1Bytes && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;"
+  },
+  {
+    "target": "devicenv",
+    "path": "src/device_nv.h",
+    "label": "W6-N4 \u2605\u2605 the v1 test is asked BEFORE the backend \u2014 a dead store holding v1's bytes reads as a readable old record",
+    "matches": 1,
+    "old": "    if (io.backend_failed) return UiPresetRead::io_failed;",
+    "new": "    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;\n    if (io.backend_failed) return UiPresetRead::io_failed;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U01 \u2605\u2605\u2605 the `enc` GATE IS DROPPED \u2014 a CLEARTEXT stranger's post lights a dark panel (\u00a78.15 broken)",
+    "matches": 1,
+    "old": "    if (pu.enc) m.on_msg_wake(now_ms);",
+    "new": "    m.on_msg_wake(now_ms);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U02 \u2605\u2605 the gate is INVERTED \u2014 only the posts we could NOT open wake the panel",
+    "matches": 1,
+    "old": "    if (pu.enc) m.on_msg_wake(now_ms);",
+    "new": "    if (!pu.enc) m.on_msg_wake(now_ms);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U03 \u2605\u2605\u2605 the `enc` gate is COPIED onto the msg_recv arm, so an UNSEALED DM stops waking",
+    "matches": 1,
+    "old": "        m.on_msg_wake(now_ms);\n        return true;",
+    "new": "        if (pu.enc) m.on_msg_wake(now_ms);\n        return true;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U04 \u2605\u2605 the wake is hoisted ABOVE the kind gate \u2014 every push kind wakes the panel",
+    "matches": 1,
+    "old": "                               const char* who, uint32_t now_ms) {\n    using PK = MESHROUTE_NS::PushKind;",
+    "new": "                               const char* who, uint32_t now_ms) {\n    using PK = MESHROUTE_NS::PushKind;\n    m.on_msg_wake(now_ms);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U05 the wake is dropped from the channel_recv arm only (a sealed team post no longer wakes)",
+    "matches": 1,
+    "old": "    if (pu.enc) m.on_msg_wake(now_ms);",
+    "new": "    (void)pu.enc;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U06 the wake is dropped from the msg_recv arm only (a DM addressed to us no longer wakes)",
+    "matches": 1,
+    "old": "        m.on_msg_wake(now_ms);\n        return true;",
+    "new": "        return true;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U07 \u2605\u2605\u2605 the `send_aired` arm never offers the push to the INVITE verdict \u2014 `GRANT QUEUED` can never become `KEY SENT`, and every pure case in both other suites stays green",
+    "matches": 1,
+    "old": "            return m.on_invite_grant_push(pu);       // \u00a7UI-16 N6 \u2014 the grant's `KEY SENT` edge",
+    "new": "            return false;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U08 \u2605\u2605 the `send_failed` arm never offers the push to the INVITE verdict \u2014 a grant that gave up sits on `GRANT QUEUED` for as long as the operator looks at it",
+    "matches": 1,
+    "old": "            return m.on_invite_grant_push(pu);       // \u00a7UI-16 N6 \u2014 the grant's `GRANT FAILED` edge",
+    "new": "            return false;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U09 \u2605\u2605 the invite offer is made FIRST, before the two UI send slots \u2014 a UI DM holding the same handle loses its own TxDone edge to the grant verdict (the offer ORDER, inverted)",
+    "matches": 1,
+    "old": "        case PK::team_key_grant_aired:\n            return m.on_invite_grant_push(pu);       // \u00a7UI-16 N6 \u2014 the grant's `KEY SENT` edge",
+    "new": "        case PK::team_key_grant_aired:\n            if (emg.match_aired(pu.dst, pu.ctr) || normal.match_aired(pu.dst, pu.ctr)) return true;\n            return m.on_invite_grant_push(pu);       // \u00a7UI-16 N6 \u2014 the grant's `KEY SENT` edge"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U10 \u2605\u2605\u2605 the `team_key_received` arm is never spelled out \u2014 a receipt K3 persisted and FORWARDED reaches the router and renders nothing at all, while every K3 case stays green",
+    "matches": 1,
+    "old": "    if (pu.kind == PK::team_key_received) {\n        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        return true;\n    }",
+    "new": ";"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U11 \u2605\u2605\u2605 the arm renders the FAILURE wording for a push K3 FORWARDED \u2014 the panel says `TEAM KEY ACTIVE` / `NOT SAVED` about a key that IS durable, which is the ruled pair told backwards",
+    "matches": 1,
+    "old": "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);",
+    "new": "        m.on_team_key_note(/*saved=*/false, /*keyring_full=*/false, now_ms);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U12 \u2605\u2605\u2605 the arm WAKES the panel \u2014 \u00a7UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel post, and widening it to a grant receipt is a new owner ruling nobody made",
+    "matches": 1,
+    "old": "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        return true;",
+    "new": "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        m.on_msg_wake(now_ms);\n        return true;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U13 \u2605\u2605 the receipt is COUNTED as an arriving DM \u2014 a phantom in the unread bar the operator can never open, because `lib/core` never inboxes a grant (it consumes the DM as control traffic)",
+    "matches": 1,
+    "old": "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        return true;",
+    "new": "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        c.last_dm_ms = now_ms; c.have_dm = true; ++c.arr_dm;\n        return true;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U14 \u2605\u2605\u2605\u2605 THE GENERATION CHECK IS DROPPED \u2014 the freeze reduced to \"is the slot still enabled?\", which is the half that CANNOT see a `reset <slot>`: the words are identical again, the generation moved, and the wearer's press is honoured against a catalog he never saw (design \u00a73.3's headline)",
+    "matches": 1,
+    "old": "    if (req.generation != cat.generation) return SendGate::preset_changed;   // \u2605 EQUALITY, never ordering (\u00a73.2.3)",
+    "new": "    ;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "U15 \u2605\u2605\u2605\u2605 `-l` IS STRIPPED ON A LOCATED CHANNEL POST WITH NO FIX \u2014 the exact \"make the preset send\" fix \u00a73.2.3 forbids in as many words (*never silently strip -l*). The post AIRS, without the coordinates the wearer configured, and nothing on the panel says so",
+    "matches": 1,
+    "old": "        n = loc ? snprintf(out, cap, \"send_channel %u \\\"%.*s\\\" -t -l -e\", unsigned(team_channel_id), tl, sl.text)",
+    "new": "        n = (loc && have_fix) ? snprintf(out, cap, \"send_channel %u \\\"%.*s\\\" -t -l -e\", unsigned(team_channel_id), tl, sl.text)"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S01 \u2605\u2605\u2605\u2605 THE GATE DROPS THE TEAM QUESTION \u2014 an owed phrase executes into a team the wearer never chose",
+    "matches": 1,
+    "old": "    if (req.team_id != live.team_id) return SendGate::team_changed;          // \u2605 W6: EQUALITY with the live team",
+    "new": "    ;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S02 \u2605\u2605\u2605\u2605 THE GATE DROPS THE RECIPIENT QUESTION \u2014 a confirmed DM goes to whoever holds the ID now",
+    "matches": 1,
+    "old": "    if (req.kind == SendKind::dm && req.peer_known &&                          // \u2605 W6: only a hash KNOWN at selection",
+    "new": "    if (false && req.peer_known &&"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S03 \u2605\u2605\u2605 a binding that NO LONGER RESOLVES is treated as a match \u2014 a vanished key is not a changed recipient",
+    "matches": 1,
+    "old": "        (!live.peer_found || live.peer_hash != req.peer_hash)) return SendGate::recipient_changed;",
+    "new": "        (live.peer_found && live.peer_hash != req.peer_hash)) return SendGate::recipient_changed;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S04 the team refusal is typed as PRESET CHANGED \u2014 the wearer is told the wrong reason",
+    "matches": 1,
+    "old": "        case SendGate::team_changed:      m.on_team_changed(req.kind, now_ms);     return;",
+    "new": "        case SendGate::team_changed:      m.on_preset_changed(req.kind, now_ms);   return;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S05 \u2605\u2605\u2605\u2605 the recipient refusal STILL SUBMITS \u2014 a typed note on the panel and a send on the air",
+    "matches": 1,
+    "old": "        case SendGate::recipient_changed: m.on_recipient_changed(now_ms);          return;",
+    "new": "        case SendGate::recipient_changed: m.on_recipient_changed(now_ms);          break;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S06 \u2605\u2605 the capture takes KNOWN from `hash != 0` \u2014 a known zero becomes UNVERIFIED (the resolver's bit ignored)",
+    "matches": 1,
+    "old": "    b.peer_known = (b.kind == SendKind::dm) && live.peer_found;   // \u2605 the resolver's own bit \u2014 a known zero stays known",
+    "new": "    b.peer_known = (b.kind == SendKind::dm) && live.peer_hash != 0;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S07 \u2605\u2605\u2605 THE CAPTURE SKIPS THE GATE \u2014 a review opens on a catalog that already moved",
+    "matches": 1,
+    "old": "    if (g != SendGate::send) { m.on_review_refused(review_note_of(g), s, cat.generation); return true; }",
+    "new": "    (void)g;"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S08 \u2605\u2605\u2605 the capture copies at most the ROW's 17 bytes \u2014 the review is not the exact phrase that will be sent",
+    "matches": 1,
+    "old": "sl.text, sl.len, sl.loc != 0, now_ms);",
+    "new": "sl.text, uint8_t(sl.len > 17 ? 17 : sl.len), sl.loc != 0, now_ms);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S09 \u2605\u2605 `LOC` is never captured \u2014 a located phrase is confirmed without the wearer seeing it carries a position (D6)",
+    "matches": 1,
+    "old": "sl.loc != 0, now_ms);",
+    "new": "false, now_ms);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S10 \u2605\u2605\u2605 THE OPERATION COMPOSES INTO A 96-B LINE \u2014 every long phrase is refused as a truncation (the retired cap)",
+    "matches": 1,
+    "old": "    const int n = ui_compose_send_line(line, line_cap, req, cat, team_channel_id, have_fix);",
+    "new": "    const int n = ui_compose_send_line(line, line_cap < 96 ? line_cap : 96, req, cat, team_channel_id, have_fix);"
+  },
+  {
+    "target": "uisend",
+    "path": "src/firmware_ui_send.h",
+    "label": "W6-S11 \u2605\u2605 an UNVERIFIED DM's row 0 claims a hash \u2014 the wearer is shown a verification that never happened",
+    "matches": 1,
+    "old": "        n = snprintf(out, cap, \"TO T%u UNVERIFIED\", unsigned(b.peer_id));",
+    "new": "        n = snprintf(out, cap, \"TO T%u %08lX\", unsigned(b.peer_id), (unsigned long)b.peer_hash);"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U01 \u2605\u2605\u2605\u2605 `io_failed` IS TREATED AS `invalid`: the REPAIR WRITE lands on a possibly-intact record after a transient mount fault",
+    "matches": 1,
+    "old": "inline bool preset_read_refuses_writes(mrnv::UiPresetRead st) { return st == mrnv::UiPresetRead::io_failed; }",
+    "new": "inline bool preset_read_refuses_writes(mrnv::UiPresetRead) { return false; }"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U02 \u2605\u2605\u2605 THE SEMANTIC GATE IS DROPPED \u2014 a header-valid record with corrupt SLOT fields rides in as the wearer's catalog",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::ok && !presets_canonical(_cur)) st = mrnv::UiPresetRead::invalid;",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U03 \u2605\u2605 DEFAULTS-ON-CORRUPT, SILENTLY: the invalid load is no longer COUNTED, so nothing measures the warning",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::invalid)   ++_invalid_loads;",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U04 the two unreadable warnings are COLLAPSED \u2014 a corrupt record and a dead store take the same operator action",
+    "matches": 1,
+    "old": "        case mrnv::UiPresetRead::io_failed: return kPresetIoFailedLine;",
+    "new": "        case mrnv::UiPresetRead::io_failed: return kPresetInvalidLine;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U05 \u2605\u2605 AN ORDINARY FIRST BOOT WARNS \u2014 `absent` is worded as a fault, which is the collapse the four states exist to prevent",
+    "matches": 1,
+    "old": "        case mrnv::UiPresetRead::absent:    return nullptr;   // \u2605 a first boot is SILENT (owner-ruled)",
+    "new": "        case mrnv::UiPresetRead::absent:    return kPresetInvalidLine;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U06 \u2605\u2605\u2605 THE GENERATION WRAP LANDS ON ZERO \u2014 the value reserved for 'no generation', disarming P3's stale-generation refusal",
+    "matches": 1,
+    "old": "    return n == 0u ? 1u : n;",
+    "new": "    return n;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U07 \u2605\u2605\u2605 A CANONICAL-ZEROING RULE DROPPED: the slot is edited in place, so the TAIL of a longer phrase survives",
+    "matches": 1,
+    "old": "    s = mrnv::UiPresetSlot{};                       // \u2605 zeroes text, len, loc and enabled \u2014 see the block above",
+    "new": "    s.enabled = 0; s.loc = 0; s.len = 0;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U08 the reader stops requiring the TAIL AFTER `len` to be zero \u2014 invisible garbage is accepted as canonical",
+    "matches": 1,
+    "old": "    for (uint8_t i = s.len; i < sizeof s.text; ++i) if (s.text[i] != 0) return false;",
+    "new": "    ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U09 \u2605\u2605 the booleans become 'non-zero is true' instead of EXACTLY 0/1 \u2014 the coalescing compare is unreliable forever after",
+    "matches": 1,
+    "old": "    if (s.enabled > 1 || s.loc > 1) return false;                       // \u2605 EXACTLY 0 or 1",
+    "new": "    ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U10 \u2605\u2605\u2605 the reader no longer requires the EMERGENCY slot to be enabled \u2014 a bit-flip silently removes the alarm's phrase",
+    "matches": 1,
+    "old": "    if (mandatory && s.enabled != 1) return false;                      // \u2605 the emergency slot is ALWAYS enabled",
+    "new": "    ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U11 a DISABLED slot may keep its LOCATION flag \u2014 the 'disabled slots are all-zero' rule half-dropped",
+    "matches": 1,
+    "old": "        if (s.len != 0 || s.loc != 0) return false;",
+    "new": "        if (s.len != 0) return false;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U12 the persisted generation may be ZERO \u2014 the record's one non-zero invariant dropped from the reader",
+    "matches": 1,
+    "old": "    if (b.generation == 0) return false;                                // \u2605 NON-ZERO by ruling (see the wrap note)",
+    "new": "    ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U13 \u2605\u2605 the compiled EMERGENCY default is DISABLED AND EMPTY \u2014 \u00a73.2.2's mandatory row broken at its source",
+    "matches": 1,
+    "old": "    { \"I'm in danger\", 1 },        //  0 emergency \u2014 \u2605 location ON, enabled, MANDATORY (\u00a73.2.2 row 1)",
+    "new": "    { nullptr,         0 },        //  0 emergency"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U14 the compiled emergency default loses its LOCATION \u2014 \u00a73.2.2 row 1 says location ON",
+    "matches": 1,
+    "old": "    { \"I'm in danger\", 1 },        //  0 emergency \u2014 \u2605 location ON, enabled, MANDATORY (\u00a73.2.2 row 1)",
+    "new": "    { \"I'm in danger\", 0 },        //  0 emergency"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U15 \u2605\u2605\u2605 COALESCING DROPPED \u2014 every `set` writes flash, including one that changes nothing",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::ok &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U16 \u2605\u2605 the coalescing pin's ABSENT arm dropped \u2014 a no-op over a fresh device writes the record anyway",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::absent &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U17 \u2605\u2605\u2605\u2605 THE BASELINE BECOMES THE RUNNING CATALOG for every non-ok state: the REPAIR never happens AND a late-absent record never regains durability",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::absent &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+    "new": "        if (st != mrnv::UiPresetRead::ok &&\n            memcmp(&_cand, &_live, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U29 \u2605\u2605\u2605\u2605 THE DEFECT VERBATIM (QG blocker 2): the absent arm coalesces against `_live` \u2014 a custom catalog whose record went ABSENT answers `unchanged` to its own re-entry and is LOST at the next boot",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::absent &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+    "new": "        if (st == mrnv::UiPresetRead::absent &&\n            memcmp(&_cand, &_live, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U30 \u2605\u2605 an ABSENT record is materialised as an EMPTY one rather than the COMPILED DEFAULTS \u2014 so every no-op on a fresh device writes flash",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::absent) preset_defaults(_cur);",
+    "new": "        if (st == mrnv::UiPresetRead::absent) mrnv::ui_preset_blob_init(_cur);"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U18 \u2605\u2605\u2605\u2605 CANDIDATE/LIVE ORDER INVERTED: the catalog is PUBLISHED BEFORE the save, so a failed write leaves phrases that vanish at the next boot",
+    "matches": 1,
+    "old": "        if (!_store.save(_cand)) { r.verdict = PresetVerdict::nv_failed; r.err = PresetErr::store; return r; }",
+    "new": "        _live = _cand;\n        if (!_store.save(_cand)) { r.verdict = PresetVerdict::nv_failed; r.err = PresetErr::store; return r; }"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U19 \u2605\u2605\u2605 THE WITHDRAWN ORDER: the candidate is saved WITHOUT the next generation (the spec row corrected in QA round 2)",
+    "matches": 1,
+    "old": "        _cand.generation = preset_generation_next(_live.generation);",
+    "new": "        _cand.generation = _live.generation;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U20 \u2605\u2605 a failed save is reported as a SUCCESS \u2014 the 'success that isn't', over a catalog nothing stored",
+    "matches": 1,
+    "old": "        if (!_store.save(_cand)) { r.verdict = PresetVerdict::nv_failed; r.err = PresetErr::store; return r; }",
+    "new": "        _store.save(_cand);"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U21 \u2605 `reset all` resets the GENERATION to the compiled 1 \u2014 a SendReq sealed under an OLD catalog compares EQUAL again",
+    "matches": 1,
+    "old": "        _cand.generation = _live.generation;",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U22 \u2605\u2605\u2605\u2605 `clear emergency` IS ACCEPTED \u2014 the one slot the design says can never be disabled, cleared or emptied",
+    "matches": 1,
+    "old": "        if (preset_slot_mandatory(static_cast<uint8_t>(slot))) { r.err = PresetErr::mandatory; return r; }",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U23 \u2605\u2605 an ACTIVE EMERGENCY no longer refuses `set` \u2014 an alarm's retry series can have its body changed halfway through",
+    "matches": 1,
+    "old": "        if (_gate.emergency_active()) { r.err = PresetErr::busy; return r; }        // \u26d4 0 loads, 0 writes\n        if (!preset_slot_valid(slot)) { r.err = PresetErr::bad_slot; return r; }    // \u26d4 0 loads, 0 writes\n        const PresetErr ve = validate_preset_text(text, len);",
+    "new": "        if (!preset_slot_valid(slot)) { r.err = PresetErr::bad_slot; return r; }\n        const PresetErr ve = validate_preset_text(text, len);"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U24 \u2605\u2605 an ACTIVE EMERGENCY no longer refuses `reset all` \u2014 the whole catalog replaceable mid-alarm",
+    "matches": 1,
+    "old": "        if (_gate.emergency_active()) { r.err = PresetErr::busy; return r; }        // \u26d4 0 loads, 0 writes\n        const mrnv::UiPresetRead st = read_store();",
+    "new": "        const mrnv::UiPresetRead st = read_store();"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U25 \u2605\u2605\u2605 OQ-A'S WITHDRAWN DRAFT BOUND RESTORED (T + 1; W6: 164, was 18) \u2014 the bound is ONE for every preset in both location states",
+    "matches": 1,
+    "old": "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+    "new": "    if (len == 0 || len > mrnv::kUiPresetTextMax + 1) return PresetErr::bad_text;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U26 the '\u2265 one non-space' rule dropped \u2014 a slot of spaces renders as a row the wearer believes is configured and cannot see",
+    "matches": 1,
+    "old": "    return non_space ? PresetErr::none : PresetErr::bad_text;",
+    "new": "    return PresetErr::none;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U27 the `\"` / `\\` refusal dropped \u2014 the two printable bytes that break every quoted console/NDJSON form P2 emits",
+    "matches": 1,
+    "old": "        if (c == '\"' || c == '\\\\') return PresetErr::bad_text;",
+    "new": "        ;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U28 the printable-ASCII domain is widened to 'not a control byte', so high bytes the panel cannot show are stored",
+    "matches": 1,
+    "old": "        if (c < 0x20 || c > 0x7e) return PresetErr::bad_text;         // \u21d2 NUL, CR, LF, DEL and every high byte",
+    "new": "        if (c < 0x20) return PresetErr::bad_text;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U31 \u2605\u2605\u2605\u2605 THE BOUND IS TESTED AFTER A NARROW: a 419-byte phrase becomes 163 and is ACCEPTED as valid (W6; was 273 -> 17)",
+    "matches": 1,
+    "old": "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+    "new": "    len = static_cast<uint8_t>(len);\n    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "U32 \u2605\u2605\u2605\u2605 THE PUBLIC BOUNDARY IS NARROWED BACK to the record's own width \u2014 the length is laundered AT THE CALL, before any check runs",
+    "matches": 1,
+    "old": "    PresetResult set(long slot, bool loc, const char* text, size_t len) {",
+    "new": "    PresetResult set(long slot, bool loc, const char* text, uint8_t len) {"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P1 \u2605\u2605 THE OLD v1 BOOT IS SILENT \u2014 the wearer's phrases are gone and nothing says so (D8's line)",
+    "matches": 1,
+    "old": "        case mrnv::UiPresetRead::old_v1:    return kPresetOldV1Line;    // W6 \u2014 at EVERY boot until replaced",
+    "new": "        case mrnv::UiPresetRead::old_v1:    return nullptr;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P2 \u2605\u2605\u2605 AN OLD v1 RECORD BECOMES A BASELINE \u2014 a restated default writes nothing and the v1 record is never replaced",
+    "matches": 1,
+    "old": "        if (st == mrnv::UiPresetRead::absent &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }",
+    "new": "        if (st == mrnv::UiPresetRead::old_v1) preset_defaults(_cur);\n        if ((st == mrnv::UiPresetRead::absent || st == mrnv::UiPresetRead::old_v1) &&\n            memcmp(&_cand, &_cur, sizeof _cand) == 0) { r.verdict = PresetVerdict::unchanged; return r; }"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P3 \u2605\u2605\u2605 THE BOOT WRITES an old v1 record over with the defaults (a migration by the back door; D8: zero boot writes)",
+    "matches": 1,
+    "old": "        preset_defaults(_live);\n        return st;\n    }",
+    "new": "        preset_defaults(_live);\n        if (st == mrnv::UiPresetRead::old_v1) (void)_store.save(_live);\n        return st;\n    }"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P4 \u2605\u2605 THE PAGE SIZE grows to five \u2014 a maximum page outgrows what the 2048-B stage was proved to hold (D14)",
+    "matches": 1,
+    "old": "inline constexpr uint8_t kPresetPageSize = 4;",
+    "new": "inline constexpr uint8_t kPresetPageSize = 5;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P5 the page token accepts one past the last page \u2014 `list 6` answers an empty page instead of `bad_page`",
+    "matches": 1,
+    "old": "    return (t && n == 1 && t[0] >= '1' && t[0] <= char('0' + kPresetPages)) ? uint8_t(t[0] - '0') : uint8_t(0);",
+    "new": "    return (t && n == 1 && t[0] >= '1' && t[0] <= char('1' + kPresetPages)) ? uint8_t(t[0] - '0') : uint8_t(0);"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P6 \u2605\u2605 THE BOUND GOES ONE TIGHT \u2014 a 163-byte phrase (D7's own limit) is refused",
+    "matches": 1,
+    "old": "    if (len == 0 || len > mrnv::kUiPresetTextMax) return PresetErr::bad_text;",
+    "new": "    if (len == 0 || len >= mrnv::kUiPresetTextMax) return PresetErr::bad_text;"
+  },
+  {
+    "target": "uipresets",
+    "path": "src/firmware_ui_presets.h",
+    "label": "W6-P7 \u2605\u2605 a D9 DEFAULT ASKS FOR LOCATION \u2014 `Return to base now` would carry coordinates the wearer never enabled",
+    "matches": 1,
+    "old": "    { \"Return to base now\", 0 },   // 11 channel3",
+    "new": "    { \"Return to base now\", 1 },   // 11 channel3"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V01 the reason word is DECORATED at the writer \u2014 every one of the six reaches the companion mis-spelled",
+    "matches": 1,
+    "old": "    j.lit(\"{\\\"ev\\\":\\\"ui_preset_err\\\",\\\"reason\\\":\\\"\"); j.lit(preset_err_name(e)); j.ch('\"');",
+    "new": "    j.lit(\"{\\\"ev\\\":\\\"ui_preset_err\\\",\\\"reason\\\":\\\"err_\"); j.lit(preset_err_name(e)); j.ch('\"');"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V02 \u2605\u2605 THE SIX REASONS ARE COLLAPSED TO ONE at the render site \u2014 `busy`, `mandatory` and `bad_text` become the same event",
+    "matches": 1,
+    "old": "            preset_emit_err(r.err, out);",
+    "new": "            preset_emit_err(PresetErr::store, out);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V03 \u2605\u2605\u2605 `list` SKIPS THE DISABLED SLOTS \u2014 an editor can no longer address `dm5` to turn it on (\u00a73.2.3's own words)",
+    "matches": 1,
+    "old": "    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);",
+    "new": "    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) if (cat.slot(i).enabled) preset_emit_record(cat, i, out);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V04 \u2605\u2605 the end record's `capacity` becomes a HAND-WRITTEN literal \u2014 the number the companion sizes its editor from can now drift from the record",
+    "matches": 1,
+    "old": "j.lit(kPresetEndHead); j.u32(mrnv::kUiPresets);",
+    "new": "j.lit(kPresetEndHead); j.u32(16);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V05 \u2605\u2605 THE GENERATION IS DROPPED FROM THE END RECORD \u2014 a list no longer says WHICH catalog it just described",
+    "matches": 1,
+    "old": "    j.lit(kPresetEndGen);      j.u32(generation);",
+    "new": "    ;"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V06 the two ACTIVE COUNTS are swapped in the end record \u2014 invisible on the compiled defaults, where both are 2 (W6: D9 makes them 3 / 4)",
+    "matches": 1,
+    "old": "write_ui_presets_end(b, sizeof b, cat.enabled_count(PresetKind::dm),\n                                             cat.enabled_count(PresetKind::channel), cat.generation(), page)",
+    "new": "write_ui_presets_end(b, sizeof b, cat.enabled_count(PresetKind::channel),\n                                             cat.enabled_count(PresetKind::dm), cat.generation(), page)"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V07 \u2605\u2605\u2605 A MUTATING VERB ANSWERS WITH A DUMP \u2014 the companion must diff seventeen records to find what it just changed",
+    "matches": 1,
+    "old": "            if (whole_list) preset_emit_list(cat, out);\n            else            preset_emit_record(cat, static_cast<uint8_t>(slot), out);",
+    "new": "            preset_emit_list(cat, out);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V08 `reset all` answers with ONE record \u2014 for a verb that changed every slot and has no single one to name",
+    "matches": 1,
+    "old": "            preset_render(cat, 0, /*whole_list=*/true, r, out);         // \u00a73.2.3: `reset all` answers with the LIST",
+    "new": "            preset_render(cat, 0, /*whole_list=*/false, r, out);        //"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V09 \u2605\u2605\u2605 THE RECORD'S TERMINATOR IS STRIPPED at the one emitter (\"the sink adds one\") \u2014 USB still reads correctly, the BLE line sink NEVER SHIPS",
+    "matches": 1,
+    "old": "inline void preset_emit(IPresetLines& out, const char* buf, size_t n) { out.line(buf, n); }",
+    "new": "inline void preset_emit(IPresetLines& out, const char* buf, size_t n) { if (n && buf[n - 1] == '\\n') --n; out.line(buf, n); }"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V10 \u2605\u2605\u2605\u2605 `busy` BYPASSED FOR A NO-OP: the verb answers `unchanged` from the LIVE catalog without ever asking the service \u2014 the owner's ruled row, broken by an optimisation",
+    "matches": 1,
+    "old": "        const PresetResult r = cat.set(slot, loc, xt, xn);",
+    "new": "        PresetResult r{};\n        const mrnv::UiPresetSlot& cs = cat.slot(static_cast<uint8_t>(slot));\n        if (cs.enabled && cs.loc == (loc ? 1 : 0) && cs.len == xn && memcmp(cs.text, xt, xn) == 0)\n            r.verdict = PresetVerdict::unchanged;\n        else r = cat.set(slot, loc, xt, xn);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V11 \u2605\u2605 `mandatory` IS PRE-EMPTED IN THE PARSER (\"check it early\") \u2014 so `clear emergency` answers `mandatory` DURING AN ALARM, where the ruled answer is `busy`",
+    "matches": 1,
+    "old": "        const PresetResult r = cat.clear(slot);",
+    "new": "        if (preset_slot_mandatory(static_cast<uint8_t>(slot))) { preset_emit_err(PresetErr::mandatory, out); return true; }\n        const PresetResult r = cat.clear(slot);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V12 \u2605\u2605\u2605 THE BOOT LINE IS PRINTED FOR `ok` AND `absent` too (\"say something reassuring\") \u2014 an ordinary first boot reads like a fault",
+    "matches": 1,
+    "old": "    if (!ln) return st;                          // \u2605 `ok` / `absent` print NOTHING \u2014 an ordinary first boot is silent",
+    "new": "    if (!ln) ln = \"  ui presets = loaded\";"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V13 \u2605\u2605 THE `invalid` WARNING IS NEVER CLEARED \u2014 `cfg` goes on reporting a corrupt record long after a successful mutation repaired it",
+    "matches": 1,
+    "old": "    void on_result(const PresetResult& r) { if (r.verdict == PresetVerdict::ok) boot = mrnv::UiPresetRead::ok; }",
+    "new": "    void on_result(const PresetResult&) { }"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V14 \u2605\u2605\u2605 `loc=` GOES LENIENT \u2014 anything that is not `off` means ON, so `loc=maybe` quietly AIRS THE WEARER'S COORDINATES",
+    "matches": 1,
+    "old": "    if (t && n == 7 && !memcmp(t, \"loc=off\", 7)) { out = false; return true; }",
+    "new": "    if (t && n >= 4 && !memcmp(t, \"loc=\", 4)) { out = !(n == 7 && !memcmp(t, \"loc=off\", 7)); return true; }"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V15 \u2605\u2605 THE ONE-DIGIT ORDINAL RULE IS DROPPED \u2014 `dm10` parses as `dm1` and the operator edits a slot he did not name",
+    "matches": 1,
+    "old": "    if (n - pre != 1) return -1;                       // \u26d4 exactly one digit \u2014 see the block above",
+    "new": "    ;"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V16 the slot TOKEN is emitted 0-based (`dm0`..`dm7`) \u2014 the wire names stop matching the grammar that parses them",
+    "matches": 1,
+    "old": "                           : snprintf(out, cap, \"%s%u\", preset_kind_name(k), static_cast<unsigned>(o));",
+    "new": "                           : snprintf(out, cap, \"%s%u\", preset_kind_name(k), static_cast<unsigned>(o - 1));"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V17 an ABSENT text term becomes `bad_text` instead of the grammar \u2014 an incomplete line is answered with a reason code instead of the shape",
+    "matches": 1,
+    "old": "        if (a.exhausted()) return false;\n        const long slot = preset_slot_of_token(st, sn);",
+    "new": "        const long slot = preset_slot_of_token(st, sn);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V18 a TRAILING TOKEN on `list` is IGNORED rather than refused (C2) \u2014 `ui preset list 1 2` silently runs page 1",
+    "matches": 1,
+    "old": "(a.exhausted() ? preset_page_of_token(t, n) : uint8_t(0))",
+    "new": "preset_page_of_token(t, n)"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "V19 \u2605\u2605 THE MUTATING VERBS STOP DISTINGUISHING `refused` FROM A SUCCESS: a refusal renders the UNCHANGED record, so a companion reads a rejected edit as applied",
+    "matches": 1,
+    "old": "        case PresetVerdict::refused:\n        case PresetVerdict::nv_failed:",
+    "new": "        case PresetVerdict::refused:\n            preset_emit_record(cat, static_cast<uint8_t>(slot), out);\n            return;\n        case PresetVerdict::nv_failed:"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "W6-V1 \u2605\u2605 A BAD PAGE ANSWERS THE USAGE LINE \u2014 the companion gets prose instead of `bad_page` (D14)",
+    "matches": 1,
+    "old": "        if (pg) preset_emit_list(cat, out, pg); else preset_emit_err(PresetErr::bad_page, out);   // W6 D14: bare = 1",
+    "new": "        if (pg) preset_emit_list(cat, out, pg); else return false;"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "W6-V2 \u2605\u2605\u2605 `list` ANSWERS UNPAGED \u2014 the whole-reply bound is gone (seventeen maximum records overflow the stage)",
+    "matches": 1,
+    "old": "        if (pg) preset_emit_list(cat, out, pg); else",
+    "new": "        if (pg) preset_emit_list(cat, out); else"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "W6-V3 \u2605\u2605 a page does not stop at its four \u2014 every page runs to the end of the catalog",
+    "matches": 1,
+    "old": "    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);",
+    "new": "    for (uint8_t i = first; i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "W6-V4 \u2605\u2605 a page's end record loses `page`/`pages` \u2014 a client cannot tell which page it read or when to stop",
+    "matches": 1,
+    "old": "    if (page != 0) { j.lit(kPresetEndPage); j.u32(page); j.lit(kPresetEndPages); j.u32(kPresetPages); }",
+    "new": "    (void)page;"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "W6-V5 `text_max` reports the SLOT count \u2014 the companion sizes its text field from the wrong number",
+    "matches": 1,
+    "old": "j.lit(kPresetEndTextMax); j.u32(mrnv::kUiPresetTextMax);",
+    "new": "j.lit(kPresetEndTextMax); j.u32(mrnv::kUiPresets);"
+  },
+  {
+    "target": "uipresetverbs",
+    "path": "src/firmware_ui_preset_verbs.h",
+    "label": "W6-V6 the boot line's buffer is sized short of its own derived bound \u2014 a boot diagnostic is clipped",
+    "matches": 1,
+    "old": "    char b[kPresetBootLineMax];",
+    "new": "    char b[kPresetBootLineMax - 10];"
+  },
+  {
+    "target": "sliceCbudget",
+    "path": "src/firmware_ui_model.h",
+    "label": "S10 \u2605\u2605\u2605 THE ORDINARY-VIEW TOTAL IS TAKEN **AFTER** THE RING CAP \u2014 `inbox_total` collapses onto `inbox_shown` and a truncated list starts claiming it is the whole mailbox",
+    "matches": 1,
+    "old": "        if (_n_admitted < UINT16_MAX) ++_n_admitted;\n        const bool dm = (r.kind == InboxKind::dm);\n        InboxRow* buf = dm ? _dm : _ch;\n        uint8_t&  n   = dm ? _n_dm : _n_ch;\n        if (n < kInboxRowsPerKind) { buf[n++] = r; return; }",
+    "new": "        const bool dm = (r.kind == InboxKind::dm);\n        InboxRow* buf = dm ? _dm : _ch;\n        uint8_t&  n   = dm ? _n_dm : _n_ch;\n        if (n < kInboxRowsPerKind) { if (_n_admitted < UINT16_MAX) ++_n_admitted; buf[n++] = r; return; }"
+  },
+  {
+    "target": "sliceCsend",
+    "path": "src/firmware_ui_send.h",
+    "label": "S11 \u2605\u2605\u2605\u2605 THE UNREAD ARM IS WIDENED TO `send_e2e_acked` \u2014 an E2E receipt increments the DM unread count, so the status bar claims an unread message that the inbox list can never show",
+    "matches": 1,
+    "old": "    if (pu.kind == PK::msg_recv) {",
+    "new": "    if (pu.kind == PK::msg_recv || pu.kind == PK::send_e2e_acked) {"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F01 \u2605\u2605 the MARKER IS DROPPED \u2014 the last kept cell is the next name byte, a SILENT clip (B441's defect restored)",
+    "matches": 1,
+    "old": "        if (keep < len) out[end++] = kIdentityMarker;",
+    "new": "        if (keep < len) { out[end] = ui_display_byte(uint8_t(bytes[end])); ++end; }"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F02 \u2605\u2605\u2605 the SANITIZER IS BYPASSED \u2014 raw name bytes reach the panel (UTF-8 as Latin-1 mojibake, lost cells)",
+    "matches": 1,
+    "old": "        for (uint8_t i = 0; i < keep; ++i) out[i] = ui_display_byte(uint8_t(bytes[i]));",
+    "new": "        for (uint8_t i = 0; i < keep; ++i) out[i] = bytes[i];"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F03 \u2605\u2605 the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.`",
+    "matches": 1,
+    "old": "        if (keep < len) out[end++] = kIdentityMarker;",
+    "new": "        if (keep < len) { out[end] = kIdentityMarker; out[end] = ui_display_byte(uint8_t(out[end])); ++end; }"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F04 \u2605\u2605\u2605 an unnamed peer at 6-9 columns gets a CLIPPED `0x\u2026` hash instead of its fingerprint (the third spelling)",
+    "matches": 1,
+    "old": "    if (std::size_t(cols) >= kMemberFpCap - 1)   { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }",
+    "new": "    if (std::size_t(cols) >= kMemberFpCap - 1)   { char h[kMemberHashCap]; ui_fmt_member_hash_full(h, sizeof h, key_hash32); snprintf(out, cap, \"%.*s\", int(cols), h); return IdentityFmt::hash; }"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F05 \u2605\u2605 the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled",
+    "matches": 1,
+    "old": "    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_hash_full(out, cap, key_hash32);   return IdentityFmt::hash; }",
+    "new": "    if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_fingerprint(out, cap, key_hash32); return IdentityFmt::hash; }"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F06 \u2605\u2605\u2605 NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost)",
+    "matches": 1,
+    "old": "    if (key_hash32 == 0) return IdentityFmt::none;",
+    "new": "    if (key_hash32 == 0) { snprintf(out, cap, \"0x%08lX\", 0ul); return IdentityFmt::none; }"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F07 \u2605\u2605 the marker is written ONE PAST the budget \u2014 the abbreviated label is `cols + 1` cells wide",
+    "matches": 1,
+    "old": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);",
+    "new": "        const uint8_t keep = (len <= cols) ? len : cols;"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F08 \u2605\u2605 the CAPACITY rule is dropped \u2014 a destination shorter than the budget gets a partial result past its end",
+    "matches": 1,
+    "old": "    if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result",
+    "new": "    // (the capacity is no longer checked against the budget)"
+  },
+  {
+    "target": "w4aident",
+    "path": "src/firmware_ui_model.h",
+    "label": "F09 \u2605\u2605 a NAME is ignored whenever a hash is known \u2014 the peer's chosen name is replaced by its hash token",
+    "matches": 1,
+    "old": "    if (len > 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read",
+    "new": "    if (len > 0 && key_hash32 == 0) {\n        if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H01 \u2605\u2605\u2605 a missing key no longer OUTRANKS a pending ID (the key-missing profile hides behind ID-pending)",
+    "matches": 1,
+    "old": "    if (!s.team_key_present) return HomeProfile::key_missing;   // \u2605 a missing key OUTRANKS a pending ID (\u00a76.3)\n    if (s.my_team_id == 0)   return HomeProfile::id_pending;",
+    "new": "    if (s.my_team_id == 0)   return HomeProfile::id_pending;\n    if (!s.team_key_present) return HomeProfile::key_missing;   // \u2605 a missing key OUTRANKS a pending ID (\u00a76.3)"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H02 \u2605\u2605 the JOIN TEAM item bypasses its CAPABILITY (a build that cannot join offers the act)",
+    "matches": 1,
+    "old": "            if (s.prov_join_team)   add(HomeItem::join);",
+    "new": "            add(HomeItem::join);"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H03 \u2605\u2605 the INVITE MEMBER item bypasses its CAPABILITY",
+    "matches": 1,
+    "old": "            if (s.prov_invite) add(HomeItem::invite);",
+    "new": "            add(HomeItem::invite);"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H04 \u2605\u2605\u2605 the arrow is kept by ROW instead of by IDENTITY (a list change moves the arrow onto another item, silently)",
+    "matches": 1,
+    "old": "        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; n.changed = true; }",
+    "new": "        else { const uint8_t k_ = home_index_of(c, c.selected); n.selected = n.items[k_ < n.count ? k_ : 0]; }"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H05 \u2605\u2605\u2605 OPTIONS CHANGED is never RAISED (the arrow jumps to item 1 with no word said)",
+    "matches": 1,
+    "old": "        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; n.changed = true; }",
+    "new": "        else if (home_index_of(n, n.selected) >= n.count) { n.selected = n.items[0]; }"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H06 \u2605\u2605\u2605 OPTIONS CHANGED does not refuse the DOUBLE (the press the operator aimed at the old item opens item 1)",
+    "matches": 1,
+    "old": "        if (_st.home.changed) {\n            if (note_was_up) _st.home.changed = false;",
+    "new": "        if (_st.home.changed && g == Gesture::short_press) {\n            if (note_was_up) _st.home.changed = false;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H07 \u2605\u2605\u2605 MENU leaves the operator in LIST FOCUS on Home instead of MENU MODE (the rail cannot be walked)",
+    "matches": 1,
+    "old": "        (void)list_view_reset_on_leave(_st.list_view);  // \u2192 menu mode",
+    "new": "        ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H08 \u2605\u2605\u2605\u2605 a BLANK RE-HOMES \u2014 the power action throws away the screen, the focus and the arrow (rule 7)",
+    "matches": 1,
+    "old": "            _st.blanked = true; _st.dirty = true;",
+    "new": "            _st.blanked = true; _st.dirty = true; home_return();"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H09 \u2605\u2605\u2605\u2605 an OQ-3 CANCELLATION IS REMOVED \u2014 the saved-key offer survives the blank, one double from a SECRET install",
+    "matches": 1,
+    "old": "            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);",
+    "new": "            ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H10 \u2605\u2605\u2605 the Home-origin exit goes to the PROVISION MENU (the typed origin ignored at the return sites)",
+    "matches": 1,
+    "old": "        if (_setup_origin == SetupOrigin::home) { home_return(); return; }\n        enter_provision(Provision::menu);",
+    "new": "        enter_provision(Provision::menu);"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H10b \u2605\u2605\u2605 the PROVISION menu's own BACK ignores the Home origin (lands on the Settings menu)",
+    "matches": 1,
+    "old": "                if (_setup_origin == SetupOrigin::home) { home_return(); return; }\n                close_provisioning(); return;",
+    "new": "                close_provisioning(); return;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H11 \u2605\u2605\u2605 the blocked reason is RE-READ, not FROZEN \u2014 a recovery under the note changes it, or resumes nothing honestly",
+    "matches": 1,
+    "old": "    void sync_home(const UiSnapshot& s) {",
+    "new": "    void sync_home(const UiSnapshot& s) {\n        if (_st.home_view == HomeView::setup_block) { _st.prov_block = ProvBlock::none; if (provision_admit()) _st.home_view = HomeView::list; else if (_st.prov_block == ProvBlock::none) _st.prov_block = ProvBlock::unavailable; }"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H12 \u2605\u2605\u2605\u2605 a Send `PRESET CHANGED` press SENDS \u2014 the catalog moved under the operator's thumb and the press is honoured",
+    "matches": 1,
+    "old": "        if (_st.compose == Compose::channel && _st.home.changed) { _st.home.changed = false; _st.dirty = true; return; }",
+    "new": "        if (_st.compose == Compose::channel && _st.home.changed) { _st.home.changed = false; _st.dirty = true; }"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H13 \u2605\u2605 the Home INVITE open never takes the member SNAPSHOT (the window opens with no authorities)",
+    "matches": 1,
+    "old": "                enter_setup_from_home();\n                load_invite(s);",
+    "new": "                enter_setup_from_home();\n                ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H14 \u2605\u2605\u2605 the Home INVITE open never requests the team announcement",
+    "matches": 1,
+    "old": "                enter_provision(Provision::invite);\n                if (_invite_dev) _invite_dev->request_team_announcement();\n                return;\n            case HomeItem::none: return;",
+    "new": "                enter_provision(Provision::invite);\n                return;\n            case HomeItem::none: return;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H15 \u2605\u2605\u2605 the Home INVITE open requests the announcement TWICE",
+    "matches": 1,
+    "old": "                enter_provision(Provision::invite);\n                if (_invite_dev) _invite_dev->request_team_announcement();\n                return;\n            case HomeItem::none: return;",
+    "new": "                enter_provision(Provision::invite);\n                if (_invite_dev) { _invite_dev->request_team_announcement(); _invite_dev->request_team_announcement(); }\n                return;\n            case HomeItem::none: return;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H16 \u2605\u2605\u2605\u2605 Home JOIN/CREATE SKIP THE SETTINGS GATE (a dirty or conflicted draft is carried into a provisioning act)",
+    "matches": 1,
+    "old": "                if (!provision_admit()) {",
+    "new": "                if (false) {"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H17 \u2605\u2605 an unavailable service is refused with NO reason (the note says nothing the operator can read)",
+    "matches": 1,
+    "old": "                    if (_st.prov_block == ProvBlock::none) _st.prov_block = ProvBlock::unavailable;",
+    "new": "                    ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H18 \u2605\u2605\u2605 a return lands on item 1 instead of its OPENER (the operator loses their place on every way back)",
+    "matches": 1,
+    "old": "        n.selected = (home_index_of(n, preferred) < n.count) ? preferred : n.items[0];",
+    "new": "        n.selected = n.items[0];"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H19 \u2605\u2605 the SETTINGS PROVISION row does not type the origin (a stale Home origin sends Settings' exits Home)",
+    "matches": 1,
+    "old": "                    _setup_origin = SetupOrigin::settings;   // W4b: a SETTINGS entry types the setup origin (\u00a76.6)",
+    "new": "                    ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H20 \u2605\u2605 the origin is NOT RETIRED when the flow leaves SETTINGS (a later flow inherits a dead session's exits)",
+    "matches": 1,
+    "old": "        _setup_origin = SetupOrigin::none;   // W4b: the setup flow RETIRES when it genuinely leaves SETTINGS (\u00a76.6)",
+    "new": "        ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H21 \u2605\u2605\u2605 acknowledging a Send result CLOSES the Send list instead of returning to it on item 1",
+    "matches": 1,
+    "old": "            if (send_list && _st.compose == Compose::none) open_send_list(s);",
+    "new": "            ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H22 \u2605\u2605\u2605 a catalog change CLOSES the Send list (the DM rule applied to the top-level list: the operator is thrown out)",
+    "matches": 1,
+    "old": "        if (_st.compose == Compose::channel && preset_generation_moved(s)) preset_catalog_moved(s);",
+    "new": "        ;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H23 \u2605\u2605 a press on the SAME tick the item vanished clears the note it could not have seen (ruling)",
+    "matches": 1,
+    "old": "            if (note_was_up) _st.home.changed = false;",
+    "new": "            _st.home.changed = false;"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H24 \u2605\u2605 a `short` on My device's one BACK row LEAVES (the sub-view has one row; only `double` returns)",
+    "matches": 1,
+    "old": "                if (g == Gesture::double_press) home_return();",
+    "new": "                home_return();"
+  },
+  {
+    "target": "w4bhome",
+    "path": "src/firmware_ui_model.h",
+    "label": "H25 \u2605\u2605\u2605\u2605 the Settings MENU is shown over a CLOSED service (B457 \u2014 a pre-empted ungated flow leaves an invisible menu)",
+    "matches": 1,
+    "old": "        if ((_st.settings == Settings::browsing || _st.settings == Settings::editing) && !(_cfg && _cfg->is_open())) {",
+    "new": "        if (false) {"
+  }
+]

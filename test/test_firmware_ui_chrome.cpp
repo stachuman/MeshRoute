@@ -14,6 +14,7 @@
 #include "doctest.h"
 #include "firmware_ui_chrome.h"
 #include "firmware_ui_icons.h"
+#include "firmware_ui_send.h"   // ★ W6: `ui_review_capture` — the phrase review this case now confirms through
 #include <cstdint>
 #include <cstring>
 #include <new>      // placement new — the padding case below builds one operand over poisoned storage
@@ -867,7 +868,17 @@ TEST_CASE("chrome-nav: a REAL outcome landing on a live compose modal leaves the
     CHECK(ui_nav_slot(m.state(), m.emergency()) == NavSlot::send);
     CHECK(m.state().screen == Screen::team);                     // …while the SCREEN underneath is still TEAM
 
-    m.on_gesture(Gesture::double_press, s);                      // send the highlighted canned text
+    // ★ W6 (design r2.23 §7.3, D5): the double on the phrase opens its REVIEW (nothing queued); the tick's capture
+    //   answers; the review's SEND is what queues. The rail stays on SEND over the review — it is the same body.
+    m.on_gesture(Gesture::double_press, s);                      // review the highlighted canned text
+    SendReq none{};
+    CHECK(m.take_send_request(none) == false);
+    {   mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat);
+        CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, 0}, nullptr, 0, s, s.now_ms)); }
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    CHECK(ui_nav_slot(m.state(), m.emergency()) == NavSlot::send);
+    m.on_gesture(Gesture::short_press, s);                       // BACK -> SEND
+    m.on_gesture(Gesture::double_press, s);                      // ...and SEND
     SendReq req{};
     const bool took = m.take_send_request(req);                  // ⚠ DRAINS — one call, into a local ([[B70]])
     CHECK(took);

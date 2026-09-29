@@ -1,0 +1,17 @@
+# final chain step 8 — checkers
+## inventory
+gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)
+## authority
+PASS: command authority — ruled table / production header / generated inventory agree
+## authority-selftest
+RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_help.h:161
+PASS: command authority — ruled table / production header / generated inventory agree; 6/6 selftests RED
+## ownership
+  ok   O12 the pair has no `#ifndef` override surface in lib/, src/ or test/ (R-RA-26)
+  ok   O13 source integrity: 218 scanned files, sha256(tree) b9ef6e95ff42be90… before and after
+## ownership-controls
+  ctl-ok   Y5 the shared checkout is byte-identical before and after (b9ef6e95ff42be90…)
+ownership controls: 43 verified / 0 unusable
+## literals
+       (roots: lib, src, test · comments and strings stripped, so historical notes are allowed)
+       semantic set = 21 current allocated value(s) | the 19 pre-transition ordinals

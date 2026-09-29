@@ -307,6 +307,68 @@ if "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${IN
 else
   echo "  FAIL the BLE-row arm did not build:"; sed 's/^/    /' "$OUT/ble.log" | head -10; rc=1
 fi
+# ---- ★★★ W6 (owner-ruled D15, brief §2.8) — THE STATIC SEND LINE's SINGLE OWNED INSTANCE, read off the LINKED probe ----
+# The pure `mrui::ui_perform_send` (firmware_ui_send.h) composes into a caller's buffer; the ONE 199-B line
+# (`mrui::kSendLineCap`, derived) is `s_send_line`, static storage owned by firmware_ui.cpp. ⛔ A return to a stack
+# local, a smaller line, or a second copy (an array in the header ⇒ one per TU or instantiation) is a D15 STOP that no
+# probe CHECK can see — the panel draws the same — so this reads the linked image's SYMBOL TABLE: exactly ONE writable
+# data object named `s_send_line`, of exactly 199 B, and no OTHER writable data object of that size.
+# ★ THREE REAL-MUTANT FALSIFIERS (not `ctl` controls: the probe binary cannot see this property, so each is scored by
+#   THIS checker and a mutant that does not build is a FAIL, never a pass). ⓘ Skipped under `--no-neg`.
+# ⓘ EXIT CODES: 0 = the one owned line; 1 = THE PROPERTY IS VIOLATED; 2 = `nm` failed; 3 = vacuous (no symbols read).
+#   A falsifier counts ONLY on exit 1 — an instrument failure is never a rejection. ⛔ No `grep -q` in a pipe: under
+#   this file's `pipefail` its early exit SIGPIPEs the writer and reads as a failure (measured, W6's first run).
+W6_LINE_HEX=$(printf '%x' 199)
+w6_line_owned() {   # w6_line_owned <linked binary> -> 0 when the image holds exactly the one owned 199-B line
+  local syms named sized
+  syms=$(nm -S -C "$1" 2>/dev/null) || return 2
+  # ⛔ VACUITY GUARD: an image whose table does not even name the model it links measured nothing.
+  grep -q 's_model$' <<<"$syms" || return 3
+  named=$(awk '$3 ~ /^[bBdD]$/ && /s_send_line$/ { print $2 }' <<<"$syms")
+  sized=$(awk -v h="$W6_LINE_HEX" '$3 ~ /^[bBdD]$/ && $2 ~ ("^0*" h "$")' <<<"$syms" | grep -c .)
+  [ "$(grep -c . <<<"$named")" -eq 1 ] && [ "$sized" -eq 1 ] && grep -qE "^0*$W6_LINE_HEX\$" <<<"$named" && return 0
+  return 1
+}
+echo
+echo "== W6 — the static send line's single owned instance (D15: one 199-B \`s_send_line\` in firmware_ui.cpp) =="
+if [ "$(grep -cE '\[(mrui::)?kSendLineCap\]' "$ROOT/src/firmware_ui_send.h")" -eq 0 ] \
+   && [ "$(grep -cE '^char s_send_line\[mrui::kSendLineCap\];$' "$FW_UI")" -eq 1 ]; then
+  echo "  ok   W6-L0 the source declares the line ONCE, in firmware_ui.cpp; firmware_ui_send.h declares no line array"
+else
+  echo "  FAIL W6-L0 the send line is not declared exactly once in firmware_ui.cpp (or the header declares one)"; rc=1
+fi
+w6_v=0; w6_line_owned "$OUT/probe" || w6_v=$?
+if [ "$w6_v" -eq 0 ]; then
+  echo "  ok   W6-L1 the linked probe holds exactly ONE writable 199-B data object, and it is \`s_send_line\`"
+else
+  echo "  FAIL W6-L1 the linked probe does not hold exactly one owned 199-B \`s_send_line\` (checker exit $w6_v)"; rc=1
+fi
+if [ "${1:-}" != "--no-neg" ]; then
+  w6_line_falsify() {   # w6_line_falsify <label> <sed script> — the checker MUST reject the built mutant
+    local label=$1 script=$2
+    mkdir -p "$OUT/w6l" && sed "$script" "$FW_UI" > "$OUT/w6l/firmware_ui.cpp" || {
+      printf '  FAIL %s — the sed script FAILED, no mutant exists\n' "$label"; rc=1; return; }
+    if cmp -s "$FW_UI" "$OUT/w6l/firmware_ui.cpp"; then
+      printf '  FAIL %s — the mutation changed NOTHING (vacuous)\n' "$label"; rc=1; return; fi
+    if ! build_variant "$OUT/w6l/firmware_ui.cpp" "$OUT/w6l/probe"; then
+      printf '  FAIL %s — the mutant does not BUILD, so the checker never met it:\n' "$label"
+      sed 's/^/        /' "$OUT/build.log" | head -6; rc=1; return; fi
+    local v=0; w6_line_owned "$OUT/w6l/probe" || v=$?
+    if [ "$v" -eq 1 ]; then
+      printf '  ok   %s -> REJECTED (the property, exit 1)\n' "$label"
+    elif [ "$v" -eq 0 ]; then
+      printf '  FAIL %s — the checker still ACCEPTS the mutant image (it measures nothing)\n' "$label"; rc=1
+    else
+      printf '  FAIL %s — the checker could not READ the mutant (exit %s): an instrument failure, not a rejection\n' "$label" "$v"; rc=1
+    fi
+  }
+  w6_line_falsify 'W6-L1a the line back on the STACK (the pre-W6 shape: no static object at all)' \
+    's|^char s_send_line\[mrui::kSendLineCap\];$|// W6-L1a: no static line|; s|^void ui_perform_send(const mrui::SendReq\& req, uint32_t now_ms) {$|&\n    char s_send_line[mrui::kSendLineCap];|'
+  w6_line_falsify 'W6-L1b the static line UNDERSIZED at the retired 96 B' \
+    's|^char s_send_line\[mrui::kSendLineCap\];$|char s_send_line[96];|'
+  w6_line_falsify 'W6-L1c a SECOND 199-B line beside the owned one, and both used' \
+    's|^char s_send_line\[mrui::kSendLineCap\];$|&\nchar s_send_line_copy[mrui::kSendLineCap];|; s|ui_send_live(req), s_send_line, sizeof s_send_line,|ui_send_live(req), s_send_line_copy[0] ? s_send_line_copy : s_send_line, sizeof s_send_line,|'
+fi
 # ★ THE DENOMINATOR FOR THE COVERAGE ROLL-UP AT THE BOTTOM, taken from the probe itself. `PROBE_LIST=1` makes every
 #   CHK print its label whether it passed or not, so "N of M checks are reddened by a control" is MEASURED here rather
 #   than maintained by hand in a comment — which is exactly how the header's "20 of 25" went stale in one slice.
@@ -1397,6 +1459,23 @@ if [ "${1:-}" != "--no-neg" ]; then
   #     operator is then told his message FAILED, when in fact nothing was submitted at all.
   ctl "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED" yes \
       's|            case mrui::DmState::preset_changed:|            case mrui::DmState::preset_changed: draw_failure_lines(v); break;|'
+
+  # ======================================================= W6 (design r2.23 §7.3, D5): THE REVIEW's DEVICE HALF (W6-D1/D2)
+  # ★★★ THE MODEL's HALF IS NATIVELY PINNED AND MUTATED (`--target=model` W6-M01..M26, `--target=uisend` W6-S01..S11);
+  #   what no native case compiles is THIS file's wiring (§B115): that the tick SERVES the capture a phrase double
+  #   requested, and that serving it only CAPTURES — it never executes.
+  # ⛔⛔ W6-D1 THE CAPTURE EXECUTES — the device confirms the phrase itself the moment its review opens, so ONE double
+  #     sends and the review the wearer reads is a receipt, not a question. Every native case stays green.
+  w6d1s='s|    (void)mrui::ui_review_capture(s_model, mrfw::preset_catalog().live(), live, raw, n, s, now_ms);|&  ui_perform_send(b, now_ms);|'
+  once '    (void)mrui::ui_review_capture(s_model, mrfw::preset_catalog().live(), live, raw, n, s, now_ms);' "$w6d1s" &&
+  ctl "W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND)" yes \
+      "$w6d1s"
+  # ⛔ W6-D2 THE CAPTURE IS NEVER SERVED — a phrase double requests a review that never opens, so nothing can be sent
+  #    from a phrase list at all: fail-closed, and the panel's whole Send feature dead.
+  w6d2s='s|^    ui_service_review(s, now_ms);$|    (void)s;|'
+  once '    ui_service_review(s, now_ms);' "$w6d2s" &&
+  ctl "W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent)" yes \
+      "$w6d2s"
 
   # ★★★★ [[B241]] (W1): B241a-B241b, THE LABEL ADAPTER's TWO WRONG ANSWERS. Both must go RED on P28a's POISONED-buffer
   #   checks, which are the only deterministic view of the defect: the TEAM snapshot is zero-initialised, and the

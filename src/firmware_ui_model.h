@@ -1561,9 +1561,51 @@ inline constexpr const char* kPresetChangedText = "PRESET CHANGED";
 // ★★★ W3 — THE COMPOSE ROW's TEXT WIDTH IS THE PANEL's, NOT THE RECORD's. A preset row is selection marker 1 +
 //     location marker 1 + text on the body's `kDetailCols` (19 — the renderer asserts it equals its `kBodyCols`), so
 //     the text has 17 columns in BOTH location states. That is permanent GEOMETRY. `mrnv::kUiPresetTextMax` is the
-//     RECORD's limit (OQ-A's ruling, also 17 today) and belongs to the record path — validation, storage and the send.
-//     ⛔ The two are separate facts that agree today; nothing on the compose row reads the record's constant.
+//     RECORD's limit (163 since W6, owner-ruled D7) and belongs to the record path — validation, storage and the send.
+//     ⛔ The two are separate facts; nothing on the compose row reads the record's constant — a longer phrase is
+//     ABBREVIATED when it is projected (`compose_project`, 16 bytes + `»`), and the review shows it whole.
 inline constexpr uint8_t kComposeTextCols = uint8_t(kDetailCols - 2);
+
+// ================================================================== W6 — THE REVIEW's WORD WRAP (design r2.23 §7.2)
+// ★★★ PRESENTATION-ONLY WORD WRAP OVER THE EXACT BYTES, and a DIFFERENT presentation from the Inbox's byte pager
+//     (`detail_page_rows<19,2>`, W3), which stays unchanged. From a line start `s`, in this ORDER:
+//       (1) the remainder fits in 19 → it is the last line;
+//       (2) byte s+19 or byte s+18 is a space → the line is the 19 bytes s..s+18 (a following space begins the next);
+//       (3) the window s..s+18 contains a space → the line ends AFTER the last such space (the space stays on it);
+//       (4) otherwise the word is split after 19 bytes.
+//     Every byte occupies one cell exactly once, in order: concatenating the lines reproduces the payload. Three
+//     lines per page; ≤ 6 pages for 163 bytes, because any two consecutive lines hold ≥ 20 bytes.
+inline constexpr uint8_t kReviewCols     = kDetailCols;   // 19 — the body's columns, the Inbox's own width
+inline constexpr uint8_t kReviewBodyRows = 3;             // rows 1..3 of the review screen (§7.3)
+inline constexpr uint8_t kReviewPagesMax = 6;             // 163 bytes → at most six pages
+inline uint8_t review_wrap_line(const char* body, uint8_t len, uint8_t s) {
+    const uint8_t rest = uint8_t(len - s);
+    if (rest <= kReviewCols) return rest;                                                   // (1)
+    if (body[s + kReviewCols] == ' ' || body[s + kReviewCols - 1] == ' ') return kReviewCols;   // (2)
+    for (uint8_t i = uint8_t(kReviewCols - 1); i > 0; --i)                                  // (3)
+        if (body[s + i - 1] == ' ') return i;
+    return kReviewCols;                                                                      // (4)
+}
+inline uint8_t review_page_count(const char* body, uint8_t len) {
+    uint8_t lines = 0;
+    for (uint8_t s = 0; s < len; s = uint8_t(s + review_wrap_line(body, len, s))) ++lines;
+    return lines == 0 ? uint8_t(1) : uint8_t((lines + kReviewBodyRows - 1) / kReviewBodyRows);   // never 0 pages
+}
+// The three rows of page `page`, each terminated; rows past the text are empty.
+inline void review_page_rows(const char* body, uint8_t len, uint8_t page,
+                             char (&rows)[kReviewBodyRows][kReviewCols + 1]) {
+    for (uint8_t r = 0; r < kReviewBodyRows; ++r) rows[r][0] = '\0';
+    uint8_t line = 0;
+    for (uint8_t s = 0; s < len; ++line) {
+        const uint8_t n = review_wrap_line(body, len, s);
+        if (line / kReviewBodyRows == page) {
+            char* row = rows[line % kReviewBodyRows];
+            for (uint8_t k = 0; k < n; ++k) row[k] = body[s + k];
+            row[n] = '\0';
+        }
+        s = uint8_t(s + n);
+    }
+}
 
 // ================================================================== §UI-10/11 P3 — THE COMPOSE LIST'S FROZEN ROWS
 // ★★★★ ONE ROW OF A COMPOSE LIST, AS THE FRAME FREEZES IT. §3.2.3's last paragraph: *"Page-buffer painting likewise
@@ -1603,6 +1645,11 @@ struct ComposeList {
 //    that kind — it is *"long press only; never appears in a compose list"* (§3.2.2's table).
 // ⓘ The text is copied `len` bytes and terminated. A canonical record already zeroes the tail, so the terminator is
 //   belt-and-braces against a record that reached here another way — ⛔ never a licence to skip `presets_canonical`.
+// ★★★ W6 (design r2.23 §7.7) — THE ROW IS DECOUPLED FROM T: a phrase of ≤ 17 bytes is copied whole; a longer one
+//     keeps its first 16 bytes and ends in Latin-1 `0xBB` (`»`), decided HERE, where the whole live slot is still in
+//     view — so no length field is needed and `ComposeSlot` stays 20 B (`ComposeList` 161 B). ⛔ The sender and the
+//     review read the LIVE catalog, never this projected text; ⛔ no later pass may turn the `0xBB` into a dot.
+//     The byte is W4a's generated marker `kIdentityMarker` (U1: one `»`, one constant, one font cell).
 inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind, ComposeList& out) {
     out = ComposeList{};
     for (uint8_t i = 0; i < mrnv::kUiPresets && out.n < mrfw::kPresetPerKind; ++i) {
@@ -1612,9 +1659,14 @@ inline void compose_project(const mrnv::UiPresetBlob& cat, mrfw::PresetKind kind
         ComposeSlot& r = out.row[out.n++];
         r.slot = i;
         r.loc  = (s.loc != 0);
-        uint8_t n = s.len < kComposeTextCols ? s.len : kComposeTextCols;   // the DISPLAY width, never the record's
-        for (uint8_t k = 0; k < n; ++k) r.text[k] = s.text[k];
-        r.text[n] = '\0';
+        if (s.len <= kComposeTextCols) {                            // fits the row: every byte, as stored
+            for (uint8_t k = 0; k < s.len; ++k) r.text[k] = s.text[k];
+            r.text[s.len] = '\0';
+        } else {                                                    // ★ W6: 16 bytes + `»`, still 17 columns
+            for (uint8_t k = 0; k < kComposeTextCols - 1; ++k) r.text[k] = s.text[k];
+            r.text[kComposeTextCols - 1] = kIdentityMarker;
+            r.text[kComposeTextCols] = '\0';
+        }
     }
 }
 // ★★ §3.2.1's EMPTY STATE, as an ANSWER rather than as a renderer's `if` — `mrfw::preset_boot_line`'s idiom, and its
@@ -1797,11 +1849,20 @@ enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
 //   carry it. It is the EMERGENCY's value — see `send_gate_of` in firmware_ui_send.h, where an alarm is
 //   DELIBERATELY exempt from the stale-generation refusal (R-3/§4.1: an alarm outranks its coordinates, and it
 //   outranks a phrase edit too).
+// ★★★ W6 (design r2.23 §7.4, owner-ruled D15 — 16 B on every ABI) — A PHRASE REQUEST ALSO BINDS ITS TEAM AND, FOR A
+//     DM, ITS PEER's HASH, and `send_gate_of` asks both again at execution: a team change or a re-keyed ID refuses
+//     with zero core submission, never a send to whoever holds the ID now. ★ `peer_known` is a SEPARATE bit, in the
+//     byte the old layout left as padding: a zero `peer_hash` is ⛔ never read as "unknown". (Today's resolver never
+//     produces a known zero — `Node::team_key_set` rejects hash 0 — so a known-zero case is a labelled synthetic one.)
+// ⛔ No `draft_id` and no new `SendKind`: written messages are W8's.
 struct SendReq {
     SendKind kind       = SendKind::emergency;
     uint8_t  peer_id    = 0;
     uint8_t  slot       = 0;      // ★ the STABLE `/mrui` slot, ⛔ never a row index
+    bool     peer_known = false;  // ★ W6: `peer_hash` is a KNOWN hash (DM only) — in the old padding byte
     uint32_t generation = 0;      // ★ the generation the wearer SAW; 0 = not sealed (the emergency's)
+    uint32_t team_id    = 0;      // ★ W6: the team bound at selection
+    uint32_t peer_hash  = 0;      // ★ W6: the DM peer's key hash bound at selection (valid only when `peer_known`)
 };
 
 struct TeamRow {
@@ -2494,7 +2555,8 @@ enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, n
 //      (*"⛔ Never a generic parser failure, never a silent fall-through"*).
 // ⓘ APPENDED, ⛔ never inserted: `DmState` is compared and switched on in several places and its ORDER is not
 //   otherwise meaningful, but appending keeps every landed value stable and makes the diff readable.
-enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed, aired_waiting, preset_changed };
+enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed, aired_waiting, preset_changed,
+                                  team_changed, recipient_changed };   // ★ W6: the gate's two new typed refusals
 // ★★★ §B69's CARRIER, HALF ONE (UI-7) — THE CANNED-CHANNEL OUTCOME MACHINE, and it is the DmState of the channel path.
 // Until now the canned channel post had NO model state at all: `ui_pump_trackers` had to CONSUME the normal tracker's
 // expiry and throw it away, with `⛔ Do not "fix" this by calling on_outcome` beside it, because `on_outcome` is the
@@ -2520,7 +2582,8 @@ enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, n
 //   `preset_changed` — ★ §UI-10/11 P3, the channel twin of `DmState::preset_changed`: the sealed `{slot, generation}`
 //                   no longer matches the live catalog, so the request was REFUSED WITHOUT SUBMISSION. ⛔ It is not
 //                   `failed` (nothing was attempted) and not `blocked` (nothing was throttled) — see the DM block.
-enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed, aired, preset_changed };
+enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed, aired, preset_changed,
+                                  team_changed };                       // ★ W6: the team binding broke at execution
 // ★★★ §B69's CARRIER, HALF TWO — THE EMERGENCY'S EVIDENCE, because the alarm's two channel outcomes collapse into ONE
 // `Emergency` state and the renderer cannot ask which happened. `on_outcome` maps `channel_no_relay` AND
 // `channel_remote_mint` down the SAME path (neither carries relay evidence ⇒ neither may claim PICKED UP ⇒ bounded
@@ -2595,6 +2658,45 @@ struct SendOutcome {
     static SendOutcome dm_failed(FailReason r) { return {Kind::dm_failed, 0, r}; }             // §B73: reason REQUIRED
     static SendOutcome dm_timeout()          { return {Kind::dm_timeout, 0}; }
 };
+
+// ★★★ W6 (design r2.23 §7.3/§7.4.1, owner-ruled D5/D15) — THE SAVED-PHRASE REVIEW's ONE PHASE BYTE. A double on a
+//     phrase row REQUESTS a review (the tick captures the exact bytes, as the Inbox copies a message when it opens);
+//     only `SEND` there queues. When a review closes on a broken binding the byte carries the NOTE the phrase list
+//     shows until the next press (which does nothing else). ⛔ One byte, no second note field (D15).
+enum class ReviewPhase : uint8_t { none = 0, requested, open, note_preset, note_team, note_recipient };
+inline constexpr uint8_t kReviewHeaderCap = 20;                   // row 0: 19 columns + NUL
+inline constexpr const char* kTeamChangedText      = "TEAM CHANGED";
+inline constexpr const char* kRecipientChangedText = "RECIPIENT CHANGED";   // 17 columns, inside the 19-column body
+// The note a CLOSED review left on its phrase list, or nullptr.
+inline const char* review_note_text(ReviewPhase p) {
+    switch (p) {
+        case ReviewPhase::note_preset:    return kPresetChangedText;
+        case ReviewPhase::note_team:      return kTeamChangedText;
+        case ReviewPhase::note_recipient: return kRecipientChangedText;
+        case ReviewPhase::none:
+        case ReviewPhase::requested:
+        case ReviewPhase::open:           return nullptr;
+    }
+    return nullptr;
+}
+// ★ W6 — THE NOTE's ROW: it replaces item 1's label while up, exactly as W4b's `PRESET CHANGED` does on the Send list
+//   (`send_list_row_override`); the arrow is on it (a closed review re-reads its list from item 1). ⛔ The next press
+//   clears it and does nothing else (`compose_gesture`). Answers false for every other row, drawn unchanged.
+inline bool review_note_row(char* out, std::size_t cap, uint8_t idx, ReviewPhase p, bool selected) {
+    const char* t = review_note_text(p);
+    if (!out || cap == 0 || !t || idx != 0) return false;
+    snprintf(out, cap, "%c%s", selected ? '>' : ' ', t);
+    return true;
+}
+// ★ W6 — THE REVIEW's ACTION ROW (design §7.3), 19 columns: ` SEND >BACK LOC 1/2`. The marker names the selected
+//   action (`BACK` on entry); `LOC` sits at zero-based columns 12-14 ONLY when the bound phrase requests location
+//   (it states the request — ⛔ never a fix); the page token fills columns 16-18 (≤ 6 pages, so always three cells).
+inline void review_action_line(char* out, std::size_t cap, bool send_selected, bool loc, uint8_t page, uint8_t pages) {
+    if (!out || cap == 0) return;
+    const int n = snprintf(out, cap, "%cSEND %cBACK %s %u/%u", send_selected ? '>' : ' ', send_selected ? ' ' : '>',
+                           loc ? "LOC" : "   ", unsigned(page) + 1u, unsigned(pages));
+    if (n < 0 || std::size_t(n) >= cap) out[0] = '\0';
+}
 
 struct UiState {
     Screen  screen = Screen::status;
@@ -2683,7 +2785,13 @@ struct UiState {
     InboxKind   detail_kind = InboxKind::dm;
     uint32_t    detail_seq  = 0;
     uint8_t     detail_origin = 0, detail_channel = 0;
-    char        detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
+    // ★ W6 (D15): the review's THREE page rows SHARE this storage — the Inbox detail modal and a phrase review are
+    //   never open together (both are modal over different lists; the tests prove it, never the size alone). The
+    //   Inbox keeps its two-row type and its byte pager unchanged; `kDetailBodyRows` stays 2.
+    union {
+        char    detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
+        char    review_line[kReviewBodyRows][kDetailCols + 1];        // W6: the review's page, word-wrapped (§7.2)
+    };
     // ★★★ §UI-14 — WHAT THE MODEL DECIDED ABOUT SETTINGS, frozen with everything else. ⛔ WHAT IS DELIBERATELY *NOT*
     //     HERE: `config_unsaved`, `conflict`, `reboot_required` and the draft VALUES. Those are the SERVICE's, read
     //     through `ConfigService` at the freeze (`src/firmware_ui.cpp`'s `SettingsView`) — mirroring them into
@@ -2875,6 +2983,14 @@ struct UiState {
     //      every ABI (504 -> 520), two instances (`s_model` + `s_frame_state`).
     HomeCapture home{};
     HomeView    home_view = HomeView::list;
+    // ★★★ W6 (design r2.23 §7.3, owner-ruled D15) — THE REVIEW, FROZEN WITH THE FRAME: its phase, the action row's
+    //     selection (`false` = BACK, the non-sending default), whether the BOUND phrase requests location (`LOC`),
+    //     and row 0 — copied at capture so no frame reads the live catalog or a live name while it draws. Its text,
+    //     length, page, page count and timer reuse the detail modal's (never open together).
+    ReviewPhase review_phase = ReviewPhase::none;
+    bool        review_send  = false;
+    bool        review_loc   = false;
+    char        review_header[kReviewHeaderCap] = {};
 };
 
 // ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
@@ -3027,6 +3143,7 @@ public:
         // ownership of the window rather than being overwritten by a late first tick.
         if (!_seeded) { _last_input_ms = s.now_ms; _seeded = true; }
         tick_emergency(s);
+        (void)review_check(s);                                         // ★ W6: tick-only invalidation (§7.4.1)
         // ★★★★ §UI-10/11 P3 — **THE PRESET MODAL CLOSE, ON THE TICK.** §3.2.3: *"A preset update while a
         //      selection-phase compose modal is open closes that modal without sending."* A `ui preset set` arrives
         //      over USB or BLE with NO gesture at all, and `on_gesture` returns early for `Gesture::none` — so this
@@ -3108,11 +3225,15 @@ public:
         //     transition below uses — ONE authority, called twice (U1) — so the blank still fires on exactly the edge
         //     it always did (pin 5), and this gate still does not touch `_last_input_ms`, so a page turn still cannot
         //     postpone the blank (pin 4). The two clocks stay independent in both directions.
-        if (!_st.blanked && !blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&
-            elapsed(s.now_ms, _detail_page_at_ms) >= kDetailPageMs) {
+        // ★★ W6 (design r2.23 §7.2, D15) — ONE CADENCE FOR THE ONE SHARED PAGE: the Inbox detail's and, since W6, the
+        //    phrase review's (they share the page storage and are never open together). Every rule above applies to
+        //    both — time-driven only (a turn is never a press and never a send), suspended in the dark, outranked by
+        //    the blank. Only the REFRESH differs: the Inbox slices counted bytes, the review word-wraps.
+        if (!_st.blanked && !blank_due(s) && (_st.detail == InboxModal::body || _st.review_phase == ReviewPhase::open) &&
+            _st.detail_pages > 1 && elapsed(s.now_ms, _detail_page_at_ms) >= kDetailPageMs) {
             _st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages);   // ★ CYCLES, never stops at the last
             _detail_page_at_ms = s.now_ms;
-            refresh_detail_page();
+            if (_st.review_phase == ReviewPhase::open) refresh_review_page(); else refresh_detail_page();
             _st.dirty = true;
         }
         // ★★★★ §UI-15 slice 6 / plan §2.3 rule 5 — 60 s ⇒ `STILL JOINING`, ⛔ **AND NOTHING ELSE HAPPENS**. No state
@@ -3173,6 +3294,7 @@ public:
         send_list_follow(s);
         if (blank_due(s)) {
             _st.blanked = true; _st.dirty = true;
+            _st.review_send = false;   // ★ W6: blanking KEEPS the review and its page, and resets the action to BACK
             // ★★★★ §UI-16 N4 / ✅ OQ-3's CLARIFICATION, AND IT IS THE ONE PLACE THE TWO HALVES DIFFER: **the
             //      WINDOW survives blanking; an UNFINISHED CONFIRMATION does not.** ⇒ the arm falls back to the
             //      LIST here, at the blank itself, so nothing stale is retained in the dark — the operator wakes
@@ -3438,7 +3560,7 @@ public:
         //   ⛔ THE ZERO IS LOAD-BEARING: `send_gate_of` exempts the emergency kind, and a sealed generation on this
         //   path would be a way for a phrase edit to refuse a distress call (R-3/§4.1 rule the opposite).
         if (_emg_req_pending) { _emg_req_pending = false;
-                                out = SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0}; return true; }
+                                out = SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0}; return true; }
         if (!_req_pending) return false;
         _req_pending = false; out = _req;
         if (out.kind == SendKind::dm) { _dm = DmState::submitting; _st.dirty = true; }
@@ -3685,6 +3807,58 @@ public:
         else if (k == SendKind::channel_canned)  _chan = ChanState::preset_changed;
         _st.dirty = true;
     }
+    // ★ W6 (design r2.23 §7.4) — the gate's two new refusals, each its OWN typed note with zero core submission:
+    //   the bound team is not the live team; a DM's known hash no longer answers for its ID.
+    void on_team_changed(SendKind k, uint32_t now_ms) {
+        (void)now_ms;
+        if (k == SendKind::dm)                   _dm   = DmState::team_changed;
+        else if (k == SendKind::channel_canned)  _chan = ChanState::team_changed;
+        _st.dirty = true;
+    }
+    void on_recipient_changed(uint32_t now_ms) { (void)now_ms; _dm = DmState::recipient_changed; _st.dirty = true; }
+
+    // ================================================================ W6 — THE SAVED-PHRASE REVIEW (design §7.3)
+    // ★★★ THE CAPTURE IS A REQUEST/ANSWER STEP IN THE TICK, exactly as the Inbox opens a message: a double on a phrase
+    //     row REQUESTS (`open_review`), and `mrui::ui_review_capture` (firmware_ui_send.h) answers from the LIVE
+    //     catalog, team and peer, copying the exact bytes before any frame starts. ⛔ It never marks `_req_pending`
+    //     and never reaches the executor; ⛔ no pointer into the catalog is kept.
+    bool review_capture_owed(SendReq& binding) const {
+        if (_st.review_phase != ReviewPhase::requested) return false;
+        binding = _review; return true;
+    }
+    const SendReq& review_binding() const { return _review; }
+    void on_review_captured(bool peer_known, uint32_t peer_hash, const char* header, const char* text, uint8_t len,
+                            bool loc, uint32_t now_ms) {
+        if (_st.review_phase != ReviewPhase::requested) return;       // a stale answer opens nothing
+        _review.peer_known = (_review.kind == SendKind::dm) && peer_known;   // ★ the RESOLVER's bit, never `hash != 0`
+        _review.peer_hash  = _review.peer_known ? peer_hash : 0u;
+        uint8_t h = 0;
+        if (header) for (; h + 1 < kReviewHeaderCap && header[h]; ++h) _st.review_header[h] = header[h];
+        _st.review_header[h] = '\0';
+        uint8_t n = text ? len : 0;
+        if (n > mrnv::kUiPresetTextMax) n = mrnv::kUiPresetTextMax;
+        for (uint8_t i = 0; i < n; ++i) _detail_body[i] = text[i];     // ★ the EXACT bytes (validated printable)
+        _detail_body[n] = '\0'; _detail_len = n;
+        _st.detail_pages = review_page_count(_detail_body, n);
+        _st.detail_page = 0;
+        _detail_page_at_ms = now_ms;
+        refresh_review_page();
+        _st.review_loc   = loc;
+        _st.review_send  = false;                                     // ★ BACK — sending costs short + double
+        _st.review_phase = ReviewPhase::open;
+        _st.dirty = true;
+    }
+    // The capture found the binding broken: close with the rule's destination and note (§7.4.1's table).
+    // ★ `live_generation` is the generation the capture READ: a write can land between `build_snapshot` and the
+    //   capture (another task, mid-tick), so a DM list re-sealed from `s` would be closed by the very next tick's
+    //   `preset_generation_moved` and the note lost. ⇒ the list is re-sealed on the catalog the refusal saw.
+    void on_review_refused(ReviewPhase note, const UiSnapshot& s, uint32_t live_generation) {
+        if (!review_active()) return;
+        review_close_with(note, s, live_generation);
+    }
+    bool review_active() const {
+        return _st.review_phase == ReviewPhase::requested || _st.review_phase == ReviewPhase::open;
+    }
     // ★★★ THE CANNED-CHANNEL OUTCOME ENTRY POINT (UI-7), AND IT EXISTS BECAUSE `on_outcome` MUST NOT BE USED FOR THIS.
     // `on_outcome` is the EMERGENCY-capable path: any channel kind it receives may move a LIVE alarm, so routing a
     // canned post's outcome (or its expiry) through it lets an unrelated compose action alter a distress call — the
@@ -3765,6 +3939,8 @@ public:
                 // ★ §UI-10/11 P3: a request REFUSED before submission holds no handle at all, so no `send_aired`
                 //   can correlate to it — and if one did it would belong to an older transaction. ⛔ Terminal.
                 case DmState::preset_changed: return;
+                // ★ W6: the gate's two new refusals are the same shape — ZERO submission, no handle ⇒ ⛔ terminal.
+                case DmState::team_changed: case DmState::recipient_changed: return;
             }
             return;
         }
@@ -3775,6 +3951,7 @@ public:
             case ChanState::relayed: case ChanState::no_relay: case ChanState::unconfirmed:
             case ChanState::blocked: case ChanState::failed: return;                                   // ⛔ terminal: refuse
             case ChanState::preset_changed: return;                                                    // ★ §UI-10/11 P3 — see the DM arm
+            case ChanState::team_changed:   return;                                                    // ★ W6 — the same shape
         }
     }
     void on_outcome(const SendOutcome& o, uint32_t now_ms) {
@@ -3912,8 +4089,11 @@ protected:
         // it. ⛔ Do not also reset it in `long_fire`: `long_fire` ends by calling this, and a second writer is how the
         // two numbers drift apart again.
         if (k == SendKind::emergency) { _emg_req_pending = true; _emg_attempt_counted = false; return; }   // its own slot; never overwritten
-        _req = {k, peer, slot, gen}; _req_pending = true;
+        queue(SendReq{k, peer, slot, false, gen});
     }
+    // ★★ W6 — THE ORDINARY ENTRY TAKES THE BOUND REQUEST WHOLE (team and peer hash included), never rebuilt field by
+    //    field (U2). Its one caller is the review's `SEND`: it queues EXACTLY ONCE, into the normal slot.
+    void queue(const SendReq& bound) { _req = bound; _req_pending = true; }
 
     // ★ Spec §4.3: every retained emergency state refreshes the `kEmgHoldMs` panel-on DEADLINE — long_fire, then
     // blocked / picked_up / not_heard / reply, and (§B78) `failed`. Anchoring it only at long_fire (an earlier draft)
@@ -3954,6 +4134,7 @@ protected:
     //   with both; 600 with the deadline alone). D2's warning applies in the usual direction for the board figure.
     bool     _msg_wake_armed = false;
     SendReq  _req{};
+    SendReq  _review{};                  // ★ W6: the REVIEW's binding — ⛔ never `_req`, so an owed request survives it
     bool     _req_pending = false;
     bool     _emg_req_pending = false;   // separate slot: normal work can never clobber a queued alarm
 
@@ -4228,6 +4409,7 @@ private:
     //      today's. Its exit row is `MENU` (see `compose_gesture`).
     void open_send_list(const UiSnapshot& s) {
         _st.screen = Screen::send; _st.list_view = ListView::interactive;
+        if (_st.review_phase != ReviewPhase::none) close_review();   // ★ W6: a fresh list has no review and no note
         _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
         _st.compose_gen = s.preset_generation;   // ★ §UI-10/11 P3 — same freeze, the channel list's own entry
         _st.dirty = true;
@@ -5836,6 +6018,7 @@ private:
     //   the sub-view's target, its row set and its offer were all FROZEN AT ENTRY, which is the whole point
     //   of `compose_peer`'s own rule.
     void compose_gesture(Gesture g, const UiSnapshot& s) {
+        if (review_active()) { review_gesture(g, s); return; }          // ★ W6: the review owns every press
         // ★★ UI-7: THE RESULT PHASE. Once a send has been issued the modal shows its OUTCOME instead of the list
         //    (spec §3.2.1/§3.4.1), so there is nothing to walk and nothing to activate — the only thing either gesture
         //    can mean is "I have read it".
@@ -5872,6 +6055,8 @@ private:
         if (preset_generation_moved(s)) { close_compose(); return; }   // ⛔ CONSUMES the press — nothing is sent
         // ★★ W4b — `PRESET CHANGED` is up: this press clears it and does NOTHING else (§6.4's table, for the Send list).
         if (_st.compose == Compose::channel && _st.home.changed) { _st.home.changed = false; _st.dirty = true; return; }
+        // ★ W6 — a closed review's NOTE is up: this press clears it and does NOTHING else (the `PRESET CHANGED` rule).
+        if (review_note_text(_st.review_phase)) { _st.review_phase = ReviewPhase::none; _st.dirty = true; return; }
         // ★★★ §UI-16 K7 — THE LIST IS NOW RESOLVED BY ITS OWN FUNCTIONS (§B66). ⛔ WITHDRAWN, KEPT VISIBLE:
         //     `const uint8_t n = (dm) ? kDmTextCount : kChannelTextCount;` with `back` identified by
         //     `_st.cursor + 1 == n`. With the grant act absent both express EXACTLY the same list, index for index
@@ -5904,8 +6089,85 @@ private:
         //      deriving `dmN` from a row index in as many words, and this line is where that forbidding bites.
         // ★★ AND THE GENERATION IS SEALED WITH IT (design §3.3): the request carries the catalog the wearer SAW, so
         //    execution can refuse rather than resolve the same row to newly configured words.
-        queue(dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer,
-              compose_row_slot(_st.cursor, list), _st.compose_gen);
+        // ★★★ W6 (owner-ruled D5) — A DOUBLE ON A PHRASE OPENS ITS REVIEW, ⛔ IT NO LONGER QUEUES. ⛔ WITHDRAWN AND KEPT
+        //     VISIBLE: `queue(kind, compose_peer, slot, compose_gen); compose_result = true;` — UI-10/11 P3's direct
+        //     send. The review is inserted BEFORE queueing; only its `SEND` queues (`review_gesture`).
+        open_review(dm ? SendKind::dm : SendKind::channel_canned, compose_row_slot(_st.cursor, list), s);
+    }
+    // ★ W6 — THE BINDING, at the double: the phrase's slot, the generation the wearer SAW and the team, from this
+    //   snapshot. `_st.cursor` stays on the row, so `BACK` returns the arrow to that phrase.
+    // ★★ THE DM PEER's HASH IS BOUND BY THE CAPTURE, IN THIS SAME TICK, FROM THE RESOLVER's OWN ANSWER
+    //    (`on_review_captured`): the snapshot's `key_hash32` uses 0 as "unknown", and a zero value is ⛔ never read as
+    //    "unknown" here (SendReq). Until then the binding claims nothing (`peer_known == false`).
+    void open_review(SendKind k, uint8_t slot, const UiSnapshot& s) {
+        _review = SendReq{k, _st.compose_peer, slot, false, _st.compose_gen, s.team_id, 0u};
+        _st.review_phase = ReviewPhase::requested;
+        _st.review_send = false; _st.review_loc = false; _st.review_header[0] = '\0';
+        _st.dirty = true;
+    }
+    void refresh_review_page() {
+        review_page_rows(_detail_body, _detail_len, _st.detail_page, _st.review_line);
+    }
+    // Close the review ONLY (the phrase list stays). Its shared page returns to the Inbox's resting state.
+    void close_review() {
+        _st.review_phase = ReviewPhase::none;
+        _st.review_send = false; _st.review_loc = false; _st.review_header[0] = '\0';
+        _st.detail_page = 0; _st.detail_pages = 1;
+        _detail_len = 0; _detail_body[0] = '\0';
+        for (uint8_t r = 0; r < kReviewBodyRows; ++r) _st.review_line[r][0] = '\0';
+        _st.dirty = true;
+    }
+    // §7.4.1's invalidation table, ONE place: the rule's destination and note.
+    void review_close_with(ReviewPhase note, const UiSnapshot& s, uint32_t live_generation) {
+        const bool dm = (_review.kind == SendKind::dm);
+        close_review();
+        if (note == ReviewPhase::note_team && s.team_id == 0) {        // no team left → Home
+            close_compose(); home_return(); return;
+        }
+        if (note == ReviewPhase::note_preset && !dm) {                 // the Send list's existing rule (U1)
+            preset_catalog_moved(s); return;
+        }
+        if (note == ReviewPhase::note_preset) {                        // DM: the SAME list, reread, with the note
+            _st.compose_gen = live_generation;
+        }
+        _st.cursor = 0;                                                // the note sits on item 1 (`review_note_row`)
+        _st.review_phase = note;
+    }
+    // Tick-only AND same-tick-press invalidation, from the snapshot. → true when it closed the review.
+    // ⓘ THE ORDER: the two NAVIGATING rules first — no team at all → Home; a DM's teammate gone → the Team list with
+    //   the existing `TEAMMATE GONE, pick` row — then the three typed notes in `send_gate_of`'s own precedence
+    //   (generation, team, recipient), so a review and an owed request name the same first broken binding.
+    // ⓘ PRESENCE is the ROSTER's (`s.team[]`, the rows §B64's `sync_team_cursor` re-finds); the HASH is the one
+    //   resolution `build_snapshot` handed both arrays (`team_member_hash_of`, 0 = "no binding"), so a KNOWN hash that
+    //   is lost reads as changed here.
+    bool review_check(const UiSnapshot& s) {
+        if (!review_active()) return false;
+        if (s.team_id == 0 && _review.team_id != 0) { review_close_with(ReviewPhase::note_team, s, s.preset_generation); return true; }
+        bool present = false; uint32_t hash = 0;
+        if (_review.kind == SendKind::dm) {
+            for (uint8_t i = 0; i < s.team_shown && i < kMaxTeamRows; ++i)
+                if (s.team[i].id == _review.peer_id) present = true;
+            hash = team_member_hash_of(s.member, s.team_shown, _review.peer_id);
+            if (!present) {                                            // the teammate is gone → the Team list
+                const uint8_t peer = _review.peer_id;                  // (its B64 authority raises TEAMMATE GONE)
+                close_compose(); return_to_team_roster(peer, s); return true;
+            }
+        }
+        if (s.preset_generation != _review.generation) { review_close_with(ReviewPhase::note_preset, s, s.preset_generation); return true; }
+        if (s.team_id != _review.team_id) { review_close_with(ReviewPhase::note_team, s, s.preset_generation); return true; }
+        if (_review.kind == SendKind::dm && _review.peer_known && hash != _review.peer_hash) {
+            review_close_with(ReviewPhase::note_recipient, s, s.preset_generation); return true;
+        }
+        return false;
+    }
+    void review_gesture(Gesture g, const UiSnapshot& s) {
+        if (review_check(s)) return;                                   // the press that finds it broken sends nothing
+        if (_st.review_phase != ReviewPhase::open) return;             // not captured yet: nothing to act on
+        if (g == Gesture::short_press) { _st.review_send = !_st.review_send; _st.dirty = true; return; }
+        if (g != Gesture::double_press) return;
+        if (!_st.review_send) { close_review(); return; }              // BACK: the list, arrow on that phrase
+        queue(_review);                                                // ★ SEND: exactly once, the existing slot
+        close_review();
         // ★★ UI-7: THE MODAL STAYS OPEN. UI-2 closed it here, which left every `DmState` the spec defines with NO
         //    RENDERER — `DELIVERED to <label>` (the one thing `-a` buys that a channel post can never offer),
         //    `NO KEY`, `NO CONFIRM` — all unreachable on the panel. The cursor is still reset, so a re-opened modal
@@ -5926,7 +6188,8 @@ private:
     //   offer, or aim, an irreversible act at whoever the LAST sub-view was about.
     // ⓘ §UI-10/11 P3 — the SEALED GENERATION is retired with the sub-view for the same reason and in the same
     //   place: a re-opened compose that inherited it would be comparing against a catalog it never displayed.
-    void close_compose() { _st.compose = Compose::none; _st.compose_result = false;
+    void close_compose() { if (_st.review_phase != ReviewPhase::none) close_review();   // ★ W6: a review ends with its list
+                           _st.compose = Compose::none; _st.compose_result = false;
                            _st.compose_grant_hash = 0; _st.compose_grant_row = false; _st.compose_gen = 0;
                            _st.cursor = 0; _st.dirty = true; }
     // ★★★★ §UI-10/11 P3 — **THE ONE QUESTION BEHIND §2's WHOLE MODAL TABLE** (U1: two callers, `on_tick` and
@@ -6015,6 +6278,7 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     //   TOGETHER WITH the `long_arm` line below it, and an insertion between them would silently drop both to match
     //   count 0 — VACUOUS. This file has already lost two entries that way (see M27/M28's re-anchoring note).
     if (_st.settings == Settings::provisioning) close_provisioning();
+    if (review_active()) _st.review_send = false;   // ★ W6: an arming alarm keeps the review, reset to BACK
     if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }
     if (g == Gesture::long_arm)    { _emg = Emergency::arming; _arm_fire_at_ms = s.now_ms + kArmToFireMs; return; }
     if (g == Gesture::long_cancel) { _emg = Emergency::cancelled; _cancelled_until_ms = s.now_ms + kCancelledMs; return; }
@@ -6032,7 +6296,9 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     // ⓘ `long_arm` deliberately does NOT do this. Arming is cancellable, so destroying the user's list position for a
     //    press they may still cancel would be a second, smaller wrong.
     // ⓘ UI-7 routed it through `close_compose()` so the new RESULT phase is cleared with the modal (one exit, U1).
-    close_compose();
+    // ★ W6 (design r2.23 §7.4.1) — a review open at `long_fire` closes, and after the alarm the PHRASE LIST shows:
+    //   only the review ends, never an ordinary request is created. Any other compose closes as today (§B101).
+    if (review_active()) close_review(); else close_compose();
     retain(s.now_ms);
     queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0);
 }

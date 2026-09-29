@@ -1,0 +1,38 @@
+# stock probe_board_abi.py (final chain step 4)
+# columns: size/align per ABI — native | heltec_mobile (Xtensa) | gateway (ARM); T = the feature TU compiles there
+  meshroute::Node                         235208/8 T              122176/8 T              157304/8 T *
+  meshroute::RemoteClientState                4512/8 T                4512/8 T                4512/8 -
+  meshroute::RemoteClientPending                 352/8 T                 352/8 T                 352/8 -
+  meshroute::RemoteClientSession                 144/8 T                 144/8 T                 144/8 -
+  meshroute::RemoteClientAssembly                  32/8 T                  32/8 T                  32/8 -
+  meshroute::RemoteClientRetained                  32/8 T                  32/8 T                  32/8 -
+  meshroute::RemoteClientChunk                 210/2 T                 210/2 T                 210/2 -
+  meshroute::RemoteClientAck                  88/8 T                  88/8 T                  88/8 -
+  meshroute::RemoteClientCounters                  12/2 T                  12/2 T                  12/2 -
+  meshroute::DeferredActionRecord                  40/8 T                  40/8 T                  40/8 T
+  meshroute::TranscriptHeader                  32/8 T                  32/8 T                  32/8 T
+  meshroute::RemoteSessionState                8904/8 T                8904/8 T                8904/8 T
+  mrnv::UiPresetSlot                         167/1 T                 167/1 T                 167/1 T
+  mrnv::UiPresetBlob                        2852/4 T                2852/4 T                2852/4 T
+  mrfw::SavedKeyEntry                          8/4 T                   8/4 T                   8/4 T
+  mrfw::SavedKeyList                          36/4 T                  36/4 T                  36/4 T
+  mrfw::PresetCatalog                       8584/8 -                8572/4 T                8572/4 - *
+  mrui::UiState                              568/8 -                 560/8 T                 560/8 - *
+  mrui::UiSnapshot                          1368/8 -                1368/8 T                1368/8 -
+  mrui::UiModel                             1016/8 -                1000/8 T                1000/8 - *
+  mrui::UiChrome                              20/2 -                  20/2 T                  20/2 -
+  mrui::InviteWindow                         104/4 -                 104/4 T                 104/4 -
+  mrui::InviteMember                          20/4 -                  20/4 T                  20/4 -
+  mrui::InviteGrantResult                      8/4 -                   8/4 T                   8/4 -
+  mrui::UiProvAnswer                          16/8 -                  12/4 T                  12/4 - *
+  mrui::UiProvIntent                          32/4 -                  32/4 T                  32/4 -
+  mrui::ComposeSlot                           20/1 -                  20/1 T                  20/1 -
+  mrui::ComposeList                          161/1 -                 161/1 T                 161/1 -
+  mrui::SendReq                               16/4 -                  16/4 T                  16/4 -
+  MrAbiDivergenceFixture                      24/8 T                  16/4 T                  16/4 T *
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)
+
+# --extra-pins abi-supplemental.json
+  mrui::SendLive                              12/4 -                  12/4 T                  12/4 -
+  mrui::ReviewPhase                            1/1 -                   1/1 T                   1/1 -
+PASS: board ABI (308 checks, 9/9 controls RED, 0 unusable)

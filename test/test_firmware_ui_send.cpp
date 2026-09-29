@@ -15,6 +15,7 @@
 #include "doctest.h"
 #include "firmware_ui_send.h"
 #include <cstdint>
+#include <string>   // ★ W6: the 163-byte composed lines are compared as whole strings
 // ⚠ §B76 ADDENDUM (measured 2026-08-04): the plan's B40 case iterates a BRACED LIST (`for (uint16_t c : {…})`), which
 // is a 7th compile error its scratch-TU probe did not report — `error: deducing from brace-enclosed initializer list
 // requires '#include <initializer_list>'`. Neither doctest.h nor firmware_ui_model.h drags it in on this toolchain.
@@ -905,6 +906,26 @@ TEST_CASE("ui-frame: F2 — an Inbox frame under an open COMPOSE modal reads not
     CHECK(c.unread_ch() == 1);
 }
 
+// ★ W6 (brief §2.4): "A review never makes the Inbox read" — the phrase review is the compose body, so a frame that
+//   shows it leaves FrameGate's Inbox watermark untouched, exactly as the compose list's does (the case above).
+TEST_CASE("ui-frame: F2 — W6: an Inbox frame under an open phrase REVIEW reads nothing") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat);
+    UiSnapshot s = snap_from(c, 10000); ui_snapshot_publish_presets(s, cat);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 10000);
+    to_menu_home(m, s);
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team -> inbox -> send
+    CHECK(m.state().screen == Screen::send);
+    m.on_gesture(Gesture::double_press, s);            // the Send list
+    m.on_gesture(Gesture::double_press, s);            // its first phrase -> the review, requested
+    CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, 0}, nullptr, 0, s, 10000));
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    s = snap_from(c, 10600); ui_snapshot_publish_presets(s, cat);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    CHECK(c.unread_ch() == 1);                         // ⛔ still unread
+}
+
 TEST_CASE("ui-frame: F2 — a BLANKED panel on the Inbox screen reads nothing") {
     UiModel m; FrameGate g; UiInboxCounters c{};
     UiSnapshot s = snap_from(c, 10000);
@@ -1250,7 +1271,7 @@ TEST_CASE("ui-recv: R1 — the wake inherits the retained-outcome hold; it inven
 
 namespace {
 struct FakeExec {
-    char     line[160] = {};
+    char     line[kSendLineCap] = {};   // ★ W6: the derived 199-B cap, so a 163-byte phrase line is recorded WHOLE
     int      calls     = 0;
     SendExec reply{};                      // what `on_command` will answer
 };
@@ -1288,6 +1309,20 @@ UiSnapshot snap_at(uint32_t now_ms) {
 }
 SendExec ok_ctr(uint16_t c)  { return SendExec{ true, MESHROUTE_NS::CmdCode::queued, c }; }
 SendExec refused(MESHROUTE_NS::CmdCode c) { return SendExec{ true, c, 0 }; }
+// ★ W6 (brief §2.5): `ui_perform_send` composes into the CALLER's line — on the device its one static buffer — so these
+//   cases hand it this one. `SendLive{}` is team 0 with no resolved peer: the team every request below binds (0), so
+//   the two new gate questions answer `send` and each landed case keeps its meaning; the W6 cases name live values.
+char t_line[kSendLineCap];
+// ★ W6 (design r2.23 §7.3, owner-ruled D5): a phrase is sent THROUGH ITS REVIEW — the double REQUESTS it, the tick's
+//   capture (`ui_review_capture`, the shipped pure answer) copies the exact bytes, and only `short` (to SEND) +
+//   `double` queues. The live answers are the snapshot's team with no resolved peer (the landed DMs send by ID).
+void review_confirm(UiModel& m, const UiSnapshot& s) {
+    CHECK(m.state().review_phase == ReviewPhase::requested);
+    CHECK(ui_review_capture(m, dflt_cat(), SendLive{s.team_id, false, 0}, nullptr, 0, s, s.now_ms));
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+}
 }  // namespace
 
 // ---- the composed line: the one artefact the radio actually sees -----------------------------------------------
@@ -1298,7 +1333,7 @@ SendExec refused(MESHROUTE_NS::CmdCode c) { return SendExec{ true, c, 0 }; }
 
 TEST_CASE("ui7-line: a DM is `send <id> \"<text>\" -t -a` — the id, the plane and the ack, exactly") {
     char b[kSendLineCap];
-    const int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, /*peer=*/7, kDm1, dflt_gen()},
+    const int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, /*peer=*/7, kDm1, false, dflt_gen()},
                                        dflt_cat(), 0, false);
     CHECK(n > 0);
     // ⛔ NO `-e`: the parser gates it `allow_e=by_hash` and REJECTS it on an id target, so the line would not parse
@@ -1308,14 +1343,14 @@ TEST_CASE("ui7-line: a DM is `send <id> \"<text>\" -t -a` — the id, the plane 
 
 TEST_CASE("ui7-line: the second DM text is the second STABLE SLOT, not an off-by-one") {
     char b[kSendLineCap];
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 200, kDm2, dflt_gen()},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 200, kDm2, false, dflt_gen()},
                                dflt_cat(), 0, false) > 0);
     CHECK(std::strcmp(b, "send 200 \"I'm OK\" -t -a") == 0);
 }
 
 TEST_CASE("ui7-line: a canned channel post is `send_channel <ch> \"<text>\" -t -e`") {
     char b[kSendLineCap];
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh2, dflt_gen()},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh2, false, dflt_gen()},
                                dflt_cat(), /*ch=*/3, false) > 0);
     CHECK(std::strcmp(b, "send_channel 3 \"All good\" -t -e") == 0);
 }
@@ -1327,7 +1362,7 @@ TEST_CASE("ui7-line: a canned channel post is `send_channel <ch> \"<text>\" -t -
 //   the ruled truth table's rows 2 and 3 (`loc on` + fix ⇒ `-l`; `loc on` + NO fix ⇒ send WITHOUT `-l`).
 TEST_CASE("ui7-line: the EMERGENCY carries -l only WITH a fix; without one it still goes out") {
     char with_fix[kSendLineCap], no_fix[kSendLineCap];
-    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, 0};
+    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
     CHECK(dflt_cat().slot[mrfw::kPresetEmergency].loc == 1);          // the compiled default, §3.2.2's table row 1
     CHECK(ui_compose_send_line(with_fix, sizeof with_fix, alarm, dflt_cat(), 0, /*have_fix=*/true) > 0);
     CHECK(std::strcmp(with_fix, "send_channel 0 \"I'm in danger\" -t -l -e") == 0);
@@ -1345,7 +1380,7 @@ TEST_CASE("ui10-p3-emergency: `loc=off` on the emergency slot means NO `-l`, fix
     mrnv::UiPresetBlob c{};
     mrfw::preset_defaults(c);
     mrfw::preset_slot_put(c.slot[mrfw::kPresetEmergency], true, /*loc=*/false, "HELP", 4);
-    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, 0};
+    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
     char b[kSendLineCap];
     CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/true) > 0);
     CHECK(std::strcmp(b, "send_channel 0 \"HELP\" -t -e") == 0);      // ⛔ no `-l`, even WITH a fix
@@ -1360,7 +1395,7 @@ TEST_CASE("ui10-p3-emergency: the alarm's body is the CATALOG's emergency phrase
     mrfw::preset_defaults(c);
     mrfw::preset_slot_put(c.slot[mrfw::kPresetEmergency], true, /*loc=*/true, "BROKEN LEG N RIDGE", 17);
     char b[kSendLineCap];
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0},
                                c, 0, /*have_fix=*/true) > 0);
     CHECK(std::strcmp(b, "send_channel 0 \"BROKEN LEG N RIDG\" -t -l -e") == 0);   // 17 bytes, OQ-A's bound
     CHECK(std::strstr(b, "I'm in danger") == nullptr);                             // ⛔ the retired constant is gone
@@ -1375,17 +1410,17 @@ TEST_CASE("ui10-p3-loc: a `loc=on` DM and channel preset compose `-l`, ALWAYS �
     mrfw::preset_slot_put(c.slot[kCh1], true, /*loc=*/true, "at the hut", 10);
     char b[kSendLineCap];
     for (bool fix : { false, true }) {
-        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, c.generation}, c, 0, fix) > 0);
+        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, false, c.generation}, c, 0, fix) > 0);
         // ⛔ THE FORM IS UNCHANGED BESIDES `-l`: still `send <id>`, still `-t -a`. §3.2.3: *"Do not change
         //    addressing to hash or silently downgrade merely to make the preset send."*
         CHECK(std::strcmp(b, "send 9 \"here I am\" -t -a -l") == 0);
-        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, c.generation},
+        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation},
                                    c, /*ch=*/2, fix) > 0);
         CHECK(std::strcmp(b, "send_channel 2 \"at the hut\" -t -l -e") == 0);
     }
     // ...and `loc=off` on the same two slots emits the SAME line without `-l` — one flag, one difference.
     mrfw::preset_slot_put(c.slot[kDm1], true, /*loc=*/false, "here I am", 9);
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, c.generation}, c, 0, true) > 0);
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, false, c.generation}, c, 0, true) > 0);
     CHECK(std::strcmp(b, "send 9 \"here I am\" -t -a") == 0);
 }
 
@@ -1395,88 +1430,188 @@ TEST_CASE("ui10-p3-loc: a `loc=on` DM and channel preset compose `-l`, ALWAYS �
 TEST_CASE("ui7-line: a DISABLED slot, an out-of-range slot and an empty row all REFUSE to compose") {
     char b[kSendLineCap];
     b[0] = 'x';
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, uint8_t(kDm1 + 2), dflt_gen()},
-                               dflt_cat(), 0, false) == 0);   // dm3 is compiled DISABLED
+    // ⓘ W6 (D9): `dm3` and `channel3/4` are compiled defaults now, so the DISABLED examples are `dm4` / `channel5`.
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, uint8_t(kDm1 + 3), false, dflt_gen()},
+                               dflt_cat(), 0, false) == 0);   // dm4 is compiled DISABLED
     CHECK(b[0] == '\0');                                      // never a partly-formed command
     b[0] = 'x';
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0,
-                                                    uint8_t(kCh1 + 3), dflt_gen()}, dflt_cat(), 0, false) == 0);
+                                                    uint8_t(kCh1 + 4), false, dflt_gen()}, dflt_cat(), 0, false) == 0);
     CHECK(b[0] == '\0');
     // ...and anything past the seventeen slots too.
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99, dflt_gen()}, dflt_cat(), 0, false) == 0);
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, mrnv::kUiPresets, dflt_gen()},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99, false, dflt_gen()}, dflt_cat(), 0, false) == 0);
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, mrnv::kUiPresets, false, dflt_gen()},
                                dflt_cat(), 0, false) == 0);
 }
 
 TEST_CASE("ui7-line: truncation is a REFUSAL, never a short send (C2)") {
     char tiny[12];
     tiny[0] = 'x';
-    CHECK(ui_compose_send_line(tiny, sizeof tiny, SendReq{SendKind::dm, 7, kDm1, dflt_gen()},
+    CHECK(ui_compose_send_line(tiny, sizeof tiny, SendReq{SendKind::dm, 7, kDm1, false, dflt_gen()},
                                dflt_cat(), 0, false) == 0);
     CHECK(tiny[0] == '\0');
 }
 
 TEST_CASE("ui7-line: kSendLineCap fits every line either verb can produce, at the widest id and channel") {
     char b[kSendLineCap];
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, dflt_gen()},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, dflt_gen()},
                                dflt_cat(), 0, false) > 0);
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()},
                                dflt_cat(), 255, false) > 0);
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0},
                                dflt_cat(), 255, true) > 0);
     // ★ §UI-10/11 P3 — AND AT THE WIDEST **PHRASE** THE RECORD CAN HOLD, in both location states: that is the bound
     //   the cap must now clear, and it is `mrnv::kUiPresetTextMax` rather than the longest compiled string.
+    //   ⓘ W6 (D7): 163 bytes (was a 17-byte `w17`), which is what the derived 199-B cap exists for.
     mrnv::UiPresetBlob wide{};
     mrfw::preset_defaults(wide);
-    const char* w17 = "ABCDEFGHIJKLMNOPQ";
+    char w163[mrnv::kUiPresetTextMax];
+    std::memset(w163, 'W', sizeof w163);
     for (bool loc : { false, true }) {
-        mrfw::preset_slot_put(wide.slot[kDm1], true, loc, w17, 17);
-        mrfw::preset_slot_put(wide.slot[kCh1], true, loc, w17, 17);
-        mrfw::preset_slot_put(wide.slot[mrfw::kPresetEmergency], true, loc, w17, 17);
-        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, wide.generation},
+        mrfw::preset_slot_put(wide.slot[kDm1], true, loc, w163, sizeof w163);
+        mrfw::preset_slot_put(wide.slot[kCh1], true, loc, w163, sizeof w163);
+        mrfw::preset_slot_put(wide.slot[mrfw::kPresetEmergency], true, loc, w163, sizeof w163);
+        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, wide.generation},
                                    wide, 255, true) > 0);
-        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, wide.generation},
+        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, wide.generation},
                                    wide, 255, true) > 0);
-        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, 0},
+        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0},
                                    wide, 255, true) > 0);
     }
+}
+
+// ★★★ W6 (brief §2.5) — THE CAP IS DERIVED, AND 163 BODY BYTES ARRIVE INTACT IN ALL SIX KIND × FIX COMBINATIONS.
+TEST_CASE("w6-line: kSendLineCap is the derived 199, and a 163-byte phrase composes WHOLE for every kind and fix state") {
+    CHECK(kSendLineCap == 199);
+    CHECK(kSendLineCap == std::strlen("send_channel ") + 10 + std::strlen(" \"") + mrnv::kUiPresetTextMax +
+                          std::strlen("\"") + std::strlen(" -t -l -e") + 1);
+    mrnv::UiPresetBlob c{};
+    mrfw::preset_defaults(c);
+    char body[mrnv::kUiPresetTextMax + 1];
+    for (unsigned i = 0; i < mrnv::kUiPresetTextMax; ++i) body[i] = char('!' + (i % 90));   // printable, no `"` or `\`
+    for (unsigned i = 0; i < mrnv::kUiPresetTextMax; ++i) if (body[i] == '"' || body[i] == '\\') body[i] = 'x';
+    body[mrnv::kUiPresetTextMax] = '\0';
+    CHECK(mrfw::validate_preset_text(body, mrnv::kUiPresetTextMax) == mrfw::PresetErr::none);
+    for (bool loc : { false, true }) {
+        mrfw::preset_slot_put(c.slot[kDm1], true, loc, body, mrnv::kUiPresetTextMax);
+        mrfw::preset_slot_put(c.slot[kCh1], true, loc, body, mrnv::kUiPresetTextMax);
+        mrfw::preset_slot_put(c.slot[mrfw::kPresetEmergency], true, loc, body, mrnv::kUiPresetTextMax);
+        for (bool fix : { false, true }) {
+            CAPTURE(loc); CAPTURE(fix);
+            char b[kSendLineCap];
+            const std::string q = std::string("\"") + body + "\"";
+            // DM: `-l` iff the slot says so (never stripped); channel: the same; emergency: the slot AND a fix.
+            int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, c.generation}, c, 255, fix);
+            CHECK(std::string(b) == "send 255 " + q + (loc ? " -t -a -l" : " -t -a"));
+            CHECK(n == int(std::strlen(b)));
+            n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, 255, fix);
+            CHECK(std::string(b) == "send_channel 255 " + q + (loc ? " -t -l -e" : " -t -e"));
+            CHECK(n == int(std::strlen(b)));
+            n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0}, c, 255, fix);
+            CHECK(std::string(b) == "send_channel 255 " + q + ((loc && fix) ? " -t -l -e" : " -t -e"));
+            // ★ the pre-check's fixture: a 163-byte emergency on a three-digit channel is 188 B without a fix, 191 with
+            if (loc) CHECK(n == (fix ? 191 : 188));
+        }
+    }
+    // ★ ...AND THROUGH `ui_perform_send`: into the CALLER's line (the device's one static buffer) and the executor, whole.
+    mrfw::preset_slot_put(c.slot[kCh1], true, false, body, mrnv::kUiPresetTextMax);
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(7);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, SendLive{},
+                    t_line, sizeof t_line, /*ch=*/3, false, fake_exec, &f, 6000);
+    CHECK(f.calls == 1);
+    CHECK(std::string(f.line) == std::string("send_channel 3 \"") + body + "\" -t -e");
+    CHECK(m.chan_state() == ChanState::waiting);
+}
+
+// ★★★ W6 (brief §2.5) — THE TWO NEW GATE QUESTIONS, each its own typed refusal with ZERO submission, and the emergency
+//     still first and unconditional.
+TEST_CASE("w6-gate: team and (known) recipient are asked at execution — typed refusals, zero submission, alarm exempt") {
+    const uint32_t kTeam = 0x66C0FFEEu, kHash = 0x3F2A91BCu;
+    const SendReq dm_known{SendKind::dm, 7, kDm1, true, dflt_gen(), kTeam, kHash};
+    const SendReq dm_unknown{SendKind::dm, 7, kDm1, false, dflt_gen(), kTeam, 0};
+    const SendReq ch{SendKind::channel_canned, 0, kCh1, false, dflt_gen(), kTeam, 0};
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, true, kHash}) == SendGate::send);
+    CHECK(send_gate_of(ch, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::send);
+    // the TEAM, for both ordinary kinds
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam + 1, true, kHash}) == SendGate::team_changed);
+    CHECK(send_gate_of(ch, dflt_cat(), SendLive{0, false, 0}) == SendGate::team_changed);
+    // the RECIPIENT: a different hash, and a binding that no longer resolves at all
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, true, kHash ^ 1u}) == SendGate::recipient_changed);
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::recipient_changed);
+    // ...but a DM whose hash was NOT known at selection is sent by ID exactly as before
+    CHECK(send_gate_of(dm_unknown, dflt_cat(), SendLive{kTeam, true, 0x12345678u}) == SendGate::send);
+    CHECK(send_gate_of(dm_unknown, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::send);
+    // ★ A KNOWN ZERO IS KNOWN (labelled SYNTHETIC: today's resolver never yields one — `Node::team_key_set` rejects
+    //   hash 0): it must still match only itself, ⛔ never read as "unknown".
+    const SendReq dm_zero{SendKind::dm, 7, kDm1, true, dflt_gen(), kTeam, 0};
+    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, true, 0}) == SendGate::send);
+    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, true, 0x1u}) == SendGate::recipient_changed);
+    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::recipient_changed);
+    // the generation is still asked FIRST (a moved catalog outranks a moved team)
+    mrnv::UiPresetBlob moved = dflt_cat(); moved.generation = mrfw::preset_generation_next(moved.generation);
+    CHECK(send_gate_of(dm_known, moved, SendLive{kTeam + 1, false, 0}) == SendGate::preset_changed);
+    // ⛔ THE EMERGENCY IS NEVER GATED — not by a team, not by a peer (R-3/§4.1)
+    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
+    CHECK(send_gate_of(alarm, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::send);
+
+    // ★★ AND THROUGH `ui_perform_send`: each refusal is TYPED, the executor is never called and no tracker opens.
+    struct { SendReq req; SendLive live; DmState dm; ChanState chs; } rows[] = {
+        { dm_known, SendLive{kTeam + 1, true, kHash}, DmState::team_changed,      ChanState::idle },
+        { dm_known, SendLive{kTeam, true, kHash ^ 1u}, DmState::recipient_changed, ChanState::idle },
+        { ch,       SendLive{0, false, 0},            DmState::idle,              ChanState::team_changed },
+    };
+    for (const auto& r : rows) {
+        UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
+        ui_perform_send(emg, normal, m, r.req, dflt_cat(), r.live, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
+        CHECK(f.calls == 0);                             // ⛔ ZERO core submission
+        CHECK(normal.idle());                            // ⛔ no slot opened
+        CHECK(emg.idle());
+        CHECK(m.dm_state() == r.dm);
+        CHECK(m.chan_state() == r.chs);
+        CHECK(m.emergency() == Emergency::idle);
+    }
+    // ...and the alarm under a changed team still SENDS.
+    UiModel a; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(5);
+    ui_perform_send(emg, normal, a, alarm, dflt_cat(), SendLive{kTeam + 7, false, 0}, t_line, sizeof t_line, 0, true,
+                    fake_exec, &f, 6000);
+    CHECK(f.calls == 1);
 }
 
 // ================================================== §UI-10/11 P3 — THE STALE-GENERATION GATE (design §3.3, spec §2)
 // ★★★★ THE HEADLINE OF THE SLICE, AT THE UNIT LEVEL: `send_gate_of` is asked at EXECUTION, against the LIVE record.
 TEST_CASE("ui10-p3-freeze: the gate passes a sealed slot+generation that still describes the live catalog") {
-    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, dflt_gen()}, dflt_cat()) == SendGate::send);
-    CHECK(send_gate_of(SendReq{SendKind::channel_canned, 0, kCh2, dflt_gen()}, dflt_cat()) == SendGate::send);
+    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}) == SendGate::send);
+    CHECK(send_gate_of(SendReq{SendKind::channel_canned, 0, kCh2, false, dflt_gen()}, dflt_cat(), SendLive{}) == SendGate::send);
 }
 
 TEST_CASE("ui10-p3-freeze: a MOVED generation refuses — driven for set / clear / reset / reset all") {
     // ⓘ Each arm is a REAL mutation of the record, applied the way P1's `commit` applies one: the canonical slot
     //   change PLUS the next non-zero generation. The sealed request is the one the wearer pressed BEFORE it.
-    const SendReq sealed{SendKind::dm, 7, kDm1, dflt_gen()};
-    CHECK(send_gate_of(sealed, dflt_cat()) == SendGate::send);        // the control: it was fine a moment ago
+    const SendReq sealed{SendKind::dm, 7, kDm1, false, dflt_gen()};
+    CHECK(send_gate_of(sealed, dflt_cat(), SendLive{}) == SendGate::send);        // the control: it was fine a moment ago
     {   // (1) `set` — on ANOTHER slot, so the sealed row's own words are untouched and ONLY the generation moved
         mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
         mrfw::preset_slot_put(c.slot[uint8_t(kDm1 + 4)], true, false, "meet at the col", 15);
         c.generation = mrfw::preset_generation_next(c.generation);
-        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);
+        CHECK(send_gate_of(sealed, c, SendLive{}) == SendGate::preset_changed);
     }
     {   // (2) `clear` — of the SEALED slot itself: disabled AND a moved generation, i.e. both halves at once
         mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
         mrfw::preset_slot_put(c.slot[kDm1], false, false, nullptr, 0);
         c.generation = mrfw::preset_generation_next(c.generation);
-        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);
+        CHECK(send_gate_of(sealed, c, SendLive{}) == SendGate::preset_changed);
     }
     {   // (3) `reset <slot>` — the compiled default restored, so the WORDS are identical again and only the
         //     generation differs. ★ This is the arm a "compare the text" shortcut would pass wrongly.
         mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
         c.generation = mrfw::preset_generation_next(c.generation);
         CHECK(std::strncmp(c.slot[kDm1].text, "Are you OK?", 11) == 0);
-        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);
+        CHECK(send_gate_of(sealed, c, SendLive{}) == SendGate::preset_changed);
     }
     {   // (4) `reset all` (OQ-B) — the complete compiled catalog, carrying the LIVE generation's successor
         mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
         c.generation = mrfw::preset_generation_next(dflt_gen());
-        CHECK(send_gate_of(sealed, c) == SendGate::preset_changed);
+        CHECK(send_gate_of(sealed, c, SendLive{}) == SendGate::preset_changed);
     }
 }
 
@@ -1486,23 +1621,23 @@ TEST_CASE("ui10-p3-freeze: a slot DISABLED at execution refuses even with the ge
     mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
     mrfw::preset_slot_put(c.slot[kDm1], false, false, nullptr, 0);
     CHECK(c.generation == dflt_gen());                                // ⛔ deliberately NOT moved
-    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, dflt_gen()}, c) == SendGate::preset_changed);
+    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, false, dflt_gen()}, c, SendLive{}) == SendGate::preset_changed);
     // ...and a WRONG-KIND slot is refused too: a channel phrase may never air as a DM (§3.2.2).
-    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kCh1, dflt_gen()}, dflt_cat()) == SendGate::preset_changed);
-    CHECK(send_gate_of(SendReq{SendKind::channel_canned, 0, kDm1, dflt_gen()}, dflt_cat()) == SendGate::preset_changed);
+    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}) == SendGate::preset_changed);
+    CHECK(send_gate_of(SendReq{SendKind::channel_canned, 0, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}) == SendGate::preset_changed);
     // ...and a slot the record has not got.
-    CHECK(send_gate_of(SendReq{SendKind::dm, 7, mrnv::kUiPresets, dflt_gen()}, dflt_cat()) == SendGate::preset_changed);
+    CHECK(send_gate_of(SendReq{SendKind::dm, 7, mrnv::kUiPresets, false, dflt_gen()}, dflt_cat(), SendLive{}) == SendGate::preset_changed);
 }
 
 // ★★★★ R-3 / §4.1 — **THE ALARM IS NEVER GATED.** A phrase edit landing mid-alarm must not refuse a distress call.
 TEST_CASE("ui10-p3-freeze: the EMERGENCY is exempt from the stale-generation refusal, on every catalog") {
-    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, 0};
-    CHECK(send_gate_of(alarm, dflt_cat()) == SendGate::send);
+    const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
+    CHECK(send_gate_of(alarm, dflt_cat(), SendLive{}) == SendGate::send);
     mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
     mrfw::preset_slot_put(c.slot[mrfw::kPresetEmergency], true, true, "HELP ME", 7);
     for (uint32_t g : { 1u, 2u, 999u, 0xFFFFFFFFu }) {
         c.generation = g;
-        CHECK(send_gate_of(alarm, c) == SendGate::send);
+        CHECK(send_gate_of(alarm, c, SendLive{}) == SendGate::send);
     }
 }
 
@@ -1511,7 +1646,7 @@ TEST_CASE("ui10-p3-freeze: the EMERGENCY is exempt from the stale-generation ref
 TEST_CASE("ui7-send: an ACCEPTED emergency spends exactly one attempt and holds its handle") {
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(std::strcmp(f.line, "send_channel 0 \"I'm in danger\" -t -l -e") == 0);
     CHECK(m.attempts() == 1);
@@ -1527,7 +1662,7 @@ TEST_CASE("ui7-send: an ACCEPTED emergency spends exactly one attempt and holds 
 TEST_CASE("ui7-send: `queued` with ctr==0 spends NO attempt here — the bounded expiry does") {
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(0);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(m.attempts() == 0);                              // ★ NOT 1 — this is the whole assertion
     CHECK(emg.awaiting() == true);                         // parked, not accepted and not refused
@@ -1543,7 +1678,7 @@ TEST_CASE("ui7-send: an err_* result lands the alarm in FAILED and carries the C
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;
     f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
     CHECK(m.emergency() == Emergency::failed);
     CHECK(emg.idle() == true);                             // the slot is released, never leaked on a refusal
     // ★★ THE CODE IS THE POINT. `no_key`, `no_identity`, `no_fix`, `empty` and `unsealable` ALL return
@@ -1556,7 +1691,7 @@ TEST_CASE("ui7-send: a line that never PARSED is `parser`, and no code is claime
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;
     f.reply = SendExec{ /*ok=*/false, MESHROUTE_NS::CmdCode::queued, 0 };
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
     CHECK(m.emergency() == Emergency::failed);
     CHECK(m.refuse_reason() == RefuseReason::parser);       // the predicate that says "read no code"
 }
@@ -1574,8 +1709,8 @@ TEST_CASE("ui7-send: a request the composer refuses NEVER reaches the executor")
     mrfw::preset_defaults(c);
     c.slot[kDm1].enabled = 1; c.slot[kDm1].len = 0; c.slot[kDm1].text[0] = '\0';   // ⛔ enabled, but EMPTY
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
-    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, c.generation}, c) == SendGate::send);   // the gate passes it
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 7, kDm1, c.generation}, c, 0, false,
+    CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, false, c.generation}, c, SendLive{}) == SendGate::send);   // the gate passes it
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 7, kDm1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line, 0, false,
                     fake_exec, &f, 6000);
     CHECK(f.calls == 0);                                   // ★ nothing was transmitted
     CHECK(f.line[0] == '\0');
@@ -1591,9 +1726,9 @@ TEST_CASE("ui10-p3-freeze: a stale request costs ZERO exec calls, ZERO tracker s
         mrnv::UiPresetBlob c{}; mrfw::preset_defaults(c);
         c.generation = mrfw::preset_generation_next(c.generation);          // a mutation landed under the press
         UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
-        const SendReq sealed = dm ? SendReq{SendKind::dm, 7, kDm1, dflt_gen()}
-                                  : SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()};
-        ui_perform_send(emg, normal, m, sealed, c, 0, false, fake_exec, &f, 6000);
+        const SendReq sealed = dm ? SendReq{SendKind::dm, 7, kDm1, false, dflt_gen()}
+                                  : SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()};
+        ui_perform_send(emg, normal, m, sealed, c, SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
         CHECK(f.calls == 0);                               // ⛔ nothing reached the core
         CHECK(f.line[0] == '\0');
         CHECK(normal.idle() == true);                      // ⛔ no slot opened -> none to leak
@@ -1615,7 +1750,7 @@ TEST_CASE("ui10-p3-freeze: an alarm SENDS through a catalog mutation, and reads 
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     CHECK(req.generation == 0u);                           // ⛔ the alarm seals NOTHING
-    ui_perform_send(emg, normal, m, req, c, 0, /*have_fix=*/true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, c, SendLive{}, t_line, sizeof t_line, 0, /*have_fix=*/true, fake_exec, &f, 6000);
     CHECK(f.calls == 1);                                   // ★ it FLEW
     CHECK(std::strcmp(f.line, "send_channel 0 \"HELP ME\" -t -l -e") == 0);
     CHECK(m.attempts() == 1);
@@ -1624,7 +1759,7 @@ TEST_CASE("ui10-p3-freeze: an alarm SENDS through a catalog mutation, and reads 
 
 TEST_CASE("ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the alarm slot stays untouched") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(std::strcmp(f.line, "send 11 \"Are you OK?\" -t -a") == 0);
     CHECK(normal.idle() == false);
     CHECK(emg.idle() == true);                             // ★ a DM can never occupy the alarm's slot
@@ -1660,12 +1795,13 @@ TEST_CASE("ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle,
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team -> inbox -> SEND
     CHECK(m.state().screen == Screen::send);
     m.on_gesture(Gesture::double_press, s);                              // open the canned CHANNEL list
-    m.on_gesture(Gesture::double_press, s);                              // ...and send its first text
+    m.on_gesture(Gesture::double_press, s);                              // ...review its first text
+    review_confirm(m, s);                                                // ...and SEND it (W6, D5)
     SendReq req{};
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;   // ⚠ §B70: ONE call
     CHECK(req.kind == SendKind::channel_canned);
     CHECK(m.chan_state() == ChanState::submitting);                      // the hand-off, before the core answers
-    ui_perform_send(emg, normal, m, req, dflt_cat(), /*ch=*/0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &f, 6000);
     // The SIDE EFFECT first (§B110): the command actually issued, not a post-hoc enum.
     CHECK(f.calls == 1);
     CHECK(std::strcmp(f.line, "send_channel 0 \"Got your message\" -t -e") == 0);
@@ -1695,13 +1831,13 @@ TEST_CASE("ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle,
 //   vacuity lesson: a control whose scenario has already set the field cannot measure who set it).
 TEST_CASE("ui7-B113 CONTROL: accepting a DM or an ALARM must never move the canned-channel state") {
     UiModel dm_only; SendTracker emg_a, normal_a; FakeExec fa; fa.reply = ok_ctr(42);
-    ui_perform_send(emg_a, normal_a, dm_only, SendReq{SendKind::dm, 11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fa, 6000);
+    ui_perform_send(emg_a, normal_a, dm_only, SendReq{SendKind::dm, 11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fa, 6000);
     CHECK(dm_only.dm_state()   == DmState::waiting_ack);   // the DM really was accepted...
     CHECK(dm_only.chan_state() == ChanState::idle);        // ★ ...and the channel state did NOT move
 
     UiModel alarm = armed_and_fired(); SendReq req{}; SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(77);
     const bool got = alarm.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg_b, normal_b, alarm, req, dflt_cat(), 0, true, fake_exec, &fb, 6000);
+    ui_perform_send(emg_b, normal_b, alarm, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &fb, 6000);
     CHECK(alarm.attempts()   == 1);                        // the alarm really was accepted...
     CHECK(alarm.chan_state() == ChanState::idle);          // ★ ...and it does not own `_chan`. The alarm's own
                                                            //   evidence is `EmgEvidence`; `_chan` is the sub-view's.
@@ -1715,9 +1851,9 @@ TEST_CASE("ui7-B113 CONTROL: accepting a DM or an ALARM must never move the cann
 TEST_CASE("ui7-B113: `waiting` means WE HOLD A HANDLE — a ctr-less canned post must not reach it") {
     UiModel held, handleless;
     SendTracker emg_a, normal_a; FakeExec fa; fa.reply = ok_ctr(31);
-    ui_perform_send(emg_a, normal_a, held, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fa, 6000);
+    ui_perform_send(emg_a, normal_a, held, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fa, 6000);
     SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(0);       // §B39: accepted-shaped, NO local handle
-    ui_perform_send(emg_b, normal_b, handleless, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), 0, false,
+    ui_perform_send(emg_b, normal_b, handleless, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false,
                     fake_exec, &fb, 6000);
     CHECK(held.chan_state()       == ChanState::waiting);
     CHECK(handleless.chan_state() != ChanState::waiting);      // nothing was ACCEPTED, so nothing may say SENT
@@ -1805,9 +1941,10 @@ TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") 
     m.on_gesture(Gesture::short_press, s);                 // -> TEAM (passive)
     m.on_gesture(Gesture::double_press, s);                // §UI-17 S1: ENTER the list...
     m.on_gesture(Gesture::double_press, s);                // ...-> DM compose
-    m.on_gesture(Gesture::double_press, s);                // -> send "Are you OK?"
+    m.on_gesture(Gesture::double_press, s);                // -> review "Are you OK?"...
+    review_confirm(m, s);                                  // ...and SEND it (W6, D5)
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, false, fake_exec, &f, 1000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 1000);
     SendOutcome o{};
     CHECK(normal.match_dm(42, 11, /*acked=*/false, FailReason::e2e_ack_timeout, o) == true);
     m.on_outcome(o, 2000);
@@ -1851,9 +1988,10 @@ TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view h
     m.on_gesture(Gesture::short_press, s);                 // -> TEAM (passive)
     m.on_gesture(Gesture::double_press, s);                // §UI-17 S1: ENTER the list
     m.on_gesture(Gesture::double_press, s);                // -> DM compose
-    m.on_gesture(Gesture::double_press, s);                // -> send "Are you OK?"
+    m.on_gesture(Gesture::double_press, s);                // -> review "Are you OK?"...
+    review_confirm(m, s);                                  // ...and SEND it (W6, D5)
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, false, fake_exec, &f, 1000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 1000);
     SendOutcome o{};
     CHECK(normal.match_dm(42, 11, /*acked=*/false, FailReason::e2e_ack_timeout, o) == true);
     m.on_outcome(o, 2000);
@@ -1882,7 +2020,7 @@ TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view h
     //   consult `idle()` itself, so it would succeed either way. That the tick really reads the gate is pinned by
     //   the probe's wiring checks, the same division of labour §R1 used for W6.
     FakeExec f2; f2.reply = ok_ctr(43);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f2,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f2,
                     1000 + kBlankMs + 3);
     CHECK(f2.calls == 1);
     CHECK(std::strcmp(f2.line, "send_channel 0 \"Got your message\" -t -e") == 0);
@@ -1932,7 +2070,7 @@ TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3
     SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
     CHECK(r1.kind == SendKind::emergency);
     FakeExec f1; f1.reply = ok_ctr(769);
-    ui_perform_send(emg, normal, m, r1, dflt_cat(), 0, /*have_fix=*/true, fake_exec, &f1, 6000);
+    ui_perform_send(emg, normal, m, r1, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, /*have_fix=*/true, fake_exec, &f1, 6000);
     CHECK(f1.calls == 1);
     CHECK(m.attempts() == 1);
     emg_line_now(m, l, sizeof l);
@@ -1947,7 +2085,7 @@ TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3
     CHECK(std::strcmp(l, "attempt 2 of 3") == 0);
     SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
     FakeExec f2; f2.reply = ok_ctr(770);
-    ui_perform_send(emg, normal, m, r2, dflt_cat(), 0, true, fake_exec, &f2, 8000);
+    ui_perform_send(emg, normal, m, r2, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f2, 8000);
     CHECK(m.attempts() == 2);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 2 of 3") == 0);
@@ -1960,7 +2098,7 @@ TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3
     CHECK(std::strcmp(l, "attempt 3 of 3") == 0);
     SendReq r3{}; const bool got3 = m.take_send_request(r3); CHECK(got3 == true); if (!got3) return;
     FakeExec f3; f3.reply = ok_ctr(771);
-    ui_perform_send(emg, normal, m, r3, dflt_cat(), 0, true, fake_exec, &f3, 10000);
+    ui_perform_send(emg, normal, m, r3, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f3, 10000);
     CHECK(m.attempts() == 3);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 3 of 3") == 0);           // ⛔ NEVER `4 of 3`
@@ -1985,7 +2123,7 @@ TEST_CASE("ui7-b115: a ctr==0 attempt still reads `1 of 3`, never `0 of 3`") {
     char l[48];
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     FakeExec f; f.reply = ok_ctr(0);
-    ui_perform_send(emg, normal, m, req, dflt_cat(), 0, /*have_fix=*/false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, /*have_fix=*/false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(emg.awaiting() == true);                          // parked: no handle, status unknown
     CHECK(m.attempts() == 0);                               // ★ and the LIMIT's counter has genuinely not moved
@@ -2012,7 +2150,7 @@ TEST_CASE("ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by
     CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));
     SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
     FakeExec f1; f1.reply = ok_ctr(769);
-    ui_perform_send(emg, normal, m, r1, dflt_cat(), 0, true, fake_exec, &f1, 6000);
+    ui_perform_send(emg, normal, m, r1, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f1, 6000);
     CHECK(m.emg_attempt_ordinal() == m.attempts());          // ★ accepted: counted, so NO `+1`
     SendOutcome o1{}; const bool s1 = emg.match_channel_sent(769, false, o1);
     CHECK(s1 == true); if (!s1) return;
@@ -2021,7 +2159,7 @@ TEST_CASE("ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by
     // ...and the `ctr == 0` arm reaches the uncounted relation from the other direction.
     SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
     FakeExec f2; f2.reply = ok_ctr(0);
-    ui_perform_send(emg, normal, m, r2, dflt_cat(), 0, false, fake_exec, &f2, 8000);
+    ui_perform_send(emg, normal, m, r2, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f2, 8000);
     CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));
 }
 
@@ -2033,7 +2171,7 @@ TEST_CASE("ui7-b115: a blocked-then-retried alarm still reads `1 of 3` — a blo
     char l[48];
     SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
     FakeExec f1; f1.reply = ok_ctr(0);                       // a pre-TX self-gate returns queued with no handle
-    ui_perform_send(emg, normal, m, r1, dflt_cat(), 0, false, fake_exec, &f1, 6000);
+    ui_perform_send(emg, normal, m, r1, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f1, 6000);
     SendOutcome ob{}; const bool blocked = emg.match_blocked(/*blocked_channel=*/true, /*next_ms=*/3000, 6500, ob);
     CHECK(blocked == true); if (!blocked) return;
     m.on_outcome(ob, 6500);
@@ -2046,7 +2184,7 @@ TEST_CASE("ui7-b115: a blocked-then-retried alarm still reads `1 of 3` — a blo
     CHECK(std::strcmp(l, "attempt 1 of 3") == 0);            // ⛔ not `2 of 3` — nothing was ever transmitted
     SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
     FakeExec f2; f2.reply = ok_ctr(769);
-    ui_perform_send(emg, normal, m, r2, dflt_cat(), 0, true, fake_exec, &f2, 10000);
+    ui_perform_send(emg, normal, m, r2, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f2, 10000);
     CHECK(m.attempts() == 1);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 1 of 3") == 0);
@@ -2083,7 +2221,7 @@ static MESHROUTE_NS::Push aired_push(uint8_t dst, uint16_t ctr) {
 
 TEST_CASE("ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NOT close the slot") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(m.dm_state() == DmState::waiting_ack);                       // PREMISE: core ACCEPTANCE only — renders `QUEUED`
     // ---- ① CORRELATED ⇒ the upgrade happens, through the ONE explicit arm.
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/11, /*ctr=*/42), 6100) == true);
@@ -2102,7 +2240,7 @@ TEST_CASE("ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NO
 
 TEST_CASE("ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor peer may be approximated)") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/11, /*ctr=*/43), 6100) == false);  // wrong handle
     CHECK(m.dm_state() == DmState::waiting_ack);
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/12, /*ctr=*/42), 6100) == false);  // wrong peer
@@ -2116,7 +2254,7 @@ TEST_CASE("ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor p
 
 TEST_CASE("ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, above 255 (§b40)") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(300);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, /*slot=*/kCh1, dflt_gen()}, dflt_cat(), /*ch=*/0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, /*slot=*/kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &f, 6000);
     CHECK(m.chan_state() == ChanState::waiting);                       // PREMISE: acceptance -> `QUEUED`
     // ⛔ TRUNCATION IS THE DEFECT THIS PINS: 300 & 0xff == 44, and the low byte must NOT match.
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/44), 6100) == false);
@@ -2138,7 +2276,7 @@ TEST_CASE("ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, a
 TEST_CASE("ui-T3-c: an EMERGENCY send_aired changes NOTHING and RETAINS the slot; its channel_sent still lands") {
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), /*ch=*/0, /*have_fix=*/true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, /*have_fix=*/true, fake_exec, &f, 6000);
     CHECK(m.emergency() == Emergency::firing);
     CHECK(m.attempts() == 1);
     const Emergency   emg_before  = m.emergency();
@@ -2170,12 +2308,12 @@ TEST_CASE("ui-T3-c: an EMERGENCY airing must not relabel a coincident canned pos
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal;
     // A canned post is accepted on the NORMAL slot first, and is left QUEUED.
     { FakeExec fc; fc.reply = ok_ctr(300);
-      ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, dflt_gen()}, dflt_cat(), /*ch=*/0, false, fake_exec, &fc, 5900); }
+      ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &fc, 5900); }
     CHECK(m.chan_state() == ChanState::waiting);                       // PREMISE: a live canned transaction stands
     // ...and the alarm is accepted on the EMERGENCY slot, with a DIFFERENT handle.
     { const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
       FakeExec fe; fe.reply = ok_ctr(77);
-      ui_perform_send(emg, normal, m, req, dflt_cat(), /*ch=*/0, /*have_fix=*/true, fake_exec, &fe, 6000); }
+      ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, /*have_fix=*/true, fake_exec, &fe, 6000); }
     CHECK(m.attempts() == 1);
     const Emergency emg_before = m.emergency();
     // ★★★★ THE ALARM'S OWN airing. It correlates (the emergency slot claims it) and it must move NOTHING —
@@ -2619,7 +2757,7 @@ TEST_CASE("ui16-route: team_key_grant_failed reaches the verdict, and a UI slot'
         N6Fix f; UiSnapshot s = n6_snap();
         CHECK(f.to_verdict(s));
         SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
-        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fx, 6000);
+        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fx, 6000);
         CHECK(f.m.dm_state() == DmState::waiting_ack);
         CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4242), 7000)
               == true);
@@ -2633,7 +2771,7 @@ TEST_CASE("ui16-route: team_key_grant_failed reaches the verdict, and a UI slot'
         N6Fix f; UiSnapshot s = n6_snap();
         CHECK(f.to_verdict(s));
         SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
-        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, dflt_gen()}, dflt_cat(), 0, false, fake_exec, &fx, 6000);
+        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fx, 6000);
         CHECK(f.m.dm_state() == DmState::waiting_ack);              // the slot holds the SAME handle
         CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_aired, 200, 4242), 7000)
               == true);
@@ -2813,7 +2951,7 @@ TEST_CASE("ui10-p3-loc: a located CHANNEL preset with no fix ISSUES `-l` and rep
     const auto c = located_cat();
     UiModel m; SendTracker emg, normal; FakeExec f;
     f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);       // what the core answers for want_loc/no fix
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, c.generation}, c,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line,
                     /*ch=*/2, /*have_fix=*/false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);                                             // ★ the line WAS issued...
     CHECK(std::strcmp(f.line, "send_channel 2 \"at the hut\" -t -l -e") == 0);
@@ -2833,7 +2971,7 @@ TEST_CASE("ui10-p3-loc: a located DM preset keeps `send <id> … -t -a -l` and r
     const auto c = located_cat();
     UiModel m; SendTracker emg, normal; FakeExec f;
     f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);       // the core's `unsealable` / `no_fix` wall
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, c.generation}, c,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line,
                     0, /*have_fix=*/false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(std::strcmp(f.line, "send 11 \"on the ridge\" -t -a -l") == 0);
@@ -2848,7 +2986,7 @@ TEST_CASE("ui10-p3-loc: a located DM preset keeps `send <id> … -t -a -l` and r
     CHECK(normal.idle() == true);
     // ★ AND THE SEALED PATH SENDS: the SAME line, accepted, is what a node with `e2e_dm=1`, a key and a fix produces.
     UiModel ok; SendTracker e2, n2; FakeExec f2; f2.reply = ok_ctr(31);
-    ui_perform_send(e2, n2, ok, SendReq{SendKind::dm, 11, kDm1, c.generation}, c,
+    ui_perform_send(e2, n2, ok, SendReq{SendKind::dm, 11, kDm1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line,
                     0, /*have_fix=*/true, fake_exec, &f2, 7000);
     CHECK(f2.calls == 1);
     CHECK(std::strcmp(f2.line, "send 11 \"on the ridge\" -t -a -l") == 0);   // ⛔ the SAME line — one composition

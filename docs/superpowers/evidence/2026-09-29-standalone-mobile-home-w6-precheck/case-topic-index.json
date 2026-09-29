@@ -1,0 +1,3234 @@
+[
+  {
+    "file": "test/test_firmware_ui_chrome.cpp",
+    "line": 765,
+    "end": 809,
+    "label": "TEST_CASE(\"chrome-nav: the rail describes the BODY, not the screen underneath it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_chrome.cpp",
+    "line": 810,
+    "end": 849,
+    "label": "TEST_CASE(\"chrome-nav: PRECEDENCE \u2014 compose OUTRANKS the inbox detail, because the RENDERER draws it that way\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_chrome.cpp",
+    "line": 850,
+    "end": 883,
+    "label": "TEST_CASE(\"chrome-nav: a REAL outcome landing on a live compose modal leaves the rail on SEND\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_input.cpp",
+    "line": 49,
+    "end": 54,
+    "label": "TEST_CASE(\"ui-input: two taps inside the window yield double_press\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_input.cpp",
+    "line": 143,
+    "end": 152,
+    "label": "TEST_CASE(\"ui-input: three taps read as double_press then short_press\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_input.cpp",
+    "line": 206,
+    "end": 215,
+    "label": "TEST_CASE(\"ui-input: active() clears on a double_press, which never enters the pending-tap window\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_join.cpp",
+    "line": 215,
+    "end": 264,
+    "label": "TEST_CASE(\"ui15-join-store the FOUR store states are FOUR different panel texts \u2014 `io_failed` never reads as absent\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 128,
+    "end": 136,
+    "label": "TEST_CASE(\"ui-model: double on TEAM opens the DM sub-view bound to the highlighted peer\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 137,
+    "end": 146,
+    "label": "TEST_CASE(\"ui-model: sub-view: `back` leaves without sending\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 147,
+    "end": 169,
+    "label": "TEST_CASE(\"ui-model: sub-view: double on a message emits a DM request for the bound peer\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 170,
+    "end": 182,
+    "label": "TEST_CASE(\"ui-model: the sub-view SURVIVES inactivity, and inactivity still sends nothing\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 211,
+    "end": 228,
+    "label": "TEST_CASE(\"ui-model: a non-team build cannot open a compose modal\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 229,
+    "end": 254,
+    "label": "TEST_CASE(\"ui-model: double on STATUS activates nothing; on INBOX it now OPENS THE DETAIL MODAL (\u00a7UI-7D)\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 255,
+    "end": 269,
+    "label": "TEST_CASE(\"ui-model: double on an EMPTY INBOX still activates nothing and says nothing (\u00a7UI-7D)\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 283,
+    "end": 314,
+    "label": "TEST_CASE(\"ui-model: SEND double opens the channel compose list and index 1 sends the second canned text\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 315,
+    "end": 330,
+    "label": "TEST_CASE(\"ui-model: the channel list's last row is `back` \u2014 MENU since W4b \u2014 and sends nothing\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 331,
+    "end": 342,
+    "label": "TEST_CASE(\"ui-model: the compose cursor wraps within the list, so `back` is always reachable\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 343,
+    "end": 367,
+    "label": "TEST_CASE(\"ui-model: the bound peer survives a roster REORDER under the open modal\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 368,
+    "end": 387,
+    "label": "TEST_CASE(\"ui-model: B64 \u2014 a teammate that VANISHED from the roster REFUSES the activation and sends NOTHING\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 408,
+    "end": 434,
+    "label": "TEST_CASE(\"ui-model: B64 \u2014 a roster REORDER follows the TEAMMATE, so the send goes where the user pointed\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 435,
+    "end": 455,
+    "label": "TEST_CASE(\"ui-model: B64 \u2014 the roster resync must NOT touch an open compose modal's cursor\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 456,
+    "end": 482,
+    "label": "TEST_CASE(\"ui-model: B64 \u2014 after a refusal the user re-picks by walking, and the next send targets that teammate\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 483,
+    "end": 506,
+    "label": "TEST_CASE(\"ui-model: B64 \u2014 the refusal is retired before TEAM can be left, and never comes back\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 507,
+    "end": 516,
+    "label": "TEST_CASE(\"ui-model: an empty TEAM list opens no modal on double\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 517,
+    "end": 524,
+    "label": "TEST_CASE(\"ui-model: a send request is drained exactly once\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 562,
+    "end": 579,
+    "label": "TEST_CASE(\"ui-model: the modal is open on BOTH sides of the blank edge, and the blank still lands on it\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 580,
+    "end": 598,
+    "label": "TEST_CASE(\"ui-model: a gesture inside the modal refreshes the BLANK window (the only clock it still shares)\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 599,
+    "end": 616,
+    "label": "TEST_CASE(\"ui-model: blanking KEEPS the modal, and the consumed waking press puts it back on the panel\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 617,
+    "end": 627,
+    "label": "TEST_CASE(\"ui-model: a DOUBLE press also only wakes a blanked panel\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 641,
+    "end": 655,
+    "label": "TEST_CASE(\"ui-model: the blank is wrap-safe with a modal open, and the modal rides across the wrap\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 656,
+    "end": 672,
+    "label": "TEST_CASE(\"ui-model: a long gesture pre-empts blank-wake; ARM queues nothing, FIRE queues one alarm\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 673,
+    "end": 683,
+    "label": "TEST_CASE(\"ui-model: a long gesture is not swallowed by an open modal (spec 4.2 ordering)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 684,
+    "end": 721,
+    "label": "TEST_CASE(\"ui-model: the model's declared bounds are the ones the spec fixed\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 749,
+    "end": 755,
+    "label": "TEST_CASE(\"ui-model: arm then cancel never emits a send\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 771,
+    "end": 781,
+    "label": "TEST_CASE(\"ui-model: attempts are counted on ACCEPTANCE, not on request\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 782,
+    "end": 796,
+    "label": "TEST_CASE(\"ui-model: exactly THREE accepted transmissions, then sticky NOT HEARD\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 797,
+    "end": 807,
+    "label": "TEST_CASE(\"ui-model: blocked computes the deadline from the OUTCOME time, not the gesture\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 808,
+    "end": 819,
+    "label": "TEST_CASE(\"ui-model: next_ms == 0 backs off instead of spinning, and consumes no attempt\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 820,
+    "end": 828,
+    "label": "TEST_CASE(\"ui-model: retry deadline is wrap-safe\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 829,
+    "end": 836,
+    "label": "TEST_CASE(\"ui-model: long gestures work from inside a compose sub-view\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 846,
+    "end": 855,
+    "label": "TEST_CASE(\"ui-model: a matching teammate reply becomes sticky human confirmation\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 856,
+    "end": 872,
+    "label": "TEST_CASE(\"ui-model: DM outcomes are independent of the emergency machine\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 917,
+    "end": 928,
+    "label": "TEST_CASE(\"ui-model: PICKED UP refreshes the kEmgHoldMs hold from the outcome time\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 929,
+    "end": 950,
+    "label": "TEST_CASE(\"ui-model: NOT HEARD and BLOCKED refresh the hold too\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 962,
+    "end": 980,
+    "label": "TEST_CASE(\"ui-model: a reply during ARMING, CANCELLED, FAILED or IDLE is refused\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 981,
+    "end": 989,
+    "label": "TEST_CASE(\"ui-model: a reply while FIRING with zero accepted attempts is refused\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 990,
+    "end": 1006,
+    "label": "TEST_CASE(\"ui-model: a reply from NOT HEARD is accepted and is sticky\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1007,
+    "end": 1022,
+    "label": "TEST_CASE(\"ui-model: reply text and sender are clamped and NUL-terminated\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1038,
+    "end": 1048,
+    "label": "TEST_CASE(\"ui-model: PICKED UP is sticky against a later no-relay outcome\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1049,
+    "end": 1065,
+    "label": "TEST_CASE(\"ui-model: the blocked backoff doubles and caps at kBlockedBackoffMaxMs, consuming no attempt\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1066,
+    "end": 1083,
+    "label": "TEST_CASE(\"ui-model: a fresh long_fire re-arms the alarm from a sticky NOT HEARD\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1095,
+    "end": 1109,
+    "label": "TEST_CASE(\"ui-model: a queued alarm drains BEFORE a queued DM and neither is lost\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1110,
+    "end": 1124,
+    "label": "TEST_CASE(\"ui-model: a compose send cannot overwrite a queued alarm\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1158,
+    "end": 1173,
+    "label": "TEST_CASE(\"ui-model: a DM outcome never touches a live emergency, in either direction\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1174,
+    "end": 1191,
+    "label": "TEST_CASE(\"ui-model: channel_remote_mint is handled explicitly and never claims PICKED UP\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1192,
+    "end": 1216,
+    "label": "TEST_CASE(\"ui-model: a retry deadline of 0xFFFFFFFF is a DEADLINE, not 'no deadline'\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1217,
+    "end": 1231,
+    "label": "TEST_CASE(\"ui-model: a channel SEAL FAILURE is terminal and names its reason, never a stuck SENDING\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1232,
+    "end": 1250,
+    "label": "TEST_CASE(\"ui-model: a channel seal failure outside a live alarm is dropped whole\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1251,
+    "end": 1278,
+    "label": "TEST_CASE(\"ui-model: draining a DM request enters SUBMITTING, and only a DM does\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1333,
+    "end": 1351,
+    "label": "TEST_CASE(\"ui-model: a synchronous emergency REFUSAL holds the panel for a full kEmgHoldMs window\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1352,
+    "end": 1373,
+    "label": "TEST_CASE(\"ui-model: a channel SEAL FAILURE holds the panel for a full kEmgHoldMs window too\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1374,
+    "end": 1385,
+    "label": "TEST_CASE(\"ui-model: a DM refusal does NOT extend the emergency hold\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1413,
+    "end": 1446,
+    "label": "TEST_CASE(\"ui-model: \u00a7B115 the attempt line is DELIBERATELY not clamped to kEmgMaxTries\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1496,
+    "end": 1522,
+    "label": "TEST_CASE(\"ui-model: B71 \u2014 an IN-FLIGHT alarm does not exit (firing / arming / blocked-with-a-retry)\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1540,
+    "end": 1566,
+    "label": "TEST_CASE(\"ui-model: B71 \u2014 `double` gets NO emergency job, and `long` still re-fires\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1567,
+    "end": 1616,
+    "label": "TEST_CASE(\"ui-model: B101 \u2014 committing an alarm CLOSES the compose modal and resets its cursor\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1617,
+    "end": 1641,
+    "label": "TEST_CASE(\"ui-frame: F1 \u2014 an outcome arriving MID-FRAME is still painted after the frame completes\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1711,
+    "end": 1758,
+    "label": "TEST_CASE(\"ui-frame: a frame spans exactly the pages the panel reports, and only then reopens\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1759,
+    "end": 1784,
+    "label": "TEST_CASE(\"ui-model: R2 \u2014 two DOUBLES under the overlay cannot open and then SEND an invisible compose view\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1785,
+    "end": 1805,
+    "label": "TEST_CASE(\"ui-model: R2 \u2014 a DOUBLE cannot SEND from a compose modal left open under ARMING\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1806,
+    "end": 1838,
+    "label": "TEST_CASE(\"ui-model: R2 \u2014 the overlay absorbs a DOUBLE in every non-idle emergency state\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1839,
+    "end": 1884,
+    "label": "TEST_CASE(\"ui-frame: R2 vs F3 \u2014 the presented-latch gates SHORT only; a DOUBLE is absorbed either way\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1893,
+    "end": 1903,
+    "label": "TEST_CASE(\"ui7-B69: ONE locally-heard transmission makes the measurement true, and it is STICKY\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1947,
+    "end": 1963,
+    "label": "TEST_CASE(\"ui7-B69: three handle-less attempts end in NOT HEARD carrying `no_handle`\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1964,
+    "end": 1979,
+    "label": "TEST_CASE(\"ui7-chan: a refused canned post is TERMINAL, not a permanent SENDING...\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 1980,
+    "end": 1999,
+    "label": "TEST_CASE(\"ui7-chan: a DM outcome offered to the canned entry point is REFUSED, not absorbed\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2000,
+    "end": 2010,
+    "label": "TEST_CASE(\"ui7-result: a send switches the sub-view to its RESULT phase instead of closing it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2011,
+    "end": 2019,
+    "label": "TEST_CASE(\"ui7-result: NEITHER gesture can queue a second send from the result phase\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2020,
+    "end": 2039,
+    "label": "TEST_CASE(\"ui7-result: either press acknowledges and returns to the PARENT screen\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2040,
+    "end": 2061,
+    "label": "TEST_CASE(\"ui7-result: the result phase RIDES the blank, and the acknowledgement is what clears it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2062,
+    "end": 2083,
+    "label": "TEST_CASE(\"ui7-result: \u00a7B101's alarm close-out clears the result phase too\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2177,
+    "end": 2245,
+    "label": "TEST_CASE(\"ui7-B66: `back, don't send` is the derived LAST row of every compose list, at every catalog size\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2246,
+    "end": 2265,
+    "label": "TEST_CASE(\"ui7d-identity: a refresh that MOVES the rows keeps the highlight on the same (kind, seq)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2266,
+    "end": 2289,
+    "label": "TEST_CASE(\"ui7d-identity: a DM and a channel record SHARING a seq do not cross-select\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2290,
+    "end": 2305,
+    "label": "TEST_CASE(\"ui7d-identity: a double press with no tick in between still leaves the highlight on what it opened\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2306,
+    "end": 2333,
+    "label": "TEST_CASE(\"ui7d-identity: a VANISHED record refuses activation with MESSAGE GONE and touches no other row\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2345,
+    "end": 2356,
+    "label": "TEST_CASE(\"ui7d-identity: a row with seq 0 is NOT selectable \u2014 an unidentifiable row is refused, never guessed at\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2357,
+    "end": 2370,
+    "label": "TEST_CASE(\"ui7d-identity: a CROSSED open answer opens nothing\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2371,
+    "end": 2401,
+    "label": "TEST_CASE(\"ui7d-identity: the ERASE target is the modal's own record, even after the rows move underneath it\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2402,
+    "end": 2418,
+    "label": "TEST_CASE(\"ui7d-modal: the geometry is DERIVED \u2014 38 chars a page, seven pages for the largest body, 2 s a page\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2419,
+    "end": 2436,
+    "label": "TEST_CASE(\"ui7d-modal: pages = max(1, ceil(body_len / 38)) at every boundary, and NEVER zero\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2437,
+    "end": 2447,
+    "label": "TEST_CASE(\"ui7d-modal: an EMPTY body (body == nullptr) is one page of nothing, not a refusal\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2458,
+    "end": 2482,
+    "label": "TEST_CASE(\"ui7d-modal: the body is WRAPPED into two 19-column rows without dropping a byte\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2483,
+    "end": 2501,
+    "label": "TEST_CASE(\"w3-pager: the (19, 2) geometry IS the detail modal \u2014 every page of every boundary body agrees\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2502,
+    "end": 2544,
+    "label": "TEST_CASE(\"w3-pager: (19, 2) counts and slices \u2014 full, partial and empty rows, one NUL each, the tail untouched\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2545,
+    "end": 2566,
+    "label": "TEST_CASE(\"w3-pager: a THREE-row geometry pages by 57 and fills three rows\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2567,
+    "end": 2607,
+    "label": "TEST_CASE(\"w3-pager: small geometries \u2014 lengths 0, 1, exact multiples, +1 and the maximum, with no truncation\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2809,
+    "end": 2822,
+    "label": "TEST_CASE(\"w4a-ident: a PREFORMATTED sender with its marker is copied through on_reply UNCHANGED (no re-sanitize)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2823,
+    "end": 2842,
+    "label": "TEST_CASE(\"ui7d-modal: a long body advances every 2 s and CYCLES, marking dirty each time\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2843,
+    "end": 2861,
+    "label": "TEST_CASE(\"ui7d-modal: a ONE-page body never advances, so a short body cannot flicker\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2862,
+    "end": 2884,
+    "label": "TEST_CASE(\"ui7d-modal: paging does NOT postpone the deadline \u2014 the panel blanks on time, modal RETAINED\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2912,
+    "end": 2923,
+    "label": "TEST_CASE(\"ui7d-gesture: a `double` on `back` closes the modal and requests NOTHING of storage\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2924,
+    "end": 2934,
+    "label": "TEST_CASE(\"ui7d-gesture: an immediate `double` cannot delete \u2014 the FIRST double is what opened the modal\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2935,
+    "end": 2959,
+    "label": "TEST_CASE(\"ui7d-delete: `erased` closes the modal and preserves the NEIGHBOURING selection\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2960,
+    "end": 2976,
+    "label": "TEST_CASE(\"ui7d-delete: deleting the LAST row falls back to the row BEFORE it\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2977,
+    "end": 2989,
+    "label": "TEST_CASE(\"ui7d-delete: deleting the ONLY row leaves the cursor at home rather than past the end\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 2990,
+    "end": 3016,
+    "label": "TEST_CASE(\"ui7d-delete: `not_found` is TERMINAL, has NO active Delete, and returns to the list on either press\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3017,
+    "end": 3036,
+    "label": "TEST_CASE(\"ui7d-delete: `io_error` STAYS in the modal, says DELETE FAILED, and resets the selection to `back`\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3037,
+    "end": 3051,
+    "label": "TEST_CASE(\"ui7d-delete: after DELETE FAILED a fresh short -> double DOES retry, with the same identity\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3052,
+    "end": 3067,
+    "label": "TEST_CASE(\"ui7d-delete: a CROSSED erase answer changes nothing at all\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3082,
+    "end": 3095,
+    "label": "TEST_CASE(\"ui7d-delete: an answer that arrives BEFORE the request was drained is refused\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3096,
+    "end": 3210,
+    "label": "TEST_CASE(\"ui7d-delete: an activation whose record has vanished refuses at the ANSWER too\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3211,
+    "end": 3251,
+    "label": "TEST_CASE(\"ui7d-B233: a serviced DELETE of a MIDDLE row repaints \u2014 the panel may not keep a record the store lost\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3252,
+    "end": 3278,
+    "label": "TEST_CASE(\"ui7d-B233: deleting the LAST row still repaints (the arm that worked before the fix)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3279,
+    "end": 3300,
+    "label": "TEST_CASE(\"ui7d-B233: a FAILED delete owes NO extra repaint \u2014 nothing was deleted, so nothing went stale\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3301,
+    "end": 3321,
+    "label": "TEST_CASE(\"ui7d-B231: a message arriving ABOVE the cursor moves the highlight WITH the record, never onto the newcomer\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3322,
+    "end": 3342,
+    "label": "TEST_CASE(\"ui7d-emergency: `long_arm` closes the modal BEFORE arming, and a long_cancel does not bring it back\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3343,
+    "end": 3358,
+    "label": "TEST_CASE(\"ui7d-emergency: a re-opened modal after an alarm starts on `back`, never on the hidden Delete\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3359,
+    "end": 3370,
+    "label": "TEST_CASE(\"ui7d-emergency: while the overlay is up a double cannot open the modal from INBOX\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3371,
+    "end": 3389,
+    "label": "TEST_CASE(\"ui7d-head: the modal's header line, asserted as BYTES\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3390,
+    "end": 3533,
+    "label": "TEST_CASE(\"ui7d-frame: a completed DETAIL frame does NOT clear the session unread counters\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3635,
+    "end": 3671,
+    "label": "TEST_CASE(\"ui14-cycle: SETTINGS is the last slot, and it is LIST-AWARE like TEAM and INBOX\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3699,
+    "end": 3717,
+    "label": "TEST_CASE(\"b232-entry: `double` ENTERS the menu at its FIRST row \u2014 the PROVISION-child idiom\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3742,
+    "end": 3771,
+    "label": "TEST_CASE(\"b232-remedy: the remedy WORDS stand from the CLOSED view \u2014 every badge-table cell (\u00a76)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3772,
+    "end": 3804,
+    "label": "TEST_CASE(\"b232-exit: BOTH menu exits return to the CLOSED view \u2014 W4b: MENU goes Home in menu mode, the walk WRAPS\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3805,
+    "end": 3833,
+    "label": "TEST_CASE(\"ui14-edit: `double` ENTERS a value row and `short` then CYCLES ITS VALUE \u2014 the draft only\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3834,
+    "end": 3849,
+    "label": "TEST_CASE(\"ui14-edit: `dirty` and `config_unsaved` are DIFFERENT FACTS and this is the file where both are read\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3850,
+    "end": 3872,
+    "label": "TEST_CASE(\"ui14-save: an edited draft SAVES once, applies live, and is no longer unsaved\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3873,
+    "end": 3883,
+    "label": "TEST_CASE(\"ui14-save: a no-op SAVE says NO CHANGE and writes nothing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3884,
+    "end": 3904,
+    "label": "TEST_CASE(\"ui14-save: a FAILED write says SAVE FAILED and RETAINS the draft and its marker\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3905,
+    "end": 3930,
+    "label": "TEST_CASE(\"ui14-save: a reboot-class save is SAVED and REBOOT-REQUIRED \u2014 two independent facts\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3931,
+    "end": 3968,
+    "label": "TEST_CASE(\"ui14-conflict: SAVE is refused with CFG! RELOAD, and RELOAD then merges the three states\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3969,
+    "end": 3985,
+    "label": "TEST_CASE(\"ui14-discard: DISCARD is the explicit full reset, and it clears the marker\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 3986,
+    "end": 4004,
+    "label": "TEST_CASE(\"ui14-discard: an unreadable store says NV READ FAILED and the draft SURVIVES\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4005,
+    "end": 4034,
+    "label": "TEST_CASE(\"ui14-back: BACK is safe \u2014 it leaves the MENU and PRESERVES the unsaved draft\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4035,
+    "end": 4115,
+    "label": "TEST_CASE(\"ui14-back: BLANKING preserves the draft too \u2014 a timeout may never discard (\u00a73.6.1)\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4203,
+    "end": 4229,
+    "label": "TEST_CASE(\"ui15-gate: an UNSAVED draft refuses with SAVE OR DISCARD, opens nothing and SAVES NOTHING\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4230,
+    "end": 4252,
+    "label": "TEST_CASE(\"ui15-gate: a CONFLICT refuses with RELOAD OR DISCARD \u2014 \u26d4 never SAVE \u2014 opens nothing and writes nothing\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4253,
+    "end": 4280,
+    "label": "TEST_CASE(\"ui15-gate: CONFLICT OUTRANKS UNSAVED \u2014 a draft that is BOTH is told to RELOAD, never to SAVE\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4281,
+    "end": 4310,
+    "label": "TEST_CASE(\"ui15-gate: with NO usable config the MENU never opens, so the gate is never reached\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4311,
+    "end": 4328,
+    "label": "TEST_CASE(\"w3-open: arrival opens the service ONCE \u2014 repeated ticks and gestures on SETTINGS add no load\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4329,
+    "end": 4357,
+    "label": "TEST_CASE(\"w3-open: a FAILED open stays closed and a LATER sync tries again \u2014 no attempted-latch\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4358,
+    "end": 4371,
+    "label": "TEST_CASE(\"w3-prov: a CLEAN PROVISION activation adds no load, write or apply, and keeps the draft\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4372,
+    "end": 4391,
+    "label": "TEST_CASE(\"w3-prov: an UNSAVED PROVISION refusal adds no load, write or apply, and keeps the draft\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4392,
+    "end": 4410,
+    "label": "TEST_CASE(\"w3-prov: a CONFLICT PROVISION refusal adds no load, write or apply, and keeps the draft\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4411,
+    "end": 4432,
+    "label": "TEST_CASE(\"w3-prov: a BOTH-flags PROVISION refusal adds no load, write or apply, and keeps the draft\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4433,
+    "end": 4462,
+    "label": "TEST_CASE(\"w3-prov: the refusal note belongs to ONE activation \u2014 the next activation replaces or clears it\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4463,
+    "end": 4478,
+    "label": "TEST_CASE(\"ui15-menu: BACK closes the sub-view back to the SETTINGS MENU, with the highlight on PROVISION\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4506,
+    "end": 4534,
+    "label": "TEST_CASE(\"ui15-confirm: the confirmation cursor's DEFAULT is BACK \u2014 as MODEL STATE, on the one entry this slice has\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4622,
+    "end": 4645,
+    "label": "TEST_CASE(\"ui15-close: leaving SETTINGS by its BACK row retires the sub-state, and coming back opens the MENU\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4698,
+    "end": 4721,
+    "label": "TEST_CASE(\"ui15-hide: a HIDDEN child has NO refusing stub \u2014 it cannot be reached, walked to or activated\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4722,
+    "end": 4900,
+    "label": "TEST_CASE(\"ui15-parent: with NO child the PROVISION row is HIDDEN, and it returns when a child predicate holds\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4923,
+    "end": 4941,
+    "label": "TEST_CASE(\"ui15-create: BACK from the confirmation returns to the MENU and drives ZERO transactions\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4942,
+    "end": 4968,
+    "label": "TEST_CASE(\"ui15-create: CONFIRM drives EXACTLY ONE transaction, and the RESULT is rendered only after it RETURNED\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 4969,
+    "end": 4995,
+    "label": "TEST_CASE(\"ui15-create: a SHORT press leaves the result, and a null seam REFUSES OUT LOUD rather than doing nothing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5042,
+    "end": 5165,
+    "label": "TEST_CASE(\"ui15-create: the newly reachable arms are CLOSED by leaving and PRE-EMPTED by the alarm (\u00a73.6.5 rule 1)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5166,
+    "end": 5204,
+    "label": "TEST_CASE(\"ui15-entry: activating JOIN NETWORK opens the SLOT LIST and reads `/mrjoin` EXACTLY ONCE\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5205,
+    "end": 5244,
+    "label": "TEST_CASE(\"ui15-join: the STORE MATRIX reaches the panel \u2014 four states, four texts, and NO slot to join from\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5245,
+    "end": 5302,
+    "label": "TEST_CASE(\"ui15-join: BACK at select/confirm/waiting/result drives ZERO \u2014 and CONFIRM drives EXACTLY ONE\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5355,
+    "end": 5384,
+    "label": "TEST_CASE(\"ui15-join: a refusal or a failed save LANDS ON THE RESULT \u2014 and arms no session at all\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5385,
+    "end": 5430,
+    "label": "TEST_CASE(\"ui15-join: \u2605\u2605 ONLY A CORRELATED ADOPT COMPLETES \u2014 the four uncorrelated shapes, by name\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5458,
+    "end": 5507,
+    "label": "TEST_CASE(\"ui15-join: 60 s is a WORD CHANGE \u2014 \u26d4 never a failure \u2014 and BACK from WAITING cancels nothing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5565,
+    "end": 5589,
+    "label": "TEST_CASE(\"ui14-long: `long_arm` LEAVES THE EDITOR \u2014 and a `long_cancel` does not bring it back\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5590,
+    "end": 5605,
+    "label": "TEST_CASE(\"ui14-long: `long_fire` from the editor arms the alarm and the editor is already gone\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5606,
+    "end": 5628,
+    "label": "TEST_CASE(\"ui14-long: the emergency overlay ABSORBS a double over SETTINGS (ledger \u00a71.4)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5629,
+    "end": 5654,
+    "label": "TEST_CASE(\"ui14-open: a store that cannot produce a record REFUSES to open, and the MENU never opens\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5655,
+    "end": 5668,
+    "label": "TEST_CASE(\"ui14-open: an UNATTACHED model opens NO menu and refuses every activation (fails closed)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5700,
+    "end": 5843,
+    "label": "TEST_CASE(\"chrome4-audit: every PURE panel string fits the rail's 19-column body\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5875,
+    "end": 5896,
+    "label": "TEST_CASE(\"ui14-cursor: the highlight follows the ROW when a conflict inserts one above it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5897,
+    "end": 5925,
+    "label": "TEST_CASE(\"ui14-cursor: when the RELOAD row retires, the highlight lands on the SAFE action, never on DISCARD\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5926,
+    "end": 5954,
+    "label": "TEST_CASE(\"ui14-notify: change -> REVERT -> SAVE is refused, which the byte comparison alone cannot do\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5955,
+    "end": 5996,
+    "label": "TEST_CASE(\"ui14-notify: a NON-COVERED external write raises NOTHING, and a SAVE still goes through\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 5997,
+    "end": 6029,
+    "label": "TEST_CASE(\"ui14-notify: a LEAVE-shaped external write (all four covered fields reset) conflicts and refuses SAVE\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6030,
+    "end": 6054,
+    "label": "TEST_CASE(\"ui14-notify: a JOIN-shaped external write moves no covered field and raises NOTHING\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6275,
+    "end": 6301,
+    "label": "TEST_CASE(\"ui17-passive: a `double` on a passive list ENTERS it and queues NOTHING\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6302,
+    "end": 6330,
+    "label": "TEST_CASE(\"ui17-walk: the interactive walk ends on BACK and comes home, on BOTH screens\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6331,
+    "end": 6350,
+    "label": "TEST_CASE(\"ui17-back: BACK closes the list to the SAME screen \u2014 W4b: MENU enters menu mode on the Home slot\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6351,
+    "end": 6380,
+    "label": "TEST_CASE(\"ui17-empty: an empty roster and an empty inbox still offer BACK, and still leave\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6381,
+    "end": 6398,
+    "label": "TEST_CASE(\"ui17-refuse: a vanished pick REFUSES from the interactive list, and does not close it\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6399,
+    "end": 6416,
+    "label": "TEST_CASE(\"ui17-refuse: a vanished RECORD refuses from the interactive INBOX list too\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6446,
+    "end": 6488,
+    "label": "TEST_CASE(\"ui17-hold: the compose sub-view survives the blank with its list, cursor and phase intact\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6489,
+    "end": 6536,
+    "label": "TEST_CASE(\"ui17-hold: the detail modal survives the blank with its record, page and selected action\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6537,
+    "end": 6575,
+    "label": "TEST_CASE(\"ui17-hold: a multi-page detail keeps its page in the dark AND through the real wake pass\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6576,
+    "end": 6612,
+    "label": "TEST_CASE(\"ui17-hold: the emergency still closes both modals \u2014 long_arm the detail, long_fire the compose\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6635,
+    "end": 6651,
+    "label": "TEST_CASE(\"ui17-detail: the modal's `back` returns to the INTERACTIVE list, not to the preview\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6785,
+    "end": 6807,
+    "label": "TEST_CASE(\"ui17-wake: a wake while ALREADY LIT moves only the deadline\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6833,
+    "end": 6862,
+    "label": "TEST_CASE(\"ui17-wake: a message disturbs NO emergency field, over a retained outcome\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6922,
+    "end": 6984,
+    "label": "TEST_CASE(\"ui17-wake: a message wake keeps the retained modal's page, through the real wake pass\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 6985,
+    "end": 7008,
+    "label": "TEST_CASE(\"ui16-menu: JOIN TEAM is the THIRD child, and a double opens the LIST DIRECTLY \u2014 \u26d4 no submenu\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7009,
+    "end": 7042,
+    "label": "TEST_CASE(\"ui16-hide: the NEARBY child follows its OWN predicate, and it alone earns the parent row\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7043,
+    "end": 7070,
+    "label": "TEST_CASE(\"ui16-freeze: the cache is read ONCE, ON THE TRANSITION \u2014 \u26d4 the list does not refresh under the cursor\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7071,
+    "end": 7086,
+    "label": "TEST_CASE(\"ui16-filter: OUR OWN team is not offered, and a scan of only our own team is EMPTY\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7087,
+    "end": 7108,
+    "label": "TEST_CASE(\"ui16-walk: `short` CYCLES the teams then BACK and WRAPS; BACK returns to the PROVISION MENU\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7109,
+    "end": 7134,
+    "label": "TEST_CASE(\"ui16-look: a double on a TEAM row OPENS THE CONFIRMATION and still performs NOTHING (\u00a73 P-3/P-4)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7153,
+    "end": 7201,
+    "label": "TEST_CASE(\"ui16-alarm: `long_arm` PRE-EMPTS the scan, and re-entering finds the same teams\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7202,
+    "end": 7230,
+    "label": "TEST_CASE(\"ui16-confirm: the confirmation opens on BACK, and reaching JOIN costs `short` THEN `double` (P-13)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7231,
+    "end": 7269,
+    "label": "TEST_CASE(\"ui16-id: \u2605\u2605\u2605 the act carries the FULL 32-bit team id of the ROW \u2014 \u26d4 never the index, \u26d4 never the token\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7270,
+    "end": 7291,
+    "label": "TEST_CASE(\"ui16-back: BACK returns to the NEARBY LIST \u2014 \u26d4 not the menu \u2014 and performs NOTHING\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7292,
+    "end": 7313,
+    "label": "TEST_CASE(\"ui16-result: the RESULT is terminal \u2014 either press leaves it, and it carries no BACK row\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7342,
+    "end": 7383,
+    "label": "TEST_CASE(\"ui16-closed: an UNATTACHED seam FAILS CLOSED, and so does a pick that names no team\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7384,
+    "end": 7434,
+    "label": "TEST_CASE(\"ui16-preempt: the confirmation does NOT survive the alarm or leaving \u2014 an unconfirmed act never stands\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7435,
+    "end": 7464,
+    "label": "TEST_CASE(\"ui16-k5: the offer opens on the ACKNOWLEDGEMENT of a join whose team has a retained key \u2014 on BACK\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7465,
+    "end": 7499,
+    "label": "TEST_CASE(\"ui16-k5: \u26d4 NO offer without a retained record, and \u26d4 none for a CREATE \u2014 the landed flows, unchanged\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7500,
+    "end": 7522,
+    "label": "TEST_CASE(\"ui16-k5: \u2605\u2605\u2605 `BACK` performs NOTHING \u2014 no key state changes and the record is never touched\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7523,
+    "end": 7560,
+    "label": "TEST_CASE(\"ui16-k5: \u2605\u2605\u2605 reaching `USE SAVED KEY` costs `short` THEN `double`, and the act runs BEFORE the screen moves\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7561,
+    "end": 7585,
+    "label": "TEST_CASE(\"ui16-k5: a REFUSED join opens no offer \u2014 and the act's two floors are MARKED rather than claimed\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7586,
+    "end": 7615,
+    "label": "TEST_CASE(\"ui16-k5: the UNFINISHED offer does not survive BLANKING, an alarm or leaving (OQ-3, P-14)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7616,
+    "end": 7748,
+    "label": "TEST_CASE(\"ui16-k5: the two ruled lexemes are VERBATIM, \u26d4 `FORGET KEY` is absent, and the endings say only truths\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7834,
+    "end": 7896,
+    "label": "TEST_CASE(\"ui16-invexpire: pin 1 \u2014 the window expires BY ITSELF at five minutes, and expiry changes NOTHING\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7897,
+    "end": 7939,
+    "label": "TEST_CASE(\"ui16-invblank: pin 13 \u2014 the WINDOW survives blank/wake; an UNFINISHED CONFIRMATION does not\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 7940,
+    "end": 8012,
+    "label": "TEST_CASE(\"ui16-invreject: the ready confirmation freezes the hash, defaults REJECT and grants nothing in N5\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8013,
+    "end": 8047,
+    "label": "TEST_CASE(\"ui16-invfreeze: a refresh between the two presses does \u26d4 NOT move what the operator is acting on\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8074,
+    "end": 8114,
+    "label": "TEST_CASE(\"ui16-reqpubkey: BACK is default and zero commands precede short + double on REQUEST PUBKEY\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8115,
+    "end": 8136,
+    "label": "TEST_CASE(\"ui16-reqpubkey-floor: an overheard key and a name do not enable GRANT KEY; authoritative does\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8137,
+    "end": 8188,
+    "label": "TEST_CASE(\"ui16-reqpubkey-push: wrong hash stays waiting; right hash refreshes the cached name and enables grant\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8189,
+    "end": 8256,
+    "label": "TEST_CASE(\"ui16-reqpubkey-refused: no seam and a refusal both STAY at NEED PUBKEY \u2014 the wait is never claimed\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8257,
+    "end": 8301,
+    "label": "TEST_CASE(\"ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserves the packed invite layout\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8302,
+    "end": 8367,
+    "label": "TEST_CASE(\"ui16-grantact: `short` then `double` performs ONE grant, on the FROZEN hash, and lands the verdict\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8368,
+    "end": 8430,
+    "label": "TEST_CASE(\"ui16-grantpush: only a CORRELATED push promotes the verdict, and only on the verdict screen\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8431,
+    "end": 8460,
+    "label": "TEST_CASE(\"ui16-grantwindow: pin 8 \u2014 a double that lands on an EXPIRED window grants NOTHING\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8461,
+    "end": 8481,
+    "label": "TEST_CASE(\"ui16-grantseam: with NO seam attached the grant performs nothing and claims nothing\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8482,
+    "end": 8579,
+    "label": "TEST_CASE(\"ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set does not survive it (P-14)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8580,
+    "end": 8637,
+    "label": "TEST_CASE(\"ui16-k7-act: pin 1 \u2014 the act hangs on an entered-TEAM member row and opens the chain with the ROW'S hash\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8638,
+    "end": 8700,
+    "label": "TEST_CASE(\"ui16-k7-b245: pin 2 \u2014 THE REPRO, END TO END: a member present BEFORE any window is grantable HERE\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8701,
+    "end": 8735,
+    "label": "TEST_CASE(\"ui16-k7-window: pin 3 \u2014 roster context retires before a fresh invitation window\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8736,
+    "end": 8762,
+    "label": "TEST_CASE(\"ui16-k7-silent: pin 4 \u2014 nothing transmits without the operator's EXPLICIT confirmations (counted)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8763,
+    "end": 8792,
+    "label": "TEST_CASE(\"ui16-k7-self: pin 5 \u2014 the SELF row offers nothing, and the core's own `self` arm is driven from here\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8793,
+    "end": 8835,
+    "label": "TEST_CASE(\"ui16-k7-keyless: pin 6 \u2014 a KEYLESS node offers nothing, and neither does a build that cannot grant\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8836,
+    "end": 8876,
+    "label": "TEST_CASE(\"ui16-k7-identity: pin 7 \u2014 P-7c/P-7d through THIS entry: the FULL hash, and a mutable field never moves it\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8877,
+    "end": 8919,
+    "label": "TEST_CASE(\"ui16-k7-words: pin 8 \u2014 the outcome words are N6's EXACTLY, over the WHOLE enum, through this entry\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8920,
+    "end": 8995,
+    "label": "TEST_CASE(\"b250-roster-resume: REJECT, NEED BACK, WAIT exit and both blank fallbacks return to the same roster row\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 8996,
+    "end": 9055,
+    "label": "TEST_CASE(\"b250-roster-push: only a matching authoritative cache arrival opens the REJECT-default confirmation\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9056,
+    "end": 9104,
+    "label": "TEST_CASE(\"b250-roster-identity: expiry follows a reordered id; a gone id refuses rather than selecting a neighbour\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9105,
+    "end": 9133,
+    "label": "TEST_CASE(\"b250-lifetime: a retired roster caller cannot contaminate a later unbound expiry\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9134,
+    "end": 9205,
+    "label": "TEST_CASE(\"b250-emergency: pre-emption clears either caller and each fresh flow binds only its own origin\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9206,
+    "end": 9250,
+    "label": "TEST_CASE(\"ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and the published identity costs ZERO\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9251,
+    "end": 9346,
+    "label": "TEST_CASE(\"ui16-K4: the note occupies the panel's ONE transient team answer, and every entry retires it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9347,
+    "end": 9374,
+    "label": "TEST_CASE(\"ui17-keyrecv: EITHER press on TEAM KEY RECEIVED lands on the PASSIVE STATUS screen, from EITHER result\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9375,
+    "end": 9395,
+    "label": "TEST_CASE(\"ui17-keyrecv: the note's ARRIVAL still navigates nothing \u2014 on the new landing's own screen too\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9396,
+    "end": 9418,
+    "label": "TEST_CASE(\"ui17-keyrecv: the FAILURE pair's acknowledgement stays where the REMEDIES are \u2014 the LANDED landing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9419,
+    "end": 9470,
+    "label": "TEST_CASE(\"ui17-keyrecv: every NEIGHBOURING terminal's acknowledgement is untouched (driven, \u26d4 not assumed)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9471,
+    "end": 9490,
+    "label": "TEST_CASE(\"ui17-keyrecv: the new landing keeps the LANDED blank/wake rules \u2014 nothing about STATUS is special-cased\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9523,
+    "end": 9610,
+    "label": "TEST_CASE(\"ui16-k5-resources: the offer's TWO fields cost ZERO bytes \u2014 both land in EXISTING padding\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9635,
+    "end": 9667,
+    "label": "TEST_CASE(\"ui16-k6-open: the keyring is read ONCE on the transition, and OPENING the screen performs NOTHING\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9668,
+    "end": 9710,
+    "label": "TEST_CASE(\"ui16-k6-confirm: an INACTIVE row opens the irreversible confirmation on BACK, carrying the FULL 32-bit id\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9711,
+    "end": 9745,
+    "label": "TEST_CASE(\"ui16-k6-active: an ACTIVE row lands on ACTIVE KEY / CANNOT FORGET, with NO destructive action anywhere\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9746,
+    "end": 9771,
+    "label": "TEST_CASE(\"ui16-k6-result: KEY FORGOTTEN is written by the ACT, and its acknowledgement returns to the REFRESHED list\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9772,
+    "end": 9805,
+    "label": "TEST_CASE(\"ui16-k6-failure: a failed removal says KEY NOT FORGOTTEN plus the SERVICE's token \u2014 \u26d4 never a success\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9806,
+    "end": 9890,
+    "label": "TEST_CASE(\"ui16-k6-pin8: KEYRING FULL's acknowledgement ENTERS the list \u2014 \u26d4 it deletes nothing and \u26d4 replays nothing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 9966,
+    "end": 10011,
+    "label": "TEST_CASE(\"ui16-k6-resources: the retention carriers cost exactly themselves, and NO landed field moved\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10012,
+    "end": 10052,
+    "label": "TEST_CASE(\"ui16-k6-grantack: a FULL-keyring receipt keeps its three ruled rows and lands the ACK in SAVED KEYS\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10053,
+    "end": 10096,
+    "label": "TEST_CASE(\"ui16-k6-grantack-menu: a NON-full unsaved receipt still acknowledges to the MENU, and a SAVED one to STATUS\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10097,
+    "end": 10162,
+    "label": "TEST_CASE(\"ui16-k6-grantack-join: the FULL-keyring landing works from the STATIC-JOIN result screen too\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10184,
+    "end": 10202,
+    "label": "TEST_CASE(\"ui10-p3-slot: the PRESS seals the row's stable slot \u2014 a gapped list sends dm4, never dm2\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10203,
+    "end": 10224,
+    "label": "TEST_CASE(\"ui10-p3-slot: the two lists are kind-pure, and the emergency slot appears on neither\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10225,
+    "end": 10245,
+    "label": "TEST_CASE(\"ui10-p3-slot: a disabled slot is never rendered, and eight enabled slots all scroll into the list\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10282,
+    "end": 10309,
+    "label": "TEST_CASE(\"ui10-p3-empty: a catalog with no enabled slots shows the note and offers only `back`\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10310,
+    "end": 10329,
+    "label": "TEST_CASE(\"ui10-p3-modal: a successful CHANGED mutation closes a selection-phase compose WITHOUT sending\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10330,
+    "end": 10354,
+    "label": "TEST_CASE(\"ui10-p3-modal: a NO-OP and a FAILURE leave the compose open \u2014 the trigger is the generation, not the verb\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10355,
+    "end": 10376,
+    "label": "TEST_CASE(\"ui10-p3-modal: an ALREADY-DISPLAYED OUTCOME may finish \u2014 a mutation does not discard a verdict\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10377,
+    "end": 10391,
+    "label": "TEST_CASE(\"ui10-p3-modal: a press arriving in the SAME tick as the mutation closes the modal and sends nothing\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10392,
+    "end": 10418,
+    "label": "TEST_CASE(\"ui10-p3-changed: `PRESET CHANGED` is the exact word, on its own terminal state, for both kinds\") {",
+    "discovery_tags": [
+      "generation_or_gate"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10419,
+    "end": 10446,
+    "label": "TEST_CASE(\"ui10-p3-freeze: a frozen snapshot keeps its whole list and generation when the catalog moves under it\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10447,
+    "end": 10479,
+    "label": "TEST_CASE(\"ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index the one K7 landed against\") {",
+    "discovery_tags": [
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10480,
+    "end": 10620,
+    "label": "TEST_CASE(\"ui10-p3-resources: the list projection costs 328 B of UiSnapshot and ZERO of UiState\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10697,
+    "end": 10726,
+    "label": "TEST_CASE(\"w4b-boot: every profile boots on HOME in LIST FOCUS, the arrow on item 1, no note, no cue\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10727,
+    "end": 10778,
+    "label": "TEST_CASE(\"w4b-menu: menu mode walks the rail \u2014 gateway skips TEAM and SEND \u2014 and double opens each in list focus\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10779,
+    "end": 10818,
+    "label": "TEST_CASE(\"w4b-menu: the MENU row of every top-level list lands in MENU MODE on the HOME slot; double enters item 1\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10819,
+    "end": 10841,
+    "label": "TEST_CASE(\"w4b-wrap: list focus WRAPS on every top-level list \u2014 Settings included \u2014 and never leaves the screen\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10842,
+    "end": 10862,
+    "label": "TEST_CASE(\"w4b-items: INBOX, TEAM and SEND open their LIST in list focus on the first row; MENU is menu mode\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10863,
+    "end": 10879,
+    "label": "TEST_CASE(\"w4b-items: MY DEVICE \u2014 short stays on its one BACK row, double returns Home ON MY DEVICE\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10880,
+    "end": 10907,
+    "label": "TEST_CASE(\"w4b-items: KEY HELP is a note \u2014 either press returns on it; a key arriving under it lands on item 1\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10908,
+    "end": 10951,
+    "label": "TEST_CASE(\"w4b-items: a Home-opened setup returns ON ITS OPENER, or on item 1 when the act removed it\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10971,
+    "end": 10986,
+    "label": "TEST_CASE(\"w4b-changed: while the note shows, a short or a double CLEARS it and runs NOTHING\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 10987,
+    "end": 11041,
+    "label": "TEST_CASE(\"w4b-changed: the WAKE press only wakes; a further change keeps item 1; an emergency leaves the note\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11042,
+    "end": 11090,
+    "label": "TEST_CASE(\"w4b-changed: a press in the SAME tick as the change that raises the note is consumed and the note STAYS (design r2.22 \u00a76.4)\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11091,
+    "end": 11113,
+    "label": "TEST_CASE(\"w4b-blank: five screens x list/menu focus \u2014 the blank keeps screen, focus and arrow; the wake only wakes\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11114,
+    "end": 11138,
+    "label": "TEST_CASE(\"w4b-blank: Home's sub-views and the setup-block note survive the blank and the wake, and wrap-safe\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11139,
+    "end": 11167,
+    "label": "TEST_CASE(\"w4b-emergency: arm + cancel from every ordinary state leaves the focus, the arrow and Home's item\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11168,
+    "end": 11243,
+    "label": "TEST_CASE(\"w4b-emergency: a FIRED alarm from Home and from the Send list \u2014 afterwards the ordinary focus returns\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11244,
+    "end": 11266,
+    "label": "TEST_CASE(\"w4b-admit: a CLEAN Home JOIN/CREATE is admitted AT ACTIVATION \u2014 one open, no save, no apply, origin home\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11267,
+    "end": 11304,
+    "label": "TEST_CASE(\"w4b-admit: UNSAVED, CONFLICT and BOTH refuse with a FROZEN reason \u2014 no load, save or apply; press returns\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11305,
+    "end": 11345,
+    "label": "TEST_CASE(\"w4b-admit: UNAVAILABLE (a failed open) and NO ADAPTER say CFG UNAVAILABLE; a recovery never resumes setup\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11346,
+    "end": 11372,
+    "label": "TEST_CASE(\"w4b-admit: Home INVITE takes NO gate \u2014 a dirty or conflicted draft still opens the window ONCE, announced ONCE\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11373,
+    "end": 11392,
+    "label": "TEST_CASE(\"w4b-origin: \u00a72.5's TRACE \u2014 Home JOIN, saved-key offer, BLANK, wake, BACK -> HOME on item 1 (JOIN left)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11393,
+    "end": 11423,
+    "label": "TEST_CASE(\"w4b-origin: the SETTINGS counterpart of the trace ends on the SETTINGS MENU, as today\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11424,
+    "end": 11489,
+    "label": "TEST_CASE(\"w4b-origin: every return site that lands on the PROVISION menu today goes HOME for origin home, only\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11490,
+    "end": 11512,
+    "label": "TEST_CASE(\"w4b-origin: the Home-opened flows' own exits \u2014 NEARBY BACK, the saved-key DECLINE \u2014 and their SETTINGS twins\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11513,
+    "end": 11556,
+    "label": "TEST_CASE(\"w4b-origin: Home INVITE \u2014 the list's BACK, a grant's verdict and the closed window go HOME; SETTINGS keeps the menu\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11557,
+    "end": 11572,
+    "label": "TEST_CASE(\"w4b-origin: a FRESH action from the Home-origin PROVISION menu keeps origin home; a new entry re-types it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11573,
+    "end": 11614,
+    "label": "TEST_CASE(\"w4b-origin: the origin RETIRES on pre-emption and on leaving SETTINGS; \u26d4 GrantOrigin stays separate\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11615,
+    "end": 11635,
+    "label": "TEST_CASE(\"w4b-send: acknowledging a result \u2014 either press \u2014 returns to the Send LIST on item 1, sending nothing more\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11636,
+    "end": 11664,
+    "label": "TEST_CASE(\"w4b-send: a catalog change under the open list RE-READS it, arrow to item 1, PRESET CHANGED until a press\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "layout",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11665,
+    "end": 11706,
+    "label": "TEST_CASE(\"w4b-send: the note's press table \u2014 short clears without moving, the wake only wakes, a same-tick press is consumed\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11707,
+    "end": 11731,
+    "label": "TEST_CASE(\"w4b-send: the Send list's labels \u2014 PRESET CHANGED on item 1 while noted, MENU for the exit row, else compose's\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11789,
+    "end": 11860,
+    "label": "TEST_CASE(\"w4b-resources: the owner-ruled shape \u2014 HomeCapture 9, UiState 520, UiSnapshot 1368, UiModel 944\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11861,
+    "end": 11875,
+    "label": "TEST_CASE(\"b457: Home INVITE over a CLOSED service runs ungated; pre-empted, it lands on CFG UNAVAILABLE in menu mode\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11888,
+    "end": 11918,
+    "label": "TEST_CASE(\"b457: the OPEN-service counterparts still land in the Settings menu, in list focus (pre-emption unchanged)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_model.cpp",
+    "line": 11919,
+    "end": 11944,
+    "label": "TEST_CASE(\"w4b-send: with NO phrases, PRESET CHANGED covers the Send list's MENU row for ONE press (design r2.22 \u00a76.5)\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 128,
+    "end": 172,
+    "label": "TEST_CASE(\"P2 the three NDJSON records are byte-exact (design \u00a73.2.3)\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 173,
+    "end": 212,
+    "label": "TEST_CASE(\"P2 list emits all 17 records in stable slot order incl. disabled, then ui_presets_end\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 213,
+    "end": 267,
+    "label": "TEST_CASE(\"P2 a mutating verb answers with the RESULTING record; reset all answers with the full list\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 268,
+    "end": 309,
+    "label": "TEST_CASE(\"P2 the busy table (spec \u00a72): an ACTIVE emergency answers busy to EVERY mutating verb, no-ops included\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 310,
+    "end": 341,
+    "label": "TEST_CASE(\"P2 loc= takes EXACTLY on|off \u2014 every third value is bad_location, with zero writes\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 342,
+    "end": 393,
+    "label": "TEST_CASE(\"P2 the remaining reasons: bad_slot, bad_text and an unreadable store\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 394,
+    "end": 427,
+    "label": "TEST_CASE(\"P2 the grammar: an unknown sub-verb or a trailing token is REFUSED, never silently run\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 428,
+    "end": 458,
+    "label": "TEST_CASE(\"P2 USB and BLE byte-agree: ONE emitter, two sink shapes, identical streams and identical line counts\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 459,
+    "end": 503,
+    "label": "TEST_CASE(\"P2 the boot restore: the four storage states each drive the ruled line (or none), with zero writes\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_preset_verbs.cpp",
+    "line": 504,
+    "end": 520,
+    "label": "TEST_CASE(\"P2 the resident cost of the ONE live catalog is measured, not assumed\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 136,
+    "end": 164,
+    "label": "TEST_CASE(\"ui10-p1-abi: the storage-level four-state read keeps absent, invalid and io_failed apart\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 165,
+    "end": 191,
+    "label": "TEST_CASE(\"ui10-p1-defaults: the compiled catalog is \u00a73.2.2's table verbatim\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 192,
+    "end": 234,
+    "label": "TEST_CASE(\"ui10-p1-defaults: THE DRIFT FENCE IS DISCHARGED \u2014 the compiled defaults ARE what the panel projects\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 235,
+    "end": 249,
+    "label": "TEST_CASE(\"ui10-p1-states: ABSENT is an ordinary first boot \u2014 defaults, \u26d4 NO warning, \u26d4 no line, zero writes\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 250,
+    "end": 265,
+    "label": "TEST_CASE(\"ui10-p1-states: INVALID runs the defaults and WARNS \u2014 counted, worded, and repairable\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 266,
+    "end": 278,
+    "label": "TEST_CASE(\"ui10-p1-states: IO_FAILED runs the defaults and warns DISTINCTLY\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 279,
+    "end": 296,
+    "label": "TEST_CASE(\"ui10-p1-states: VALID is LOADED \u2014 the wearer's configured phrases, not the compiled ones\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 297,
+    "end": 306,
+    "label": "TEST_CASE(\"ui10-p1-states: the two boot lines are the ONLY two, and `ok`/`absent` are silent\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 307,
+    "end": 363,
+    "label": "TEST_CASE(\"ui10-p1-semantic: a size/header-valid record with ANY canonical violation classifies INVALID\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 364,
+    "end": 394,
+    "label": "TEST_CASE(\"ui10-p1-canonical: the written record obeys every canonical-byte rule\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 395,
+    "end": 409,
+    "label": "TEST_CASE(\"ui10-p1-canonical: the composition path zeroes the slot WHOLE, so nothing survives an edit\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 410,
+    "end": 438,
+    "label": "TEST_CASE(\"ui10-p1-generation: it starts at 1, moves ONLY on a durable change, and SKIPS ZERO on wrap\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 439,
+    "end": 474,
+    "label": "TEST_CASE(\"ui10-p1-coalescing: an identical set writes NOTHING over a valid store\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 475,
+    "end": 489,
+    "label": "TEST_CASE(\"ui10-p1-coalescing: it holds over an ABSENT store too \u2014 the owner's other in-scope arm\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 490,
+    "end": 514,
+    "label": "TEST_CASE(\"ui10-p1-coalescing: \u26d4 THE PIN DOES NOT HOLD OVER `invalid` \u2014 a repair write is legitimate there\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 534,
+    "end": 560,
+    "label": "TEST_CASE(\"ui10-p1-emergency: it IS text-editable, and every edit keeps it enabled\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 648,
+    "end": 693,
+    "label": "TEST_CASE(\"ui10-p1-validation: 1..17 printable ASCII, both sides of the bound, for BOTH location states\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 694,
+    "end": 730,
+    "label": "TEST_CASE(\"ui10-p1-validation: \u2605 A 273-BYTE PHRASE IS REFUSED \u2014 the length check is not bypassable by narrowing\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 731,
+    "end": 770,
+    "label": "TEST_CASE(\"ui10-p1-coalescing: \u2605 a LATE-ABSENT record makes the identical mutation WRITE \u2014 durability is restored\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 771,
+    "end": 824,
+    "label": "TEST_CASE(\"ui10-p1-slots: the index IS the stable slot identity, and the ends both refuse\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 825,
+    "end": 840,
+    "label": "TEST_CASE(\"ui10-p1-slots: zero enabled per kind is representable \u2014 P3's empty state has something to render\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 841,
+    "end": 884,
+    "label": "TEST_CASE(\"ui10-p1-words: every enum arm is worded, distinct, and swept BY CONSTRUCTION\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_presets.cpp",
+    "line": 885,
+    "end": 904,
+    "label": "TEST_CASE(\"ui10-p1-resources: the catalog's residency is MEASURED, and \u26d4 no full record rides a stack\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 491,
+    "end": 504,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN control \u2014 a selected preset STARTS the join: ONE write, ONE live apply, ONE notification\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 505,
+    "end": 526,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN \u2605\u2605 the ONE integral -> double conversion \u2014 869.4625 MHz survives the store round trip\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 527,
+    "end": 537,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN \u2605\u2605 a preset ABOVE LAYER 15 persists the FULL byte and the NIBBLE \u2014 trap 2's other end\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 538,
+    "end": 554,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN an EMPTY slot is not a join \u2014 zero transactions, zero writes, zero airtime\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 555,
+    "end": 574,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN a DOMAIN refusal carries the TRANSACTION's own typed reason, and spends nothing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 575,
+    "end": 588,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN a FAILED save reports SAVE FAILED, notifies NOTHING and leaves the live node alone\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 589,
+    "end": 601,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN an unreadable `/mrcfg` refuses \u2014 and it is the TRANSACTION's arm, not an invented one\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 602,
+    "end": 658,
+    "label": "TEST_CASE(\"\u00a7UI15-JOIN the profile read carries the SERVICE's own answer for all FOUR store states\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 659,
+    "end": 728,
+    "label": "TEST_CASE(\"\u00a7UI15-PROV the adapter dispatches on the INTENT, and `none` performs nothing at all\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_prov.cpp",
+    "line": 984,
+    "end": 1032,
+    "label": "TEST_CASE(\"\u00a7UI16-N3 the intent dispatch routes join_team to the TEAM transaction \u2014 and never to the other two\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 313,
+    "end": 393,
+    "label": "TEST_CASE(\"ui-send: UI-4 \u2014 interleaved unrelated traffic cannot move the emergency through the tracker\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 394,
+    "end": 410,
+    "label": "TEST_CASE(\"ui-send: UI-4 int \u2014 each ctr==0 expiry consumes ONE attempt, three end in sticky NOT HEARD, no fourth\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 411,
+    "end": 424,
+    "label": "TEST_CASE(\"ui-send: UI-4 int \u2014 NEGATIVE CONTROL: without the consumption the retry never terminates\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 425,
+    "end": 483,
+    "label": "TEST_CASE(\"ui-send: UI-4 int \u2014 a colliding send_layer {dst=0, unsealable} cannot make the emergency FAILED\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 484,
+    "end": 504,
+    "label": "TEST_CASE(\"ui-glue: the NORMAL tracker's expiry drains its slot and CANNOT touch a live alarm\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 521,
+    "end": 538,
+    "label": "TEST_CASE(\"ui-glue: the EMERGENCY tracker's expiry consumes one attempt BEFORE its outcome lands\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 722,
+    "end": 757,
+    "label": "TEST_CASE(\"ui-recv: the counters, the stamps, and the cap that is DISPLAY-ONLY\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 891,
+    "end": 907,
+    "label": "TEST_CASE(\"ui-frame: F2 \u2014 an Inbox frame under an open COMPOSE modal reads nothing\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 967,
+    "end": 985,
+    "label": "TEST_CASE(\"ui-frame: F3 \u2014 a press BEFORE the outcome's first page is consumed, and does NOT dismiss\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1034,
+    "end": 1103,
+    "label": "TEST_CASE(\"ui-frame: F3 \u2014 a consumed press never operates the screen under the overlay\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1218,
+    "end": 1298,
+    "label": "TEST_CASE(\"ui-recv: R1 \u2014 the wake inherits the retained-outcome hold; it invents no second window\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1299,
+    "end": 1308,
+    "label": "TEST_CASE(\"ui7-line: a DM is `send <id> \\\"<text>\\\" -t -a` \u2014 the id, the plane and the ack, exactly\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1309,
+    "end": 1315,
+    "label": "TEST_CASE(\"ui7-line: the second DM text is the second STABLE SLOT, not an off-by-one\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1316,
+    "end": 1327,
+    "label": "TEST_CASE(\"ui7-line: a canned channel post is `send_channel <ch> \\\"<text>\\\" -t -e`\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1328,
+    "end": 1343,
+    "label": "TEST_CASE(\"ui7-line: the EMERGENCY carries -l only WITH a fix; without one it still goes out\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1344,
+    "end": 1357,
+    "label": "TEST_CASE(\"ui10-p3-emergency: `loc=off` on the emergency slot means NO `-l`, fix or no fix (R-2 row 1)\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1358,
+    "end": 1370,
+    "label": "TEST_CASE(\"ui10-p3-emergency: the alarm's body is the CATALOG's emergency phrase, not a compiled string\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1371,
+    "end": 1394,
+    "label": "TEST_CASE(\"ui10-p3-loc: a `loc=on` DM and channel preset compose `-l`, ALWAYS \u2014 no fix, no key, no downgrade\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1395,
+    "end": 1410,
+    "label": "TEST_CASE(\"ui7-line: a DISABLED slot, an out-of-range slot and an empty row all REFUSE to compose\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1411,
+    "end": 1418,
+    "label": "TEST_CASE(\"ui7-line: truncation is a REFUSAL, never a short send (C2)\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1419,
+    "end": 1446,
+    "label": "TEST_CASE(\"ui7-line: kSendLineCap fits every line either verb can produce, at the widest id and channel\") {",
+    "discovery_tags": [
+      "layout",
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1447,
+    "end": 1451,
+    "label": "TEST_CASE(\"ui10-p3-freeze: the gate passes a sealed slot+generation that still describes the live catalog\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1452,
+    "end": 1482,
+    "label": "TEST_CASE(\"ui10-p3-freeze: a MOVED generation refuses \u2014 driven for set / clear / reset / reset all\") {",
+    "discovery_tags": [
+      "generation_or_gate",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1483,
+    "end": 1497,
+    "label": "TEST_CASE(\"ui10-p3-freeze: a slot DISABLED at execution refuses even with the generation intact\") {",
+    "discovery_tags": [
+      "generation_or_gate",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1498,
+    "end": 1510,
+    "label": "TEST_CASE(\"ui10-p3-freeze: the EMERGENCY is exempt from the stale-generation refusal, on every catalog\") {",
+    "discovery_tags": [
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1511,
+    "end": 1526,
+    "label": "TEST_CASE(\"ui7-send: an ACCEPTED emergency spends exactly one attempt and holds its handle\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1527,
+    "end": 1541,
+    "label": "TEST_CASE(\"ui7-send: `queued` with ctr==0 spends NO attempt here \u2014 the bounded expiry does\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1542,
+    "end": 1554,
+    "label": "TEST_CASE(\"ui7-send: an err_* result lands the alarm in FAILED and carries the CmdCode verbatim\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1555,
+    "end": 1571,
+    "label": "TEST_CASE(\"ui7-send: a line that never PARSED is `parser`, and no code is claimed for it\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1572,
+    "end": 1588,
+    "label": "TEST_CASE(\"ui7-send: a request the composer refuses NEVER reaches the executor\") {",
+    "discovery_tags": [
+      "generation_or_gate",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1589,
+    "end": 1610,
+    "label": "TEST_CASE(\"ui10-p3-freeze: a stale request costs ZERO exec calls, ZERO tracker slots, and says PRESET CHANGED\") {",
+    "discovery_tags": [
+      "generation_or_gate",
+      "defaults"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1611,
+    "end": 1624,
+    "label": "TEST_CASE(\"ui10-p3-freeze: an alarm SENDS through a catalog mutation, and reads the NEW emergency phrase\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1625,
+    "end": 1655,
+    "label": "TEST_CASE(\"ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the alarm slot stays untouched\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1656,
+    "end": 1695,
+    "label": "TEST_CASE(\"ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle, and moves neither DM nor alarm\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1696,
+    "end": 1714,
+    "label": "TEST_CASE(\"ui7-B113 CONTROL: accepting a DM or an ALARM must never move the canned-channel state\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1715,
+    "end": 1734,
+    "label": "TEST_CASE(\"ui7-B113: `waiting` means WE HOLD A HANDLE \u2014 a ctr-less canned post must not reach it\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1798,
+    "end": 1843,
+    "label": "TEST_CASE(\"ui7-slot: a late_ack slot is released once the sub-view has closed\") {",
+    "discovery_tags": [
+      "double_and_send_request"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1844,
+    "end": 1890,
+    "label": "TEST_CASE(\"ui7-slot: an UNANSWERED late_ack slot is released once the sub-view has gone, or the device is bricked\") {",
+    "discovery_tags": [
+      "double_and_send_request",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1925,
+    "end": 1982,
+    "label": "TEST_CASE(\"ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3` -> `3 of 3`\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 1983,
+    "end": 2008,
+    "label": "TEST_CASE(\"ui7-b115: a ctr==0 attempt still reads `1 of 3`, never `0 of 3`\") {",
+    "discovery_tags": [
+      "layout"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2009,
+    "end": 2030,
+    "label": "TEST_CASE(\"ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by exactly one attempt\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2031,
+    "end": 2056,
+    "label": "TEST_CASE(\"ui7-b115: a blocked-then-retried alarm still reads `1 of 3` \u2014 a block spends nothing\") {",
+    "discovery_tags": [
+      "layout",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2084,
+    "end": 2102,
+    "label": "TEST_CASE(\"ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NOT close the slot\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2103,
+    "end": 2116,
+    "label": "TEST_CASE(\"ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor peer may be approximated)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2117,
+    "end": 2137,
+    "label": "TEST_CASE(\"ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, above 255 (\u00a7b40)\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2138,
+    "end": 2168,
+    "label": "TEST_CASE(\"ui-T3-c: an EMERGENCY send_aired changes NOTHING and RETAINS the slot; its channel_sent still lands\") {",
+    "discovery_tags": [
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2169,
+    "end": 2195,
+    "label": "TEST_CASE(\"ui-T3-c: an EMERGENCY airing must not relabel a coincident canned post\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2446,
+    "end": 2573,
+    "label": "TEST_CASE(\"ui17-wake: a sealed teammate reply still becomes a REPLY, and a cleartext stranger still does neither\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2606,
+    "end": 2661,
+    "label": "TEST_CASE(\"ui16-route: team_key_grant_failed reaches the verdict, and a UI slot's generic push stays its own\") {",
+    "discovery_tags": []
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2767,
+    "end": 2811,
+    "label": "TEST_CASE(\"ui16-K4: the FULL PushKind enum \u2014 only team_key_received writes the note\") {",
+    "discovery_tags": [
+      "defaults",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2812,
+    "end": 2831,
+    "label": "TEST_CASE(\"ui10-p3-loc: a located CHANNEL preset with no fix ISSUES `-l` and reports the core's refusal\") {",
+    "discovery_tags": [
+      "generation_or_gate",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_send.cpp",
+    "line": 2832,
+    "end": 2856,
+    "label": "TEST_CASE(\"ui10-p3-loc: a located DM preset keeps `send <id> \u2026 -t -a -l` and reports the unsealed refusal\") {",
+    "discovery_tags": [
+      "generation_or_gate",
+      "location"
+    ]
+  },
+  {
+    "file": "test/test_firmware_ui_team.cpp",
+    "line": 449,
+    "end": 489,
+    "label": "TEST_CASE(\"ui17-team: ...and to ONE BODY \u2014 a view that replaces it asks for no team repaint\") {",
+    "discovery_tags": []
+  }
+]

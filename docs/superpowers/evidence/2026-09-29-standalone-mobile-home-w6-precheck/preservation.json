@@ -1,0 +1,22 @@
+{
+  "meshroute": {
+    "head_unchanged": true,
+    "paths_before": 1977,
+    "paths_after": 1977,
+    "changed": [
+      "docs/2026-07-30-open-bug-register.md"
+    ],
+    "missing": [],
+    "added": [],
+    "final_status": " M docs/2026-07-30-open-bug-register.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-precheck.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-precheck/\n"
+  },
+  "simulator": {
+    "head_unchanged": true,
+    "paths_before": 285,
+    "paths_after": 285,
+    "changed": [],
+    "missing": [],
+    "added": [],
+    "final_status": ""
+  }
+}

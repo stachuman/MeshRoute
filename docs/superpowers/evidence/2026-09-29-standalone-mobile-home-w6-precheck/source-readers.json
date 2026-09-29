@@ -1,0 +1,1872 @@
+[
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 111,
+    "text": "    \"device_nv.h\","
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 113,
+    "text": "    \"firmware_ui_model.h\","
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 116,
+    "text": "    \"firmware_ui_presets.h\","
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 130,
+    "text": "#    across ALL effective environments, `MR_FEAT_OLED=1` and `firmware_ui.cpp` in `build_src_filter` must agree."
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 137,
+    "text": "#   `src/firmware_commands.cpp` \u2014 sat in a TU EVERY env compiles behind NO feature guard, which is exactly the"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 164,
+    "text": "    #     src/firmware_commands.cpp ([[B255]], owner ruling (b) 2026-08-28). \u2605 MOVED OUT of the unconditional group"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 166,
+    "text": "    #     \u24d8 A DIFFERENT TU from the `mrui::` block below, same flag: the panel's model lives in firmware_ui.cpp,"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 167,
+    "text": "    #       the catalog's one instance in firmware_commands.cpp. Both are decided by `MR_FEAT_OLED`."
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 169,
+    "text": "    # --- the OLED panel's model: its feature TU (firmware_ui.cpp) is compiled only where MR_FEAT_OLED is on ---"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 185,
+    "text": "#   `static_assert` in `src/device_nv.h` that EVERY board build compiles, i.e. it is already a per-ABI pin:"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 189,
+    "text": "#   `mrnv::UiPresetSlot` / `UiPresetBlob` ARE in the set above even though `device_nv.h:381-386` asserts them:"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 241,
+    "text": "#    `#if MR_FEAT_OLED` in `src/firmware_commands.cpp` (owner ruling (b) on [[B255]] \u2014 a headless board cannot"
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 721,
+    "text": "UI_TU = \"firmware_ui.cpp\""
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 737,
+    "text": "    \"\"\"{env: (declares MR_FEAT_OLED=1, compiles firmware_ui.cpp)} \u2014 both DERIVED, neither listed.\"\"\""
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 898,
+    "text": "    `firmware_ui.cpp`. The predicate's own justification must go RED.\"\"\""
+  },
+  {
+    "file": "tools/probe_board_abi.py",
+    "line": 950,
+    "text": "        (\"(4c) an env declares MR_FEAT_OLED=1 without compiling firmware_ui.cpp\","
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 3,
+    "text": "\"\"\"The NATIVE mutation battery for the tree's PURE units \u2014 \u00a7UI-7D slice B's `firmware_ui_model.h`, \u00a7UI-13's"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 129,
+    "text": "    \"model\":  \"src/firmware_ui_model.h\",        # \u00a7UI-7D slice B \u2014 the pure screen/state model"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 138,
+    "text": "    \"devicenv\": \"src/device_nv.h\",              # \u00a7UI-15 slice 2 correction \u2014 the read arms' SlotIo facts (blockers 1+2)"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 157,
+    "text": "    #    `src/firmware_ui.cpp` they would have had NO battery at all (that TU is compiled by neither the native"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 163,
+    "text": "    #    is per-SOURCE-FILE. Composed in `src/firmware_ui.cpp` they would have had NO battery at all (\u00a7B115)."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 169,
+    "text": "    #    `uiteam`'s entries; composed in `src/firmware_ui.cpp` they would have had NO battery at all (\u00a7B115)."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 176,
+    "text": "    \"uisend\": \"src/firmware_ui_send.h\",         # \u00a7UI-17 S8 \u2014 the recv router's two wake call sites + the `enc` gate"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 198,
+    "text": "    #    `firmware_ui_model.h`, so a header the MODEL includes may not include chrome. The carriers + the OWN-TEAM"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 212,
+    "text": "    #    attacked ON ITS OWN, and a battery is per-SOURCE-FILE. Bound in `src/firmware_commands.cpp` (P2's verb) or in"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 216,
+    "text": "    \"uipresets\":   \"src/firmware_ui_presets.h\",     # \u00a7UI-10/11 P1 \u2014 the /mrui catalog service and its whole policy"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 220,
+    "text": "    #    must be attacked ON ITS OWN, and a battery is per-SOURCE-FILE. Bound in `src/firmware_commands.cpp` (the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 223,
+    "text": "    #    NOT here \u2014 it lives in `src/firmware_ui.cpp` and its controls are `tools/probe_firmware_ui/run.sh`'s"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 225,
+    "text": "    \"uipresetverbs\": \"src/firmware_ui_preset_verbs.h\",  # \u00a7UI-10/11 P2 \u2014 the grammar, the three records, the boot line"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 228,
+    "text": "    #    `src/firmware_commands.cpp` they would have had NO battery at all (that TU is compiled by neither the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 243,
+    "text": "    #    is a PURE header the native suite drives end to end, and `src/firmware_commands.cpp` / `src/fw_main.cpp`"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 267,
+    "text": "    #                     `src/firmware_commands.cpp` these would have had NO battery at all (\u00a7B115)."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 406,
+    "text": "    #    (`firmware_ui_model.h`), the UNREAD router's scope (`firmware_ui_send.h`) and the slot ring's eviction"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 411,
+    "text": "    #      \u00b7 \"THE EXCLUSION IS APPLIED AFTER THE BUDGET\" \u2014 the gate lives in `src/firmware_ui.cpp`, which neither"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 420,
+    "text": "    \"sliceCbudget\": \"src/firmware_ui_model.h\",         # \u00a7CUSTODY-C \u2014 inbox_total = ADMITTED, taken before the cap"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 421,
+    "text": "    \"sliceCsend\":   \"src/firmware_ui_send.h\",          # \u00a7CUSTODY-C \u2014 the unread router's scope (\u00a77.4's unread rule)"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 548,
+    "text": "    \"w4aident\":     \"src/firmware_ui_model.h\",       # W4a \u2014 sanitize, abbreviate with `\u00bb`, member tokens, no fabrication"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 550,
+    "text": "    \"w4bhome\":      \"src/firmware_ui_model.h\",       # W4b \u2014 profiles, capture/notes, MENU, blank, OQ-3, origin, Send list"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1234,
+    "text": "                                         #   `test/test_firmware_ui_model.cpp` (the total parameter was removed"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1531,
+    "text": "                                         # (`src/firmware_ui_preset_verbs.h`) + its suite. NEW battery target"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1536,
+    "text": "                                         # unchanged, and its ONE edit to `src/firmware_ui_presets.h` is COMMENT-ONLY"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1540,
+    "text": "                                         #  +559 \u2014 10 NEW cases, `test/test_firmware_ui_preset_verbs.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1558,
+    "text": "                                         # PRESET CATALOG: the pure service (`src/firmware_ui_presets.h`) + the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1559,
+    "text": "                                         # `'MRU1'` record (`src/device_nv.h`). NEW battery target `uipresets`."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1563,
+    "text": "                                         # touches no landed assertion (`src/firmware_ui_model.h`'s fixed tables are"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1567,
+    "text": "                                         #  +966 \u2014 28 NEW cases, `test/test_firmware_ui_presets.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1618,
+    "text": "                                         #  +262 \u2014 9 NEW cases, `test/test_firmware_ui_model.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1675,
+    "text": "                                         #  +41 \u2014 3 NEW cases, `test/test_firmware_ui_model.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1704,
+    "text": "                                         #  +229 \u2014 10 NEW cases, `test/test_firmware_ui_model.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1736,
+    "text": "                                         #  +147 \u2014 5 NEW cases, `test/test_firmware_ui_model.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1801,
+    "text": "                                         #  +129 \u2014 8 NEW cases, `test/test_firmware_ui_model.cpp`:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1874,
+    "text": "                                         #  +15 \u2014 `test/test_firmware_ui_send.cpp`, ONE case:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1898,
+    "text": "                                         # \u2605 K4 \u2014 `test/test_firmware_ui_send.cpp` (+3 / +63) and"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 1899,
+    "text": "                                         #   `test/test_firmware_ui_model.cpp` (+2 / +182):"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2010,
+    "text": "                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the act"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2017,
+    "text": "                                         #    `test/test_firmware_ui_send.cpp` (target `uisend`): the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2091,
+    "text": "                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2108,
+    "text": "                                         #  +1 \u2014 the \u00a7CHROME-4 width sweep (`test_firmware_ui_model.cpp`'s"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2129,
+    "text": "                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2170,
+    "text": "                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the third"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2262,
+    "text": "                                         # `src/firmware_ui.cpp` is compiled by neither the native suite nor the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2280,
+    "text": "                                         #   test_firmware_ui_model.cpp \u2014 10 cases / 72 assertions (`ui17-wake:`)"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2294,
+    "text": "                                         #   test_firmware_ui_send.cpp \u2014 5 cases / 61 assertions (`ui17-wake:`)"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2325,
+    "text": "                                         # blank exactly as they were. `src/firmware_ui.cpp` compiles in neither the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2359,
+    "text": "                                         # `src/firmware_ui.cpp` compiles in neither the native suite nor the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2399,
+    "text": "                                         # touched, and `src/firmware_ui.cpp` compiles in neither the native suite"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2427,
+    "text": "                                         # test/test_firmware_ui_model.cpp. DERIVED, not observed:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2444,
+    "text": "                                         # them in test/test_firmware_ui_model.cpp and"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2445,
+    "text": "                                         # test/test_firmware_ui_send.cpp. DERIVED, not merely observed \u2014"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2475,
+    "text": "                                         # them in test/test_firmware_ui_model.cpp. DERIVED, not observed:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2490,
+    "text": "                                         # assertions), all of them in test/test_firmware_ui_model.cpp."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2535,
+    "text": "                                         #   test_firmware_ui_send.cpp and test_firmware_ui_chrome.cpp): the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2541,
+    "text": "                                         # them in test/test_firmware_ui_model.cpp. DERIVED, not merely observed:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2604,
+    "text": "                                         # them in test/test_firmware_ui_model.cpp. DERIVED, not merely observed:"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2651,
+    "text": "                                         #        test_firmware_ui_model.cpp (the entry's ONE read \u00b7 the store"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 2691,
+    "text": "                                         #     (`test/test_firmware_ui_model.cpp`, target `model`): the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 3218,
+    "text": " #    `src/firmware_ui.cpp`'s `static_assert(kBodyCols == mrui::kDetailCols)`, which is the point of that assert \u2014"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 3712,
+    "text": " #      `src/firmware_ui_send.h` and is attacked by the `uisend` target; every entry HERE attacks the EFFECT, i.e. one"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4410,
+    "text": " #     owner RULED. \u24d8 The two decisions that live in `firmware_ui_send.h` (the stale-generation gate and the `-l`"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4411,
+    "text": " #     policy) are `--target=uisend`'s U14/U15; the ones in `src/firmware_ui.cpp` are the probe's C137-C141."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4670,
+    "text": " #    while `draw_frame` (src/firmware_ui.cpp:949-953) draws compose FIRST \u21d2 with both open the renderer drew COMPOSE"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 4704,
+    "text": " #    which forbids `src/firmware_ui.cpp` from naming `clear_dirty` at all."
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5038,
+    "text": "# ===== \u00a7UI-15 slice 2 CORRECTIONS \u2014 src/device_nv.h (blockers 1 and 2) =============================================="
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 5176,
+    "text": " #   `kSlotAbsent` unconditionally and never touches `SlotIo`, device_nv.h's `#else` arm). \u21d2 re-pointing a slot or"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 6701,
+    "text": "# ===== \u00a7UI-17 S8 \u2014 src/firmware_ui_send.h =========================================================================="
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7408,
+    "text": "# ===== \u00a7UI-10/11 P1 \u2014 src/firmware_ui_presets.h ===================================================================="
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 7539,
+    "text": "# ===== \u00a7UI-10/11 P2 \u2014 src/firmware_ui_preset_verbs.h ==============================================================="
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 8246,
+    "text": " #   `device_nv.h`'s platform arms have always had. A mutation there comes back \"the suite still passes\", which"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 11863,
+    "text": "#      tempting wrong shape of it, and each reddens `test_firmware_ui_model.cpp`'s `w4a-ident` matrix (plus, where the"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 11898,
+    "text": "#      ONE file that decides them (`src/firmware_ui_model.h`). The brief's ten (H01, H02, H04, H05/H06, H07, H08, H09, H10,"
+  },
+  {
+    "file": "tools/probe_ui_model_mutations.py",
+    "line": 11901,
+    "text": "#      `test_firmware_ui_model.cpp` (the `w4b-` cases) \u2014 \u26d4 a GREEN entry is a hole in that matrix, never a pass."
+  },
+  {
+    "file": "tools/warning_census.sh",
+    "line": 38,
+    "text": "#    DIAGNOSTIC FROM A VENDORED HEADER \u2014 NOT ONE COMES FROM UI-6 CODE.** `src/firmware_ui.cpp` is the 326th object, and"
+  },
+  {
+    "file": "tools/warning_census.sh",
+    "line": 43,
+    "text": "#    \u21d2 ATTRIBUTED BY CONTROLLED A/B, not inferred: dropping `+<firmware_ui.cpp>` from `[env:heltec_v3]`'s"
+  },
+  {
+    "file": "tools/warning_census.sh",
+    "line": 49,
+    "text": "#   `kLineCap` in src/firmware_ui.cpp, which says so, so nobody shrinks them back)."
+  },
+  {
+    "file": "tools/warning_census.sh",
+    "line": 56,
+    "text": "#     NOT SILENT. `src/firmware_ui.cpp` no longer includes `fw_context.h`; it includes the new pure `fw_context_pure.h`"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 37,
+    "text": "#   S4  preset_word_is(<t>, <n>, \"lit\")        src/firmware_ui_preset_verbs.h's word compare (ui preset \u2026)"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 122,
+    "text": "    Surface(\"src/firmware_commands.cpp\", \"dispatch\", \"top\", \"serial,ble\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 123,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"exec_console_line\", \"dispatch\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 129,
+    "text": "    #   probe could compile and RUN it (`test_build_src = no` keeps `firmware_commands.cpp` out of every host build),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 139,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"help_command\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 141,
+    "text": "    Surface(\"src/firmware_commands.cpp\", \"handle_route_cmd\", \"sub\", \"serial,ble\", parent=\"route\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 142,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_route_cmd\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 144,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_sleep\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 145,
+    "text": "                          (\"src/firmware_commands.cpp\", \"handle_sleep\", \"action_sleep_admit\"))),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 146,
+    "text": "    Surface(\"src/firmware_commands.cpp\", \"handle_debug\", \"sub\", \"serial,ble\", parent=\"debug\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 147,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_debug\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 149,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_factory_reset\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 150,
+    "text": "                          (\"src/firmware_commands.cpp\", \"handle_factory_reset\", \"action_factory_reset_admit\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 152,
+    "text": "    Surface(\"src/firmware_commands.cpp\", \"handle_testsched\", \"sub\", \"serial,ble\", parent=\"testsend|testch\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 153,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_testsched\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 155,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"fw_crashtest\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 159,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_cfg_set\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 162,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_team\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 166,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_mobile\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 168,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_create\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 170,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_joinprofile\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 171,
+    "text": "    Surface(\"src/firmware_ui_preset_verbs.h\", \"preset_verb\", \"sub\", \"serial,ble\", parent=\"ui\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 172,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"handle_ui\", \"preset_verb\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 181,
+    "text": "    Surface(\"src/firmware_commands.cpp\", \"admin_router_arm\", \"top\", \"serial\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 182,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"admin_router_arm\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 187,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"handle_admin_id\", \"admin_id_verb\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 188,
+    "text": "                          (\"src/firmware_commands.cpp\", \"admin_router_arm\", \"handle_admin_id\"))),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 190,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"handle_acl\", \"acl_verb\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 191,
+    "text": "                          (\"src/firmware_commands.cpp\", \"admin_router_arm\", \"handle_acl\"))),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 197,
+    "text": "    Surface(\"src/firmware_commands.cpp\", \"admin_client_router_arm\", \"top\", \"serial\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 198,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"admin_client_router_arm\"),)),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 206,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"handle_admin_key\", \"admin_key_verb\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 207,
+    "text": "                          (\"src/firmware_commands.cpp\", \"admin_client_router_arm\", \"handle_admin_key\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 211,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"handle_admin_target\", \"admin_target_verb\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 212,
+    "text": "                          (\"src/firmware_commands.cpp\", \"admin_client_router_arm\", \"handle_admin_target\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 221,
+    "text": "            reached_from=((\"src/firmware_commands.cpp\", \"exec_console_line\", \"parse_command\"),"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 231,
+    "text": "    (\"src/firmware_ui_preset_verbs.h\", \"preset_word_is\"):"
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 251,
+    "text": "    \"src/firmware_commands.cpp\","
+  },
+  {
+    "file": "tools/gen_command_inventory.py",
+    "line": 257,
+    "text": "    \"src/firmware_ui_preset_verbs.h\","
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 145,
+    "text": "    G.Surface(\"src/firmware_commands.cpp\", \"dispatch\", \"top\", \"serial,ble\","
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 148,
+    "text": "    G.Surface(\"src/firmware_commands.cpp\", \"handle_thing\", \"sub\", \"serial,ble\", parent=\"thing\","
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 149,
+    "text": "              reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"handle_thing\"),)),"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 150,
+    "text": "    G.Surface(\"src/firmware_ui_preset_verbs.h\", \"preset_verb\", \"sub\", \"serial,ble\", parent=\"ui\"),"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 152,
+    "text": "              reached_from=((\"src/firmware_commands.cpp\", \"dispatch\", \"help_command\"),)),"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 162,
+    "text": "    (\"src/firmware_ui_preset_verbs.h\", \"preset_word_is\"): \"the S4 helper's own definition\","
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 166,
+    "text": "    \"src/firmware_commands.cpp\": FIX_COMMANDS,"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 170,
+    "text": "    \"src/firmware_ui_preset_verbs.h\": FIX_PRESET,"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 270,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\": sub("
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 279,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\": sub("
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 288,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\": sub("
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 297,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\": sub("
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 324,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\":"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 391,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\": sub("
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 403,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\":"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 421,
+    "text": "            path = os.path.join(t.root, \"src/firmware_commands.cpp\")"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 503,
+    "text": "        with FixtureTree({\"src/firmware_commands.cpp\":"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 541,
+    "text": "            (\"src/firmware_commands.cpp\", \"action_sleep_admit(arg, n,\", \"wrong_sleep(arg, n,\"),"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 542,
+    "text": "            (\"src/firmware_commands.cpp\", \"action_factory_reset_admit(arg, n,\", \"wrong_factory(arg, n,\"),"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 744,
+    "text": "    G.Surface(\"src/firmware_commands.cpp\", \"fixture_radio\", \"caller\", \"radio(REMOTE_CMD)\"),"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 753,
+    "text": "    return FixtureTree({\"src/firmware_commands.cpp\":"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 816,
+    "text": "        self.assertIn((\"src/firmware_commands.cpp\", \"dispatch\"), primary)"
+  },
+  {
+    "file": "tools/test_gen_command_inventory.py",
+    "line": 1029,
+    "text": "        return FixtureTree({\"src/firmware_commands.cpp\": lambda s: s.replace(\"    return false;\", self.ARMS + \"    return false;\", 1)})"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 6,
+    "text": "    `src/fw_main.cpp` and `src/firmware_commands.cpp` each used to expand `__DATE__ \" \" __TIME__` and read"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 9,
+    "text": "    ([[B138]], reproduced 2026-08-27). S1 collapses both producers onto ONE authority in `firmware_commands.cpp`."
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 22,
+    "text": "    \u00a7B253 ADDS THE HOOK-COVERAGE HALF. `src/firmware_commands.cpp`'s `#ifndef GIT_REV` fallback is what an"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 81,
+    "text": "    commands_cpp = (root / \"src/firmware_commands.cpp\").read_text(encoding=\"utf-8\")"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 88,
+    "text": "        require(sites == [root / \"src/firmware_commands.cpp\"],"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 89,
+    "text": "                f\"{token} must occur only in src/firmware_commands.cpp; got {[p.relative_to(root) for p in sites]}\")"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 94,
+    "text": "    require(git_sites == [root / \"src/firmware_commands.cpp\"],"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 95,
+    "text": "            f\"GIT_REV must occur only in src/firmware_commands.cpp; got {[p.relative_to(root) for p in git_sites]}\")"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 113,
+    "text": "            \"firmware_commands.cpp must define the one build-stamp literal\")"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 243,
+    "text": "     \"src/firmware_commands.cpp\", BANNER_CALL,"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 246,
+    "text": "     \"src/firmware_commands.cpp\", BANNER_CALL,"
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 253,
+    "text": "    (\"the authority literal itself is deleted from firmware_commands.cpp\","
+  },
+  {
+    "file": "tools/probe_build_identity.py",
+    "line": 254,
+    "text": "     \"src/firmware_commands.cpp\", 'const char kBuildStamp[]  = __DATE__ \" \" __TIME__;',"
+  },
+  {
+    "file": "tools/probe_prov_tx/probe.py",
+    "line": 332,
+    "text": "      (b) it is passed `out` -- \u2605 its own comment (`firmware_commands.cpp:247-249`) records the B95 defect where a"
+  },
+  {
+    "file": "tools/probe_console_sink/ownership.py",
+    "line": 21,
+    "text": "#   \u00b7 ROUTER-owned \u2014 every row on a surface of kind \"top\": `src/firmware_commands.cpp::dispatch` and the help family"
+  },
+  {
+    "file": "tools/probe_console_sink/ownership.py",
+    "line": 171,
+    "text": "    clone.surface = \"src/firmware_commands.cpp::dispatch\""
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 7,
+    "text": "# `src/firmware_commands.cpp` / `src/fw_main.cpp`, TUs that cannot be host-compiled (they need g_node, mrnv, the JSON"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 147,
+    "text": "    add('S1', 'firmware_commands.cpp makes NO direct Serial call',"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 204,
+    "text": "    add('S18', 'the help text and its recognition have LEFT firmware_commands.cpp for good', not leftovers,"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 277,
+    "text": "    #    executed is the seam itself \u2014 `tools/probe_inbox_verbs` links the real `firmware_commands.cpp` and drives"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 355,
+    "text": "    #    three comments in `firmware_commands.cpp` went on describing them in the present tense, and one paragraph"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 382,
+    "text": "    add('S28', '[[B298]] no ACTIVE topic-help claim survives in firmware_commands.cpp (4 withdrawn, 0 stray)',"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 895,
+    "text": "        sys.exit('usage: structural.py <firmware_commands.cpp> <firmware_commands.h> <fw_main.cpp> '"
+  },
+  {
+    "file": "tools/probe_console_sink/structural.py",
+    "line": 896,
+    "text": "                 '<firmware_help.h> [<device_nv.h> <firmware_config.cpp> '"
+  },
+  {
+    "file": "tools/probe_console_sink/negctl.py",
+    "line": 11,
+    "text": "#   \u2022 SOURCE controls \u2014 mutate a COPY of `src/firmware_commands.cpp` / `src/fw_main.cpp` (the TUs no host build can"
+  },
+  {
+    "file": "tools/probe_console_sink/negctl.py",
+    "line": 56,
+    "text": "NVH = os.path.join(ROOT, 'src', 'device_nv.h')"
+  },
+  {
+    "file": "tools/probe_console_sink/negctl.py",
+    "line": 711,
+    "text": "         'src/firmware_commands.cpp', FAULTS_ARM, FAULTS_ARM + NEW_ARM,"
+  },
+  {
+    "file": "tools/probe_console_sink/negctl.py",
+    "line": 714,
+    "text": "         'src/firmware_commands.cpp', FAULTS_ARM, '',"
+  },
+  {
+    "file": "tools/probe_console_sink/probe_main.cpp",
+    "line": 88,
+    "text": "// A stand-in for src/firmware_commands.cpp dump_cfg (that TU cannot be host-compiled \u2014 it needs g_node, NV, JSON and"
+  },
+  {
+    "file": "tools/probe_console_sink/probe_main.cpp",
+    "line": 425,
+    "text": "    // live in `src/firmware_commands.cpp`, a TU nothing can host-compile, so the only available proof was grep."
+  },
+  {
+    "file": "tools/probe_console_sink/run.sh",
+    "line": 365,
+    "text": "python3 \"$HERE/structural.py\" \"$ROOT/src/firmware_commands.cpp\" \"$ROOT/src/firmware_commands.h\" \"$ROOT/src/fw_main.cpp\" \"$HELP\" \\"
+  },
+  {
+    "file": "tools/probe_console_sink/run.sh",
+    "line": 366,
+    "text": "   \"$ROOT/src/device_nv.h\" \"$ROOT/src/firmware_config.cpp\" \"$ROOT/lib/console/console_json.cpp\" \\"
+  },
+  {
+    "file": "tools/probe_console_sink/run.sh",
+    "line": 406,
+    "text": "python3 \"$HERE/negctl.py\" \"$OUT\" \"$CXX\" \"$SINK\" \"$ROOT/src/firmware_commands.cpp\" \"$ROOT/src/firmware_commands.h\" \\"
+  },
+  {
+    "file": "tools/probe_console_sink/run.sh",
+    "line": 418,
+    "text": "struct_total=$(python3 \"$HERE/structural.py\" \"$ROOT/src/firmware_commands.cpp\" \"$ROOT/src/firmware_commands.h\" \\"
+  },
+  {
+    "file": "tools/probe_console_sink/run.sh",
+    "line": 419,
+    "text": "   \"$ROOT/src/fw_main.cpp\" \"$HELP\" \"$ROOT/src/device_nv.h\" \"$ROOT/src/firmware_config.cpp\" \\"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/transcript.py",
+    "line": 14,
+    "text": "# line. Because BOTH arms link the SAME `src/firmware_commands.cpp`, the comparison isolates exactly the thing 0c"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/transcript.py",
+    "line": 20,
+    "text": "#     `firmware_commands.cpp`, the REAL `lib/core`/`lib/console`, the REAL `GuardedConsole` and the REAL"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/transcript.py",
+    "line": 304,
+    "text": "# \u2605 DETERMINISM, AND IT IS A FIX RATHER THAN TIDINESS. `firmware_commands.cpp` defines"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/transcript.py",
+    "line": 337,
+    "text": "                                                  \"lib/console/console_parse.cpp\", \"src/firmware_commands.cpp\","
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 17,
+    "text": "//     THIS FILE DRIVES THE REAL `mrfw::dispatch()` OVER THE REAL `src/firmware_commands.cpp` AND"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 21,
+    "text": "//     \u00b7 `tools/probe_firmware_ui/` is keyed to the OLED PANEL: it links `src/firmware_ui.cpp` under two panel `-D`"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 25,
+    "text": "//     \u00b7 `tools/probe_console_sink/` is the closest relative \u2014 it already reasons about `firmware_commands.cpp` \u2014"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 52,
+    "text": "#include \"device_nv.h\"           // mrnv::IdBlob / load_id / save_id \u2014 /mrid, the record `regen` rewrites"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 849,
+    "text": "        //    writes (`firmware_commands.cpp`'s wear guard). \u21d2 the row keeps its meaning \u2014 \"the JSON arm reaches"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 1098,
+    "text": "    //    than a probe switch: on the CLIENT arm `src/firmware_commands.cpp` compiles no target-store binding at"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 1111,
+    "text": "    //     `mrfw::dispatch()` over the REAL `src/firmware_commands.cpp` against the byte-counted fake NV medium."
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 1189,
+    "text": "        //    shows up as a DRAW COUNT, which no pure test can see (the binding lives in firmware_commands.cpp)."
+  },
+  {
+    "file": "tools/probe_inbox_verbs/probe_main.cpp",
+    "line": 1515,
+    "text": "            //   `firmware_commands.cpp`, and this one cannot reach the ordering rules."
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 11,
+    "text": "#   `inbox_clear_result()`. This probe links the REAL `src/firmware_commands.cpp` + `src/firmware_inbox.cpp`"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 28,
+    "text": "#     has them, and without them `firmware_commands.cpp` (which prints integers by the hundred) cannot host-compile"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 57,
+    "text": "#     `src/firmware_commands.cpp` compiles a DIFFERENT set of bindings on each. One arm therefore cannot measure"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 71,
+    "text": "#    `firmware_commands.cpp` references `mrfw::ui_emergency_active()`, which lives in `src/firmware_ui.cpp` \u2014 a TU"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 93,
+    "text": "FW_CMDS=\"$ROOT/src/firmware_commands.cpp\"   # THE ROUTER   \u2014 controls C1/C2 mutate this"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 100,
+    "text": "FW_NVH=\"$ROOT/src/device_nv.h\"              # \u00a7RADMIN slice 3: the typed wrappers \u2014 controls C27..C29 mutate this"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 421,
+    "text": "    # \u2605\u2605 \u00a7RADMIN slice 3: `src/device_nv.h`'s typed wrappers \u2014 and this kind needs a WHOLE-`src/` shadow rather"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 423,
+    "text": "    #    INCLUDING FILE'S OWN DIRECTORY FIRST, so a lone `$OUT/shadow/device_nv.h` is picked up by `probe_main.cpp`"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 424,
+    "text": "    #    (which is not in `src/`) while `src/firmware_commands.cpp` keeps resolving to the REAL one. The result is"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 427,
+    "text": "    #    FROM it, so exactly one `device_nv.h` exists in the translation unit."
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 429,
+    "text": "             sed \"$script\" \"$FW_NVH\" > \"$OUT/srcshadow/device_nv.h\""
+  },
+  {
+    "file": "tools/probe_inbox_verbs/run.sh",
+    "line": 430,
+    "text": "             cmp -s \"$FW_NVH\" \"$OUT/srcshadow/device_nv.h\" && { n_bad=$((n_bad+1)); printf '  FAIL %s \u2014 the mutation changed NOTHING (VACUOUS)\\n' \"$label\"; return; }"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/transcript_main.cpp",
+    "line": 20,
+    "text": "//   `src/firmware_commands.cpp`, the REAL `lib/core`/`lib/console`, the REAL `GuardedConsole` and the REAL"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/fakes/esp_random.h",
+    "line": 5,
+    "text": "// `src/firmware_commands.cpp` + `src/firmware_inbox.cpp` compile on the host under the `[env:heltec_v3]` `-D` arm."
+  },
+  {
+    "file": "tools/probe_inbox_verbs/fakes/LittleFS.h",
+    "line": 5,
+    "text": "// `src/firmware_commands.cpp` + `src/firmware_inbox.cpp` compile on the host under the `[env:heltec_v3]`"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/fakes/Preferences.h",
+    "line": 5,
+    "text": "// `src/firmware_commands.cpp` + `src/firmware_inbox.cpp` compile on the host under the `[env:heltec_v3]`"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/fakes/bootloader_random.h",
+    "line": 5,
+    "text": "// `src/firmware_commands.cpp` + `src/firmware_inbox.cpp` compile on the host under the `[env:heltec_v3]`"
+  },
+  {
+    "file": "tools/probe_inbox_verbs/fakes/nvs.h",
+    "line": 5,
+    "text": "// `src/firmware_commands.cpp` + `src/firmware_inbox.cpp` compile on the host under the `[env:heltec_v3]`"
+  },
+  {
+    "file": "tools/probe_deferred_actions/run.py",
+    "line": 148,
+    "text": "        cmd=f'build_variant {shlex.quote(str(source/\"src/firmware_commands.cpp\"))} \"$FW_INBOX\" \"\" \"$OUT/{name}\" {shlex.quote(str(cpp))}'"
+  },
+  {
+    "file": "tools/probe_deferred_actions/run.py",
+    "line": 159,
+    "text": "            router=changed_path if path=='src/firmware_commands.cpp' else ROOT/'src/firmware_commands.cpp'"
+  },
+  {
+    "file": "tools/probe_deferred_actions/run.py",
+    "line": 168,
+    "text": "    watched=[ROOT/p for p in ('src/fw_main.cpp','src/firmware_commands.cpp','src/device_ota.cpp','src/device_ota.h','src/firmware_action_effects.h','tools/probe_inbox_verbs/probe_main.cpp','tools/probe_inbox_verbs/fakes/Preferences.h','tools/probe_deferred_actions/run.py','tools/probe_deferred_actions/run.sh','tools/probe_deferred_actions/probe.cpp','tools/probe_deferred_actions/controls.py','tools/probe_deferred_actions/remote_rows.h','src/firmware_remote_actions.cpp','src/firmware_remote_actions.h','tools/probe_inbox_verbs/remote_exec_rows.h')]"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 3,
+    "text": " ('C01 second inbox wipe skipped','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 6,
+    "text": " ('C02 NV erase skipped','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 8,
+    "text": " ('C03 inbox warning suppressed','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 11,
+    "text": " ('C04 local confirmation bypassed','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 13,
+    "text": " ('C05 sleep selection ignored','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 15,
+    "text": " ('C06 factory reset sink escapes','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 47,
+    "text": " ('C17 NV erase moved before inbox warning','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 59,
+    "text": " ('R01 public reboot bypasses preparation','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 62,
+    "text": " ('R02 OTA bypasses authority','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 65,
+    "text": " ('R03 typed busy flag lost','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 67,
+    "text": " ('R04 scheduled mapped to completed','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 86,
+    "text": " ('R11 remote OTA calls local toggle','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_deferred_actions/controls.py",
+    "line": 112,
+    "text": " ('R21 configured delay binding replaced by default','src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4,
+    "text": "// \u00a7B105 PROBE \u2014 host-compiles the REAL `src/firmware_ui.cpp` and MEASURES the four behaviours [[B104]] named as having"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 8,
+    "text": "// \u2605\u2605 WHY IT COULD NOT EXIST BEFORE, in one line: `firmware_ui.cpp` included `fw_context.h` -> `<RadioLib.h>` -> not"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 13,
+    "text": "//     REAL   `src/firmware_ui.cpp` itself \u00b7 `meshroute::Node` \u00b7 `meshroute::DeviceHal` (so `txq_depth()` is the real"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 25,
+    "text": "// \u2605\u2605\u2605 EVERY CHECK MUST BE ABLE TO FAIL. `run.sh` re-runs this binary against mutated COPIES of `firmware_ui.cpp` (the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 34,
+    "text": "//     PRECONDITIONS asserting `DeviceHal`/`IRadio` behaviour, not `firmware_ui.cpp`'s \u2014 \"the frame was accepted\","
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 58,
+    "text": "//     `src/firmware_ui_preset_verbs.h`, not this file \u2014 so no `ctl` (which mutates `src/firmware_ui.cpp` and nothing"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 60,
+    "text": "//     `tools/probe_ui_model_mutations.py`, plus `test/test_firmware_ui_preset_verbs.cpp`. They are here anyway"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 95,
+    "text": "//     THE RETENTION ITSELF: it lives in `src/firmware_ui_model.h` and every control in `run.sh` mutates"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 96,
+    "text": "//     `src/firmware_ui.cpp`. That half is named rather than assumed, and the inventory is COMPLETE \u2014 **SEVEN**"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 143,
+    "text": "//     therefore builds this file and `firmware_ui.cpp` a second time against `[env:heltec_v3]`'s own `-D` set; P7's"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 178,
+    "text": "                                //   drive `firmware_ui.cpp`'s (kind, seq) lookup, body copy and ONE `erase()` call"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 194,
+    "text": "#include \"firmware_ui_preset_verbs.h\" // \u2605\u2605 \u00a7UI-10/11 P2: the boot restore + the verb family. P26 drives BOTH over a"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 213,
+    "text": "//      `src/firmware_ui.cpp`'s anonymous namespace; `run.sh`'s `ui_wrapper` compiles that source (or a control's mutant)"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 302,
+    "text": "//   character. That is the same arithmetic `src/firmware_ui.cpp`'s layout table derives its slots from, written out"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 499,
+    "text": "// \u26a0 THE GEOMETRY IS STATED HERE, independently of `src/firmware_ui.cpp`'s own table, exactly as `kBodyXExpected`"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 673,
+    "text": "// \u2605\u2605\u2605 THE SAME SHAPE AS `exec_command` ABOVE, AND FOR THE SAME REASON: `src/firmware_ui.cpp` constructs the ONE"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 732,
+    "text": "//     `mrfw::preset_catalog()` lives in `src/firmware_commands.cpp`, which is not in this link (it drags LittleFS/NVS"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 738,
+    "text": "//    then walks the compose list `src/firmware_ui.cpp` renders from `mrfw::preset_catalog().live()`. \u26d4 There is no"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 786,
+    "text": "// ---- the globals `firmware_ui.cpp` reads. Construction order matters: g_hal before g_node, same TU, in order. -----"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 797,
+    "text": "//     anonymous namespace inside `src/firmware_ui.cpp`, so nothing outside that TU can call `attach_provision` \u2014 and"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 805,
+    "text": "//    the layered arm these three functions do not exist to define, and `firmware_ui.cpp` references none of them."
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 973,
+    "text": "// \u2605\u2605\u2605 THE SAME ARGUMENT AS THE PROVISIONING FAKES ABOVE, one feature over: `src/firmware_ui.cpp`'s"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1140,
+    "text": "// \u26d4 `test/test_firmware_ui_send.cpp` carries its OWN copy, deliberately: the two instruments state their"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1155,
+    "text": "        //    TWIN copy in `test/test_firmware_ui_send.cpp` (:2359) \u2014 and left THIS one. \u21d2 from that commit until"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1157,
+    "text": "        //    instrument that covers `src/firmware_ui.cpp` has been unrunnable and every gate that claimed it was"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1163,
+    "text": "        //   re-learned: the twin in `test/test_firmware_ui_send.cpp` was updated in the same edit, and this"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1298,
+    "text": "// Design \u00a73.2's normal body origin, stated here rather than imported from `src/firmware_ui.cpp`'s `kBodyX`."
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1416,
+    "text": "    printf(\"== \u00a7B105 probe \u2014 src/firmware_ui.cpp, host-compiled ==\\n\");"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1683,
+    "text": "    //     identity tracking -> `firmware_ui.cpp`'s `(kind, seq)` lookup over the real `pull()` -> the real"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1700,
+    "text": "    //   `firmware_ui.cpp`'s (kind, seq) lookup, body copy and ONE `erase()` call against a REAL `meshroute::Inbox` \u2014"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1796,
+    "text": "    // \u26d4 WHAT NO CONTROL HERE CAN DO is invert the RETENTION itself: it lives in `firmware_ui_model.h` while every"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1797,
+    "text": "    //   control in `run.sh` mutates `src/firmware_ui.cpp`. \u21d2 being reddened by a broad control proves these checks"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1919,
+    "text": "    //     because `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator (\u00a7B115). What"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 1993,
+    "text": "    //    can rot unnoticed. `run.sh` builds this file AND `firmware_ui.cpp` a second time with `-DMR_UI_BLE_ROW=1`."
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 2015,
+    "text": "        //      above (U3), and [[B225]]'s whole correction: `run.sh` builds this file and `firmware_ui.cpp` twice, once"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 2228,
+    "text": "    // measured gaps short of the air. These cases drive the SHIPPED path \u2014 the real `firmware_ui.cpp`, the real"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 2652,
+    "text": "        //   `firmware_ui.cpp` from naming `clear_dirty` at all. \u24d8 `mr_ui_allows_sleep()` is ALSO unusable from here"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 2918,
+    "text": "            //     swapping it mid-retry, which is why the classification in `src/firmware_ui.cpp` includes this arm."
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 3098,
+    "text": "    //      `test_build_src = no` keeps `src/firmware_ui.cpp` out of the native build. \u21d2 this phase drives DISTINCTIVE"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 3589,
+    "text": "    //      shows a distance that is nobody's. `src/firmware_ui.cpp` is compiled by neither the native suite nor the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 3809,
+    "text": "    //      `test_firmware_ui_send.cpp` proves which push the pure router lets through and `--target=uisend` proves the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 3811,
+    "text": "    //      (`src/firmware_ui.cpp`) is compiled by neither the native suite nor the simulator (\u00a7B115), so a wake wired"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4190,
+    "text": "    //      (`src/firmware_ui.cpp:1143`) \u2014 real shipped rendering \u2014 is STRUCTURALLY UNREACHABLE and the slice's screens"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4191,
+    "text": "    //      were measured by nothing. `run.sh` therefore compiles this file and `firmware_ui.cpp` a SECOND time with the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4382,
+    "text": "            //    (`test/test_firmware_ui_send.cpp`'s `dark_model` case), where 15 s of silence costs nothing."
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4388,
+    "text": "            //    `test/test_firmware_ui_send.cpp`, which can drive all seventeen without seventeen repaints."
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4479,
+    "text": "            //   only edits `src/firmware_ui.cpp`). It is attacked at match count 1 by `--target=teamkeyring` T39"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 4649,
+    "text": "        //       the PURE formatters, not about this file \u2014 no mutation of `firmware_ui.cpp` can move them, and they"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5144,
+    "text": "            //      proves what `ui_prov_join_team` returns and `test_firmware_ui_model.cpp` proves which gesture"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5145,
+    "text": "            //      reaches it \u2014 but \u26d4 NEITHER compiles `src/firmware_ui.cpp`, so a confirmation drawn with the CREATE"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5505,
+    "text": "            //      diff and the row RETURN and `test_firmware_ui_model.cpp` proves which gesture reaches them \u2014 but"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5506,
+    "text": "            //      \u26d4 NEITHER compiles `src/firmware_ui.cpp`, so a window drawn from the FROZEN member array instead"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5838,
+    "text": "                //      `test_firmware_ui_invite.cpp` proves what the MAPPER returns and `test_firmware_ui_model.cpp`"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 5839,
+    "text": "                //      proves which gesture reaches it \u2014 \u26d4 NEITHER compiles `src/firmware_ui.cpp`, so a result arm"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6127,
+    "text": "                // \u2605\u2605\u2605 WHY IT CANNOT BE A NATIVE CASE: `src/firmware_ui.cpp` is compiled by neither the native suite"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6381,
+    "text": "        //      counting fakes, `test/test_firmware_ui_model.cpp` proves which gesture reaches them and"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6383,
+    "text": "        //      `src/firmware_ui.cpp`, so a list drawn from the wrong copy, a row whose ACTIVE marker is wired to the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 6714,
+    "text": "    // that `src/firmware_ui.cpp`'s `build_snapshot` projects from, and the rows asserted below are what the SHIPPED"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7586,
+    "text": "    //   (a) the `busy` classification lives in `src/firmware_ui.cpp` \u2014 a TU no native test and no scenario compiles;"
+  },
+  {
+    "file": "tools/probe_firmware_ui/probe_main.cpp",
+    "line": 7615,
+    "text": "        // \u2605 THE GATE THE VERBS REALLY USE: the device binding in `src/firmware_commands.cpp` forwards"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 4,
+    "text": "# \u00a7B105 FEATURE-LAYER PROBE \u2014 the first automated cover `src/firmware_ui.cpp` has ever had."
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 7,
+    "text": "#   `src/firmware_ui.cpp` is compiled by NEITHER the native suite (`test_build_src = no`) NOR the simulator (which"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 35,
+    "text": "# \u2605\u2605\u2605 WHAT A CONTROL HAS TO BE HERE. Each one applies ONE mutation to a COPY of `src/firmware_ui.cpp` \u2014 the tempting"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 56,
+    "text": "FW_UI=\"$ROOT/src/firmware_ui.cpp\""
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 165,
+    "text": "#           and therefore the only one in which `draw_provision_screen` (`src/firmware_ui.cpp:1143`) \u2014 real shipped"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 191,
+    "text": "      \"$ROOT/src/firmware_ui_prov.h\" \"$ROOT/src/firmware_ui_preset_verbs.h\" \\"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 192,
+    "text": "      \"$ROOT/src/firmware_ui_presets.h\" \"$ROOT/src/firmware_ui_model.h\" \"$ROOT/src/firmware_ui_send.h\" \\"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 197,
+    "text": "echo \"== \u00a7B105 feature-layer probe (src/firmware_ui.cpp, host-compiled) ==\""
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 202,
+    "text": "#     `firmware_ui.cpp` compiled against the other \u2014 an ODR violation whose symptom is a corrupt run, not a link error."
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 232,
+    "text": "# WHY. `label_from_hash` lives in `src/firmware_ui.cpp`'s ANONYMOUS NAMESPACE, so `probe_main.cpp` cannot call it \u2014 and the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 263,
+    "text": "  echo \"PROBE BUILD FAILED \u2014 src/firmware_ui.cpp did not host-compile:\"; sed 's/^/    /' \"$OUT/build.log\" | head -20"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1104,
+    "text": "  #   THEM AT ALL, and whether the reserved slot is drawn \u2014 `src/firmware_ui.cpp` is compiled by neither the native"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1167,
+    "text": "  #   mutations stay RED, and the panel shows the wrong people. (\u24d8 count corrected 2026-08-21, QG: said \"twelve\".) `src/firmware_ui.cpp` is compiled by neither the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1217,
+    "text": "  #   `src/firmware_ui.cpp` is the PUBLISH SITE (the `peer_loc_find` read, under the hash the label resolved) and the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1256,
+    "text": "  #   `test_firmware_ui_send.cpp` proves which push the PURE router lets through and `--target=uisend` proves the `enc`"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1277,
+    "text": "  #   \u00a7B115 again: `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator. C96/C99 already"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1370,
+    "text": "  # \u2605\u2605\u2605 EACH ONE IS A DECISION THAT LIVES IN `src/firmware_ui.cpp` AND THEREFORE IN NO OTHER INSTRUMENT (\u00a7B115): the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1537,
+    "text": "  #   native suite green: `test_firmware_ui_model.cpp` drives the strings, `test_firmware_ui_prov.cpp` drives the"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1599,
+    "text": "  #   rule and the strings, `test_firmware_ui_prov.cpp` the adapter, `test_firmware_ui_model.cpp` the flow, and NONE"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1643,
+    "text": "  #   do: the screen is unreachable on the `l2` arm, and `src/firmware_ui.cpp` is compiled by NO other gate. The pure"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1685,
+    "text": "  #   reason L1-L22 and N1-N10 do: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1718,
+    "text": "  #   does: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by NO other gate. The"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1740,
+    "text": "  #   reason every N- and L- control above does: the screens are unreachable on the `l2` arm and `src/firmware_ui.cpp`"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1813,
+    "text": "  #   floor are mutation-covered in `firmware_ui_invite.h` / `firmware_ui_model.h`; only this host-compiled probe can"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1838,
+    "text": "  #   them compiles `src/firmware_ui.cpp`, so a verdict arm drawn from the wrong field, a word that ignores the state,"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1872,
+    "text": "  #   lives in `firmware_ui_send.h` (target `uisend`, entries U10-U13) and the drain-loop GATE lives in"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1890,
+    "text": "  #   doors share (U1), so `--target=model` V23/V24 attack them directly and `test/test_firmware_ui_send.cpp` drives"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1900,
+    "text": "  #   ONLY here for the reason every L/N/O control does: `src/firmware_ui.cpp` is compiled by NO other gate, so a"
+  },
+  {
+    "file": "tools/probe_firmware_ui/run.sh",
+    "line": 1926,
+    "text": "  #   `src/firmware_ui.cpp` is compiled by NO other gate. The pure decisions have their own battery entries"
+  },
+  {
+    "file": "tools/probe_board_ui/negctl.py",
+    "line": 48,
+    "text": " # that loop out of this TU into src/firmware_ui.cpp, which cannot be host-compiled here (fw_context.h pulls RadioLib),"
+  },
+  {
+    "file": "tools/probe_board_ui/probe_main.cpp",
+    "line": 7,
+    "text": "//   moved all three to src/firmware_ui.cpp \u2014 which pulls fw_context.h, i.e. RadioLib and the whole device stack \u2014 so"
+  },
+  {
+    "file": "tools/probe_board_ui/probe_main.cpp",
+    "line": 10,
+    "text": "//     transfers, one per next_page(), and the loop body runs 8 times). The CALLER half \u2014 that firmware_ui.cpp actually"
+  },
+  {
+    "file": "tools/probe_board_ui/probe_main.cpp",
+    "line": 287,
+    "text": "    // The window is this tree's existing 1S-LiPo one (src/firmware_commands.cpp's read_batt_mv), so the four edges are"
+  },
+  {
+    "file": "tools/probe_board_ui/probe_main.cpp",
+    "line": 412,
+    "text": "    // \u24d8 NOT fatal by contract: the caller (src/firmware_ui.cpp) logs one line and keeps meshing. This probe cannot see"
+  },
+  {
+    "file": "tools/probe_board_ui/probe_main.cpp",
+    "line": 413,
+    "text": "    //   that half \u2014 firmware_ui.cpp is not host-compilable here (fw_context.h -> RadioLib) \u2014 so run.sh checks it"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 326,
+    "text": "# behaviour. They exist because Task 6 moved three things OUT of host-compilable reach (src/firmware_ui.cpp includes"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 329,
+    "text": "FW_UI=\"$ROOT/src/firmware_ui.cpp\""
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 338,
+    "text": "[ -f \"$FW_UI\" ] || { echo \"  FAIL S0 src/firmware_ui.cpp is missing\"; rc=1; }"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 355,
+    "text": "  schk \"S2/$h\" \"S2 src/firmware_ui.cpp defines $h\" \"grep -qE '^void $h\\\\(' '$FW_UI'\""
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 360,
+    "text": "schk \"S2b\" \"S2b src/firmware_ui.cpp defines mr_ui_allows_sleep\" \"grep -qE '^bool mr_ui_allows_sleep\\\\(' '$FW_UI'\""
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 376,
+    "text": "# S4 THE HARD BOUNDARY, both directions. board_ui.h must not include the model; firmware_ui.cpp must not name the driver."
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 382,
+    "text": "schk \"S4a\" \"S4a board_ui.h #includes no firmware_ui_model.h\" \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 384,
+    "text": "schk \"S4b\" \"S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol\" \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 387,
+    "text": "schk \"S5\" \"S5 firmware_ui.cpp surfaces a failed board_init()\" \"grep -q 'if (!mrui::board_init())' '$FW_UI'\""
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 412,
+    "text": "# The \u00a7B103/\u00a7B107/\u00a7B108 fixes are pure functions in `firmware_ui_send.h` / `firmware_ui_model.h`, so their LOGIC is"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 413,
+    "text": "# driven by the native suite and turns red on a revert. What no native test can see is whether `firmware_ui.cpp`"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 429,
+    "text": "#   in `src/firmware_config.cpp` (the config verb must NOTIFY the panel) rather than in `firmware_ui.cpp`. \u26d4 The body"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 463,
+    "text": "wchk() { wchk_in \"$FW_UI\" \"$@\"; }   # the thirteen \u00a7UI-6/\u00a7UI-7 checks, unchanged: they all read firmware_ui.cpp"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 482,
+    "text": "wchk \"W3 firmware_ui.cpp never clears dirty itself (the freeze owns it)\" \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 493,
+    "text": "wchk \"W4 firmware_ui.cpp never moves the unread counters or watermarks itself (a completed frame does)\" \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 539,
+    "text": "# W8 UI-7, NEGATIVE SPACE \u2014 the twin of W3/W4. Line COMPOSITION lives in `firmware_ui_send.h`, where the native suite"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 544,
+    "text": "wchk \"W8 firmware_ui.cpp composes no send line itself (the pure composer owns the wire text)\" \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 907,
+    "text": "#     envs; `src/firmware_ui.cpp`'s fail-closed latch is reachable by `tools/probe_firmware_ui` but its CALL SITE in"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1009,
+    "text": "wchk_in \"$FW_UI\" \"W28 firmware_ui.cpp never reaches for the board-private s_painting\" \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1133,
+    "text": "#   or defined in them. S4a already covers `board_ui.h` x `firmware_ui_model.h`; this widens it to both files and to"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1144,
+    "text": "         's|#include \"board_ui.h\"|#include \"board_ui.h\"\\n#include \"firmware_ui_model.h\"|' \\"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1220,
+    "text": "#     `probe_firmware_ui` can compile a `!MR_FEAT_TEAM` `firmware_ui.cpp` against a team-enabled `lib/core`, so the"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1414,
+    "text": "#      \u00b7 `src/firmware_commands.cpp` includes `fw_context.h`, i.e. `<RadioLib.h>` \u2014 the very include whose removal"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1415,
+    "text": "#        from `firmware_ui.cpp` was [[B105]]'s whole refactor \u2014 plus ~20 `extern` device globals and the five"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1425,
+    "text": "#   (2026-08-31) `tools/probe_inbox_verbs/` host-compiles and links `src/firmware_commands.cpp` against fakes. The"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1428,
+    "text": "CMD_CPP=\"$ROOT/src/firmware_commands.cpp\""
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1584,
+    "text": "#      sites lives in `src/firmware_commands.cpp`, a TU compiled by NEITHER the native suite (`test_build_src = no`)"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1585,
+    "text": "#      NOR the simulator. The PURE units the gate does *not* touch (`firmware_ui_presets.h`,"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1586,
+    "text": "#      `firmware_ui_preset_verbs.h`, `device_nv.h`'s `'MRU1'`) stay natively driven exactly as before \u2014 which is"
+  },
+  {
+    "file": "tools/probe_board_ui/run.sh",
+    "line": 1609,
+    "text": "      '#include \"firmware_ui_preset_verbs.h\"' \\"
+  },
+  {
+    "file": "tools/probe_board_ui/fakes/Arduino.h",
+    "line": 4,
+    "text": "// \u2605 SHARED BY TWO PROBES (\u00a7B105, 2026-08-06). `tools/probe_firmware_ui/` compiles `src/firmware_ui.cpp` against this"
+  },
+  {
+    "file": "tools/probe_board_ui/fakes/Arduino.h",
+    "line": 85,
+    "text": "    //    third probe compiles `src/firmware_commands.cpp`, whose `[route] dest=\u2026 next=\u2026` dumps print integers by"
+  },
+  {
+    "file": "tools/probe_features/ownership.py",
+    "line": 81,
+    "text": "CMDS_CPP = \"src/firmware_commands.cpp\""
+  },
+  {
+    "file": "tools/probe_features/ownership.py",
+    "line": 120,
+    "text": " 'src/firmware_commands.cpp': ['#if MR_FEAT_RADMIN_ACCEPT',"
+  },
+  {
+    "file": "tools/probe_features/ownership.py",
+    "line": 577,
+    "text": "  'src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_features/ownership.py",
+    "line": 619,
+    "text": "  'src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_features/ownership.py",
+    "line": 647,
+    "text": "  'src/firmware_commands.cpp',"
+  },
+  {
+    "file": "tools/probe_device_radio/mutations.py",
+    "line": 103,
+    "text": "    commands_path = root / \"src/firmware_commands.cpp\""
+  },
+  {
+    "file": "tools/probe_device_radio/run.sh",
+    "line": 19,
+    "text": "FW_COMMANDS=\"$ROOT/src/firmware_commands.cpp\""
+  },
+  {
+    "file": "tools/probe_device_radio/fakes/RadioLib.h",
+    "line": 13,
+    "text": "//    `CustomSX1262` is constructed over. The third probe compiles `src/firmware_commands.cpp`, which includes"
+  }
+]

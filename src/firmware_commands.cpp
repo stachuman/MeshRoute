@@ -168,11 +168,11 @@ uint16_t peer_store_restore() {
 #if MR_FEAT_OLED   // ★ [[B255]] the catalog binding: the ONE instance, its adapters and the two entry points
 // ★★ THIN ON PURPOSE, for the fourth time in this arc and for the same MEASURED reason (§B115): this TU is compiled
 //    by NEITHER the native suite (`test_build_src = no`) NOR the simulator, and no corpus scenario runs a console
-//    verb or a boot. ⇒ every DECISION — the grammar, the three records' bytes, the six reason spellings, the stable
+//    verb or a boot. ⇒ every DECISION — the grammar, the three records' bytes, the seven reason spellings (W6: `bad_page`), the stable
 //    slot order, the result->output rule and the boot diagnosis — lives in `src/firmware_ui_preset_verbs.h`, where
 //    `test/test_firmware_ui_preset_verbs.cpp` drives it and `--target=uipresetverbs` attacks it. What is left here
 //    is: bind the store, bind the `busy` fact, hold the ONE instance, adapt a `Print`, call.
-// ⛔ NOT `device_cfg_store()` AND NOT `mrnv::Blob`: `/mrui` is a DIFFERENT record with a FOUR-valued read, and the
+// ⛔ NOT `device_cfg_store()` AND NOT `mrnv::Blob`: `/mrui` is a DIFFERENT record with a FIVE-valued read (W6: `old_v1`), and the
 //    design's own rule is that *"editing a phrase must never reset radio, identity, team or key configuration"*.
 //    ⛔ No `/mrcfg` writer is in scope on any path below.
 namespace {
@@ -199,11 +199,11 @@ struct PresetPrintLines : mrfw::IPresetLines {
 mrfw::PresetDiag s_preset_diag;
 }  // namespace
 // ★★★★ THE RESIDENT COST IS PAID HERE, AND IT IS THE OWNER-RULED NO-STACK PLACEMENT (spec §5, P1's STACK GATE):
-//      `sizeof(PresetCatalog)` = three 372-B records (the live catalog + the two transactional scratch members) +
-//      the counters and the two references ≈ 1.15 KB of `.bss`. ⛔ The stack alternative was REFUSED because
-//      `begin()` runs from `setup()`, i.e. on the nRF52 Arduino loop task's FIXED 4 KB stack, where this tree has
-//      already HARDFAULTED once (`stackhw` down to 72 B). The precedent is fifteen lines up: `static mrnv::PeerBlob
-//      s_peers` chose resident-over-stack for exactly this reason, at 1160 B.
+//      `sizeof(PresetCatalog)` = three 2852-B v2 records (the live catalog + the two transactional scratch members)
+//      + the counters and the two references = 8572 B of `.bss` on the boards (8584 B host; W6, owner-ruled D7/D15).
+//      ⛔ HISTORY (P1, 2026-08-25): the stack alternative was REFUSED because `begin()` runs from `setup()`, then argued
+//      on the nRF52 loop task's FIXED 4 KB stack (`stackhw` down to 72 B) — since [[B255]] no headless or nRF board
+//      owns this OLED instance. The precedent is fifteen lines up: `static mrnv::PeerBlob s_peers`, at 1160 B.
 // ⓘ Function-local statics, exactly as `join_profile_service()` / `device_cfg_store()` are: constructed on first
 //   CALL, so there is no cross-TU initialisation-order question, and the panel (P3) and these verbs share ONE
 //   instance and therefore ONE write policy.
@@ -228,7 +228,7 @@ void preset_boot_restore_console() {
 void handle_ui(const char* args, size_t len, Print& out) {
     PresetPrintLines lines(out);
     if (mrfw::preset_verb(preset_catalog(), s_preset_diag, args, len, lines)) return;
-    out.println(F("> ui err usage: ui preset list | ui preset set <emergency|dm1..dm8|channel1..channel8> "
+    out.println(F("> ui err usage: ui preset list [<1..5>] | ui preset set <emergency|dm1..dm8|channel1..channel8> "
                   "loc=<on|off> \"<text>\" | ui preset clear <dm1..dm8|channel1..channel8> | ui preset reset "
                   "<emergency|dm1..dm8|channel1..channel8|all>"));
 }

@@ -50,6 +50,9 @@
 #include "console_sink.h"        // `mrcon`, the REAL guarded global console — the sink `regen` must NOT choose
 #include "dispatch_sink.h"       // `LineSink`, the PRODUCTION BLE sink (fw_main.cpp:598) — the sink it must USE
 #include "device_nv.h"           // mrnv::IdBlob / load_id / save_id — /mrid, the record `regen` rewrites
+#if MR_FEAT_OLED
+#include "firmware_ui_presets.h"  // ★ W6: the OLED arm's reload catalog + the compiled defaults it states records from
+#endif
 #include "device_rng.h"          // mrrng::fill — the seed draw `regen` makes
 // §RADMIN slice 3 — the two target stores' PURE services, so the probe can read back what the REAL router wrote
 // through the REAL `mrnv::load_admin_id` / `load_acl` wrappers, and can render the stored seed's hex to prove it
@@ -399,10 +402,323 @@ static bool route_ble(const char* line) {
 // drivers share one fixture authority instead of forking a second one (U1: the sibling probes' standing lesson —
 // two fakes is how two probes end up measuring two different devices). ⛔ The default gate defines nothing, so the
 // 71 checks below compile and run EXACTLY as before; `run.sh`'s md5 tripwire covers this file either way.
+// ★★ W6 / [[B477]] — EVERY RECORD AN ARM STORES FITS ONE SLOT OF THE PROBE'S NV MEDIUM, asserted AT COMPILE TIME:
+//    a record larger than the slot would be an honest SHORT write (`fakes/Preferences.h`), i.e. a failure production
+//    never sees, and the rows below would measure the fake instead of the router.
+static_assert(sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::UiPresetBlob) && sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::TargetBlob) &&
+              sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::PeerBlob) && sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::Blob) &&
+              sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::IdBlob) && sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::AclBlob) &&
+              sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::AdminIdBlob) && sizeof(MrProbeNvSlot::data) >= sizeof(mrnv::MgmtKeyBlob),
+              "probe NV slot is smaller than a record an arm stores");
+
+#if MR_FEAT_OLED
+// ================================================================================================================
+// ★★★★ W6 — THE OLED ROUTER ARM (`[env:heltec_v3]`'s real define set: this file's ACCEPT arm + `-DMR_FEAT_OLED=1`).
+//      The first EXECUTED `ui preset` path through the command TU: `exec_console_line` -> `dispatch` -> `handle_ui`
+//      -> `PresetPrintLines` -> the REAL staged `mrcon` (USB) or the REAL `LineSink` (BLE), over the REAL `/mrui`
+//      read/write wrappers on this probe's NV medium. ⛔ Only this arm runs these rows; the accept/client arms keep
+//      theirs byte-for-byte (their OLED-off shape is the one the deferred-actions probe reuses).
+// ================================================================================================================
+// ★ THE LABELLED EMERGENCY STUB (brief §2.8): an OLED build's `mrfw::ui_emergency_active()` lives in
+//   `src/firmware_ui.cpp` (the panel TU, not compiled here). ⛔ A STUB, labelled as one: it answers this switch,
+//   which only the `busy` row sets. The CLASSIFICATION it stands in for is the firmware-UI probe's (P26a).
+static bool g_w6_emergency = false;
+namespace mrfw { bool ui_emergency_active() { return g_w6_emergency; } }
+
+static char w6_line[512];
+static const mrfw::CommandContext w6_usb{mrfw::CommandTransport::usb, mrfw::CommandAuthority::local, true, 0,
+                                         meshroute::console::local_command_max_bytes};
+static const mrfw::CommandContext w6_ble{mrfw::CommandTransport::ble, mrfw::CommandAuthority::local, false, 0, 274};
+// USB: the REAL staged console, drained by a transport that takes everything (unless a row says otherwise).
+static mrfw::LineExec w6_usb_run(const char* line, bool drain = true) {
+    std::snprintf(w6_line, sizeof w6_line, "%s", line);
+    const mrfw::LineExec ex = mrfw::exec_console_line(w6_line, std::strlen(w6_line), mrfw::LineFormat::text, mrcon,
+                                                      nullptr, 0, w6_usb);
+    if (drain) mrcon.service();
+    return ex;
+}
+static void w6_usb_clean() { Serial.avail = 4096; mrcon.service(); mrcon.service(); Serial.reset(); }
+// BLE: the REAL `LineSink`, shipping each line to `ble_capture`.
+static mrfw::LineExec w6_ble_run(const char* line) {
+    std::snprintf(w6_line, sizeof w6_line, "%s", line);
+    ble_reset();
+    LineSink ls(ble_capture);
+    static char reply[256];
+    const mrfw::LineExec ex = mrfw::exec_console_line(w6_line, std::strlen(w6_line), mrfw::LineFormat::json, ls,
+                                                      reply, sizeof reply, w6_ble);
+    if (ex.state == mrfw::LineExec::State::streamed) ls.flush();
+    return ex;
+}
+// The expected records, spelled INDEPENDENTLY of the writer (contract bytes, design r2.23 §7.7 / D14).
+static std::string w6_rec(const char* slot, bool en, const std::string& text, bool loc) {
+    return std::string("{\"ev\":\"ui_preset\",\"slot\":\"") + slot + "\",\"enabled\":" + (en ? "true" : "false") +
+           ",\"text\":\"" + text + "\",\"location\":" + (loc ? "true" : "false") + "}\n";
+}
+static std::string w6_end(unsigned dm, unsigned ch, unsigned long gen, unsigned page) {
+    char b[200];
+    std::snprintf(b, sizeof b, "{\"ev\":\"ui_presets_end\",\"capacity\":17,\"text_max\":163,\"dm_active\":%u,"
+                  "\"channel_active\":%u,\"generation\":%lu%s}\n", dm, ch, gen,
+                  page ? (std::string(",\"page\":") + std::to_string(page) + ",\"pages\":5").c_str() : "");
+    return b;
+}
+static const char* const kW6Slot[17] = { "emergency", "dm1", "dm2", "dm3", "dm4", "dm5", "dm6", "dm7", "dm8",
+                                         "channel1", "channel2", "channel3", "channel4", "channel5", "channel6",
+                                         "channel7", "channel8" };
+// A catalog's records, as the contract spells them — from a RECORD, so a row states what the medium should hold.
+static std::string w6_recs(const mrnv::UiPresetBlob& b, unsigned first, unsigned last) {
+    std::string r;
+    for (unsigned i = first; i < last && i < 17; ++i)
+        r += w6_rec(kW6Slot[i], b.slot[i].enabled != 0, std::string(b.slot[i].text, b.slot[i].len), b.slot[i].loc != 0);
+    return r;
+}
+static unsigned w6_count(const mrnv::UiPresetBlob& b, unsigned first, unsigned last) {
+    unsigned n = 0; for (unsigned i = first; i <= last; ++i) n += b.slot[i].enabled ? 1u : 0u; return n;
+}
+static std::string w6_page(const mrnv::UiPresetBlob& b, unsigned page) {
+    return w6_recs(b, (page - 1) * 4, page * 4) + w6_end(w6_count(b, 1, 8), w6_count(b, 9, 16), b.generation, page);
+}
+static std::string w6_full(const mrnv::UiPresetBlob& b) {
+    return w6_recs(b, 0, 17) + w6_end(w6_count(b, 1, 8), w6_count(b, 9, 16), b.generation, 0);
+}
+// An independent store over the REAL `/mrui` wrappers, for a reload that is not the one live instance.
+struct W6Store : mrfw::IUiPresetStore {
+    mrnv::UiPresetRead load(mrnv::UiPresetBlob& out) override { return mrnv::load_ui_presets(out); }
+    bool save(const mrnv::UiPresetBlob& b) override { return mrnv::save_ui_presets(b); }
+};
+struct W6Gate : mrfw::IEmergencyGate { bool emergency_active() const override { return false; } };
+
+static int w6_oled_main() {
+    printf("== W6 OLED router arm: `ui preset` through exec_console_line -> dispatch -> handle_ui, real /mrui ==\n");
+    MrProbeNv& nv = mrprobe_nv();
+    nv.reset(); nv.ns_present = true; nv.rw_ok = true;
+    const std::string t163(163, 'k');
+    mrnv::UiPresetBlob dflt{}; mrfw::preset_defaults(dflt);
+
+    // ---- O1 — an ABSENT record boots SILENT on the real read path, with zero writes -------------------------------
+    w6_usb_clean();
+    mrfw::preset_boot_restore_console(); mrcon.service();
+    CHK(Serial.n_out == 0 && nv.writes == 0, "W6-O1  an absent /mrui boots SILENT, zero writes [%s]", Serial.out);
+
+    // ---- O2 — `ui preset list` IS PAGE 1, and every page is exact (D14) -------------------------------------------
+    w6_usb_clean();
+    auto ex = w6_usb_run("ui preset list");
+    CHK(ex.state == mrfw::LineExec::State::streamed && std::string(Serial.out) == w6_page(dflt, 1),
+        "W6-O2  a bare `ui preset list` answers page 1 exactly (4 records + the end record, %u B)", unsigned(Serial.n_out));
+    bool pages_ok = true, one_each = true;
+    std::string all;
+    for (unsigned pg = 1; pg <= 5; ++pg) {
+        char cmd[32]; std::snprintf(cmd, sizeof cmd, "ui preset list %u", pg);
+        w6_usb_clean(); w6_usb_run(cmd);
+        if (std::string(Serial.out) != w6_page(dflt, pg)) pages_ok = false;
+        all += Serial.out;
+    }
+    for (unsigned i = 0; i < 17; ++i) {
+        const std::string needle = std::string("\"slot\":\"") + kW6Slot[i] + "\",";
+        const size_t a = all.find(needle);
+        if (a == std::string::npos || all.find(needle, a + 1) != std::string::npos) one_each = false;
+    }
+    CHK(pages_ok, "W6-O3  pages 1..5 are exact, each ending its own end record with `page`/`pages`");
+    CHK(one_each, "W6-O3b every slot, enabled or not, appears on EXACTLY ONE of the five pages");
+    CHK(nv.writes == 0, "W6-O3c ...and reading the pages wrote nothing");
+    w6_ble_run("ui preset list 3");
+    CHK(std::string(g_ble, g_ble_n) == w6_page(dflt, 3), "W6-O4  the BLE LineSink receives page 3 byte-identically");
+
+    // ---- O5 — `bad_page`, and the usage line names the new grammar ------------------------------------------------
+    bool bad_ok = true;
+    for (const char* c : { "ui preset list 6", "ui preset list 0", "ui preset list 01", "ui preset list 1 2" }) {
+        w6_usb_clean(); w6_usb_run(c);
+        if (std::strcmp(Serial.out, "{\"ev\":\"ui_preset_err\",\"reason\":\"bad_page\"}\n") != 0) bad_ok = false;
+    }
+    CHK(bad_ok && nv.writes == 0, "W6-O5  every non-canonical page token and a second token answer bad_page, zero writes");
+    w6_usb_clean(); w6_usb_run("ui preset frobnicate");
+    CHK(std::strstr(Serial.out, "> ui err usage: ui preset list [<1..5>] | ui preset set") == Serial.out,
+        "W6-O6  the usage line names `ui preset list [<1..5>]` (%u B)", unsigned(Serial.n_out));
+
+    // ---- O7 — A 163-BYTE `set`: its reply, and ★ W6R-1: the STORED BYTES, then a reload through the REAL read path -
+    w6_usb_clean();
+    std::string cmd7 = "ui preset set dm1 loc=off \"" + t163 + "\"";
+    w6_usb_run(cmd7.c_str());
+    CHK(std::string(Serial.out) == w6_rec("dm1", true, t163, false) && mrcon.dropped_lines() == 0,
+        "W6-O7  a 163-byte `set` answers its ONE resulting record, whole");
+    mrnv::UiPresetBlob want = dflt;
+    mrfw::preset_slot_put(want.slot[1], true, false, t163.c_str(), t163.size());
+    want.generation = mrfw::preset_generation_next(dflt.generation);
+    CHK(nv.writes == 1 && nv.holds("mr", "ui", &want, sizeof want),
+        "W6-O7b ★ the NV medium holds EXACTLY the expected 2852-B v2 blob (sizeof %u)", unsigned(sizeof want));
+    {
+        W6Store st; W6Gate g; mrfw::PresetCatalog fresh{st, g};
+        CHK(fresh.begin() == mrnv::UiPresetRead::ok && fresh.slot(1).len == 163 &&
+            std::memcmp(fresh.slot(1).text, t163.data(), 163) == 0 && fresh.generation() == want.generation,
+            "W6-O7c a FRESH catalog over the real /mrui wrappers reloads the 163-byte phrase and its generation");
+    }
+    // ★ D14's RESTART TOKEN through the real router: O3's five pages all reported ONE generation (nothing changed
+    //   between them), and the `set` above lies between O4's page read and this one — so THIS page reports the moved one.
+    w6_usb_clean(); w6_usb_run("ui preset list 2");
+    CHK(std::string(Serial.out) == w6_page(want, 2) && want.generation != dflt.generation && nv.writes == 1,
+        "W6-O7e a `set` between two page reads moves the LATER page's generation (O3's pages: one generation)");
+    {   // ★ the ONE instance's REAL boot restore RELOADS what the medium holds (not RAM): a record written straight to
+        //   the medium, differing from RAM in `dm2` and the generation, is what the catalog shows after it.
+        mrnv::UiPresetBlob side = want;
+        mrfw::preset_slot_put(side.slot[2], true, false, "RELOADED", 8);
+        side.generation = 7;
+        (void)nv.put("mr", "ui", reinterpret_cast<const unsigned char*>(&side), sizeof side);
+        const int w0 = nv.writes;
+        w6_usb_clean();
+        mrfw::preset_boot_restore_console(); mrcon.service();
+        const mrfw::PresetCatalog& pc = mrfw::preset_catalog();
+        CHK(Serial.n_out == 0 && nv.writes == w0 && pc.generation() == 7 &&
+            std::strcmp(pc.slot(2).text, "RELOADED") == 0 && pc.slot(1).len == 163 &&
+            std::memcmp(pc.slot(1).text, t163.data(), 163) == 0,
+            "W6-O7d ★ the REAL boot restore reloads the medium: silent, zero writes, the 163-byte phrase kept");
+        want = side;
+    }
+
+    // ---- O8 — the refusals: overlength, mandatory, slot — each ONE error record, zero writes -----------------------
+    {
+        const int w0 = nv.writes;
+        std::string c164 = "ui preset set dm2 loc=off \"" + std::string(164, 'o') + "\"";
+        w6_usb_clean(); w6_usb_run(c164.c_str());
+        const bool t = std::strcmp(Serial.out, "{\"ev\":\"ui_preset_err\",\"reason\":\"bad_text\"}\n") == 0;
+        w6_usb_clean(); w6_usb_run("ui preset clear emergency");
+        const bool m = std::strcmp(Serial.out, "{\"ev\":\"ui_preset_err\",\"reason\":\"mandatory\"}\n") == 0;
+        w6_usb_clean(); w6_usb_run("ui preset set dm9 loc=off \"x\"");
+        const bool sl = std::strcmp(Serial.out, "{\"ev\":\"ui_preset_err\",\"reason\":\"bad_slot\"}\n") == 0;
+        CHK(t && m && sl && nv.writes == w0, "W6-O8  164 bytes -> bad_text, clear emergency -> mandatory, dm9 -> bad_slot, zero writes");
+    }
+    // ---- O9 — `busy` through the labelled stub: a no-op set refuses, zero writes; `list` still answers -------------
+    {
+        const int w0 = nv.writes;
+        g_w6_emergency = true;
+        w6_usb_clean(); w6_usb_run("ui preset set dm2 loc=off \"RELOADED\"");
+        const bool busy = std::strcmp(Serial.out, "{\"ev\":\"ui_preset_err\",\"reason\":\"busy\"}\n") == 0;
+        w6_usb_clean(); w6_usb_run("ui preset list 1");
+        const bool listed = std::string(Serial.out) == w6_page(want, 1);
+        g_w6_emergency = false;
+        CHK(busy && listed && nv.writes == w0, "W6-O9  an alarm: a NO-OP set answers busy with zero writes; `list` still answers");
+    }
+    // ---- O10 — a save that FAILS publishes nothing and the medium keeps the old record -----------------------------
+    {
+        nv.fail_write = true;
+        w6_usb_clean(); w6_usb_run("ui preset set dm2 loc=off \"NEVER\"");
+        const bool store = std::strcmp(Serial.out, "{\"ev\":\"ui_preset_err\",\"reason\":\"store\"}\n") == 0;
+        nv.fail_write = false;
+        CHK(store && std::strcmp(mrfw::preset_catalog().slot(2).text, "RELOADED") == 0 &&
+            nv.holds("mr", "ui", &want, sizeof want),
+            "W6-O10 a failed save answers `store`, publishes nothing, and the medium still holds the old record");
+    }
+    // ---- O11 — `reset all` answers the FULL unpaged list, exact --------------------------------------------------
+    {
+        w6_usb_clean(); w6_usb_run("ui preset reset all");
+        mrnv::UiPresetBlob r = dflt; r.generation = mrfw::preset_generation_next(want.generation);
+        CHK(std::string(Serial.out) == w6_full(r) && std::strstr(Serial.out, "\"page\"") == nullptr &&
+            nv.holds("mr", "ui", &r, sizeof r),
+            "W6-O11 `reset all` answers all 17 records + an end record WITHOUT page fields, and stores the defaults");
+    }
+
+    // ---- O12 — AN OLD v1 RECORD ON THE REAL READ PATH: its line at EVERY boot, zero writes, then replaced ----------
+    {
+        unsigned char v1[372];
+        std::memset(v1, 0xA5, sizeof v1);
+        const uint32_t magic = mrnv::kUiPresetMagic; const uint16_t ver = 1;
+        std::memcpy(v1, &magic, 4); std::memcpy(v1 + 4, &ver, 2);
+        (void)nv.put("mr", "ui", v1, sizeof v1);
+        const int w0 = nv.writes;
+        bool both = true;
+        for (int boot = 0; boot < 2; ++boot) {
+            w6_usb_clean();
+            mrfw::preset_boot_restore_console(); mrcon.service();
+            if (std::strcmp(Serial.out, "  ui presets = DEFAULTS (old v1 record \xE2\x80\x94 re-enter custom phrases)\n") != 0)
+                both = false;
+        }
+        CHK(both && nv.writes == w0, "W6-O12 an old v1 record: its own line at EVERY boot, zero boot writes (%u B)",
+            unsigned(Serial.n_out));
+        w6_usb_clean(); w6_usb_run("ui preset list 1");
+        CHK(std::string(Serial.out) == w6_page(dflt, 1), "W6-O12b ...and the panel runs the compiled defaults");
+        w6_usb_clean(); w6_usb_run("ui preset set dm1 loc=off \"Are you OK?\"");   // a RESTATED default
+        mrnv::UiPresetBlob r = dflt; r.generation = mrfw::preset_generation_next(dflt.generation);
+        CHK(nv.writes == w0 + 1 && nv.holds("mr", "ui", &r, sizeof r),
+            "W6-O12c the first change REPLACES it — even one restating a default — with the full v2 record");
+        w6_usb_clean(); mrfw::preset_boot_restore_console(); mrcon.service();
+        CHK(Serial.n_out == 0, "W6-O12d ...and the next boot is silent");
+    }
+
+    // ---- O13 — ★★ THE STAGE PROOF: every reply fits the 2048-B console stage ON ITS OWN, with a transport that drains
+    //      NOTHING — every maximum `list` page and `reset all` (ten-digit generation, and across the wrap) — then a
+    //      draining transport delivers it all, whole. ⛔ The stage is B208's and is NOT grown.
+    {
+        mrnv::UiPresetBlob mx{}; mrfw::preset_defaults(mx);
+        for (unsigned i = 0; i < 17; ++i) {
+            char txt[164]; for (unsigned k = 0; k < 163; ++k) txt[k] = char('a' + (i + k) % 26);
+            mrfw::preset_slot_put(mx.slot[i], true, false, txt, 163);
+        }
+        mx.generation = 4294967294u;
+        (void)nv.put("mr", "ui", reinterpret_cast<const unsigned char*>(&mx), sizeof mx);
+        w6_usb_clean(); mrfw::preset_boot_restore_console(); mrcon.service();
+        bool fits = true, whole = true, no_drop = true; size_t biggest = 0, page4 = 0;
+        for (unsigned pg = 1; pg <= 5; ++pg) {
+            char cmd[32]; std::snprintf(cmd, sizeof cmd, "ui preset list %u", pg);
+            w6_usb_clean(); Serial.avail = 0;                 // ⛔ the host drains NOTHING
+            w6_usb_run(cmd, /*drain=*/false);
+            if (Serial.n_out != 0 || mrcon.dropped_lines() != 0) fits = false;
+            Serial.avail = 4096; mrcon.service(); mrcon.service();
+            const std::string want_pg = w6_page(mx, pg);
+            if (std::string(Serial.out) != want_pg) whole = false;
+            if (std::strstr(Serial.out, "CONSOLE_DROP")) no_drop = false;
+            if (want_pg.size() > biggest) biggest = want_pg.size();
+            if (pg == 4) page4 = want_pg.size();
+        }
+        CHK(fits, "W6-O13 every MAXIMUM `list` page fits the stage whole with a host draining NOTHING (zero drops)");
+        CHK(whole && no_drop, "W6-O13b ...and a draining host then receives every page exactly, no CONSOLE_DROP");
+        CHK(page4 == 1097 && biggest == page4 && biggest <= 2048,
+            "W6-O13c the largest page is page 4 at %u B (<= 2048)", unsigned(page4));
+        // `reset all` with a ten-digit RESULTING generation, then across the wrap
+        bool reset_ok = true; size_t reset_max = 0;
+        for (uint32_t from : { 4294967294u, 4294967295u }) {
+            mx.generation = from;
+            (void)nv.put("mr", "ui", reinterpret_cast<const unsigned char*>(&mx), sizeof mx);
+            w6_usb_clean(); mrfw::preset_boot_restore_console(); mrcon.service();
+            w6_usb_clean(); Serial.avail = 0;
+            w6_usb_run("ui preset reset all", /*drain=*/false);
+            if (Serial.n_out != 0 || mrcon.dropped_lines() != 0) reset_ok = false;
+            Serial.avail = 4096; mrcon.service(); mrcon.service();
+            mrnv::UiPresetBlob r = dflt; r.generation = mrfw::preset_generation_next(from);
+            const std::string w = w6_full(r);
+            if (std::string(Serial.out) != w || std::strstr(Serial.out, "CONSOLE_DROP")) reset_ok = false;
+            if (w.size() > reset_max) reset_max = w.size();
+        }
+        CHK(reset_ok && reset_max == 1517, "W6-O13d `reset all` fits whole at a ten-digit generation (%u B) and across the wrap",
+            unsigned(reset_max));
+    }
+
+    // ---- O14 — THE NV FAKE ITSELF (B477): exactly the capacity stores and reads back; one byte more is a SHORT write
+    {
+        static unsigned char cap[sizeof(MrProbeNvSlot::data) + 1];
+        for (size_t i = 0; i < sizeof cap; ++i) cap[i] = (unsigned char)(i * 7 + 3);
+        Preferences pf; const bool opened = pf.begin("w6fake", false);
+        const size_t w_full = pf.putBytes("full", cap, sizeof(MrProbeNvSlot::data));
+        static unsigned char back[sizeof(MrProbeNvSlot::data)];
+        const size_t r_full = pf.getBytes("full", back, sizeof back);
+        CHK(opened && w_full == sizeof back && r_full == sizeof back && std::memcmp(cap, back, sizeof back) == 0,
+            "W6-O14 a record of EXACTLY the slot capacity (%u B) is stored and read back", unsigned(sizeof back));
+        const size_t w_over = pf.putBytes("over", cap, sizeof cap);
+        CHK(w_over == 0 && !pf.isKey("over"),
+            "W6-O14b ONE byte more reports a SHORT write and leaves NOTHING behind (reported %u)", unsigned(w_over));
+        pf.end();
+    }
+    nv.reset();
+    printf("checks: %d   failures: %d\n", g_chk, g_fail);
+    printf("%s\n", g_fail == 0 ? "PASS" : "FAIL");
+    return g_fail == 0 ? 0 : 1;
+}
+#endif   // MR_FEAT_OLED
+
 #ifndef MR0C_NO_MAIN
 #include "remote_exec_rows.h"
 #include "remote_client_rows.h"
 int main() {
+#if MR_FEAT_OLED
+    return w6_oled_main();   // ★ W6: the OLED arm runs its own rows ONLY (see the block above)
+#endif
     printf("== §CUSTODY-D inbox-verb wiring probe (REAL dispatch() + REAL handle_clear_inbox, host-linked) ==\n");
 
     // ------------------------------------------------------------------------------------------------------

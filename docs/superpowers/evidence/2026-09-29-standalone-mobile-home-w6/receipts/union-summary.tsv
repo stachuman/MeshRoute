@@ -1,0 +1,14 @@
+battery	entries_RED	unusable	vacuous_or_missing	workers	worker_baselines	real_tree	tracebacks
+model	264	0	0	16	      9 3055 / 199532 / 0;	1	0
+devicenv	46	0	0	16	      9 3055 / 199532 / 0;	1	0
+uisend	26	0	0	16	      9 3055 / 199532 / 0;	1	0
+uipresets	39	0	0	16	      9 3055 / 199532 / 0;	1	0
+uipresetverbs	25	0	0	16	      9 3055 / 199532 / 0;	1	0
+sliceCbudget	1	0	0	2	      2 3055 / 199532 / 0;	1	0
+sliceCsend	1	0	0	2	      2 3055 / 199532 / 0;	1	0
+w4aident	9	0	0	16	      9 3055 / 199532 / 0;	1	0
+w4bhome	26	0	0	16	      9 3055 / 199532 / 0;	1	0
+chrome	48	0	0	16	      9 3055 / 199532 / 0;	1	0
+uiteam	20	0	0	16	      9 3055 / 199532 / 0;	1	0
+uiinvite	32	0	2	16	      9 3055 / 199532 / 0;	1	0
+consoleline	12	0	0	16	      9 3055 / 199532 / 0;	1	0

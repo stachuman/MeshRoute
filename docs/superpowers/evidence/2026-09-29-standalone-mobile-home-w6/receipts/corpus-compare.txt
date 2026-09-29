@@ -1,0 +1,9 @@
+pre-check scenarios 36 final 36 same names True
+fields compared per stream: 14 ['anchor_assertion_failures', 'anchor_events', 'anchor_match', 'anchor_md5_prefix', 'assertion_failures', 'events', 'exit_status', 'name', 'output_bytes', 'output_md5', 'output_sha256', 'promoted', 'scenario_path', 'scenario_sha256']
+stream-field differences: 0
+baseline_path simulation/BASELINE.md | simulation/BASELINE.md | equal
+baseline_sha256 71f140988e9d1a5bf1be49dd1feb8fc7ebb8e46c7a4b119e16db62f0df76962f | 71f140988e9d1a5bf1be49dd1feb8fc7ebb8e46c7a4b119e16db62f0df76962f | equal
+engine meshroute | meshroute | equal
+inputs_stable True | True | equal
+scenario_count 36 | 36 | equal
+lus_sha256 pre-check e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2 final e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2

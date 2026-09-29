@@ -1,0 +1,244 @@
+# firmware-UI controls: checks each control reddens, base-fwui.log (70ff486) vs final-fwui.log (attempt 3)
+# base 238 controls, final 240; added ["W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND)", "W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent)"]; retired []
+# same 200, rose 32, fell 6 (each fallen one is dispositioned in ledger/disposition-ledger.md §4)
+
+build_fail -> build_fail        C0  restoring #include "fw_context.h" breaks the host build
+         4 ->          4        C1  mac_idle() -> true (no gate at all)
+         1 ->          1        C2  mac_idle() keeps only the radio clause
+         3 ->          3        C3  mac_idle() keeps only the queue clause
+       347 ->        368  rose  C10 mac_idle() -> false (suppressed for ever; the panel never paints)
+        58 ->         61  rose  C11 next_page()'s verdict is never fed back to the gate
+        12 ->         13  rose  C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank)
+       310 ->        328  rose  C5  the idle arm forces a repaint, bypassing the 2 Hz throttle
+         1 ->          1        C6  the ADC burst is no longer gated on a MAC-idle radio
+         4 ->          4        C7  the cadence gates on SUCCEEDED instead of ATTEMPTED
+         4 ->          4        C8  the 30 s period is never re-armed (sample every pass)
+         1 ->          1        C9  the dead-panel report tests board_init() the wrong way round
+         2 ->          2        C12 mr_ui_init no longer brings the panel up
+         1 ->          1        C13 an unavailable read ERASES the last good value
+         4 ->          4        C14 the battery token is invented instead of formatted (a plausible voltage for --)
+         7 ->          7        C15 the strip renders a PERCENTAGE instead of volts (ruled out)
+         4 ->          4        C16 the strip hardcodes a voltage instead of reading the frozen chrome
+        17 ->         17        C17 the record lookup matches seq only (the kind clause dropped)
+         6 ->          6        C18 the erase targets the DM store unconditionally (B133's shape)
+        39 ->         39        C19 the preview row carries msg_id where the identity should be
+        52 ->         52        C20 the preview row hardcodes the kind (every row reads DM)
+         7 ->          7        C21 every erase is reported as a SUCCESS regardless of the outcome
+         4 ->          4        C27 the erase targets the CHANNEL store unconditionally
+        47 ->         47        C28 opening a record DELETES it (the switch arms crossed)
+         3 ->          3        CC1 the ordinary-view gate is dropped (E2E receipts come back as inbox rows)
+         3 ->          3        CC2 the gate is applied AFTER the budget (the row slot and the total are already spent)
+        43 ->         43        C22 the tick never serves the inbox request (the modal cannot open)
+        33 ->         33        C23 the body length is left for the model to measure (the strlen shape)
+        45 ->         45        C24 draw_frame stops giving the modal the body
+         1 ->          1        C25 the MESSAGE GONE refusal row is dropped from the list
+        81 ->         79  FELL  C29 the SETTINGS screen is never drawn (the switch arm dropped)
+        86 ->         84  FELL  C30 the model is never given the config service (the menu is inert)
+         2 ->          2        C31 the draft marker renders UiState::dirty instead of config_unsaved()
+         2 ->          2        C32 the value row shows a default instead of the DRAFT
+         6 ->          6        C33 the SETTINGS badge always draws the clean gear (the state becomes invisible)
+         2 ->          2        C34 the editor is indistinguishable from the browsing row (no bracket)
+         2 ->          2        C35 RESTART NEEDED never reaches the landing screen (the reboot fact is dropped)
+         1 ->          1        C36 the BLE row is rendered unconditionally (the transport condition ignored)
+         8 ->          8        C37 the hook never tells the service (the notification is dropped)
+        10 ->         10        C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)
+         1 ->          1        C39 the is_open() guard is dropped (flash is read on every cfg set)
+         2 ->          2        C40 an unreadable record is treated as a conflict (a latch from no evidence)
+         4 ->          4        C41 ChanState::waiting says SENT again (the pre-T3 false confirmation)
+         2 ->          2        C42 ChanState::aired says QUEUED (the earned state never shows)
+         2 ->          2        C43 the no-relay outcome reads SENT, no relay again
+         1 ->          1        C44 DmState::aired_waiting is rendered as QUEUED too
+         1 ->          1        C45 the fail-closed guard is dropped (sleeps after a hardware refusal)
+         4 ->          4        C46 the board is never asked (the arm is answered from a constant)
+         3 ->          3        C47 a held button is treated as a hardware failure (latches sleep off for the boot)
+         2 ->          2        C48 the arm failure is never said on the console
+         2 ->          2        C52 the arm report is inverted (silent on the first failure, cries later)
+         1 ->          1        C53 the failure is said on every pass, not once (a USB-CDC flood)
+         1 ->          1        C54 an arm is put back into mr_ui_init() (B200, literally)
+         1 ->          1        C55 the disarm's answer is discarded (a stuck level is reported as clean)
+         2 ->          2        C56 the policy hook arms the wake itself (a per-pass arm on a possibly-held pin)
+         1 ->          1        C57 the boot announces a wake source again (nothing arms one there)
+         3 ->          3        C58 a SUCCESSFUL arm is reported as a failure (the vacuity control)
+         3 ->          3        C59 the disarm is never performed (the board is not even asked)
+         1 ->          1        C60 a successful disarm reports a problem anyway (cries wolf)
+         3 ->          3        C49 the hook always permits sleep (the whole policy bypassed)
+         3 ->          3        C50 the hook never permits sleep (the panel-lit answer for ever)
+         1 ->          1        C51 the policy is re-derived here without the input term (B197 back)
+         1 ->          1        C26 the highlight is NOT suppressed while the refusal stands
+         4 ->          4        C61 the strip is drawn from the LIVE chrome instead of the frozen copy
+         4 ->          4        C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)
+         4 ->          4        C63 the comparison reference is updated where the change is OBSERVED, not at the freeze
+         2 ->          2        C64 every home state draws the same house (the four-state table bypassed)
+         1 ->          1        C65 a missing team content key draws the NORMAL key (the slot claims a capability)
+        10 ->         10        C66 the battery token's column is moved (the frozen slot redefined)
+        24 ->         24        C67 every glyph is drawn at the same x (the layout table bypassed)
+         1 ->          1        C68 the battery is drawn at the shared 7-px width (its 2-byte stride ignored)
+        53 ->         53        C69 the strip is drawn after the body, so body-replacing views lose it
+        29 ->         29        C70 the strip's icons are drawn below their y=0..8 band
+         5 ->          5        C71 the blanked arm falls through and paints into a dark panel
+       110 ->        120  rose  C74 a chrome change is treated as user input (the panel never blanks)
+       161 ->        176  rose  C72 the live chrome is built once and cached (a stale projection for ever)
+       302 ->        321  rose  C73 the strip opens a frame of its own while composing
+         6 ->          6        C75 the strip parks the panel mid-compose (a bus command from a draw)
+         1 ->          1        C76 the emergency rail suppression is dropped entirely (§5.3)
+       181 ->        191  rose  C77 the rail is never drawn (the screens lose their only heading)
+       155 ->        201  rose  C78 every rail slot gets a selection frame (exactly-one becomes all-five)
+       151 ->        183  rose  C79 the selection comes from a renderer-local cursor, not the frozen nav
+       177 ->        187  rose  C80 the rail packs its slots consecutively (a second layout)
+       125 ->        143  rose  C81 the ordinary body is drawn at x=0, under the rail's icons
+         7 ->          7        C82 the emergency headline is shifted to kBodyX (a clipped distress string)
+         6 ->          6        C84 the withdrawn CFG marker is put back on the landing body (§6.1's other direction)
+         5 ->          5        C85 SETTINGS drops its actionable marker text, leaving only the badge (§6 forbids)
+        10 ->         10        C86 the SETTINGS marker row is drawn unconditionally (a clean draft reads UNSAVED)
+        23 ->         23        C87 the rail's glyphs are drawn at the body's x, over the text
+        59 ->         70  rose  C88 the PROVISION row is rendered unconditionally (the ruling not applied)
+         1 ->          1        C89 the child predicates are published as TRUE on a build with no children
+        80 ->         78  FELL  C90 the closed view draws the MENU's rows anyway (the ruling not applied at the renderer)
+         1 ->          1        C91 the closed view keeps the note/reboot row to itself (§6's icon-only error)
+        79 ->         77  FELL  C92 the entry row's label is re-spelled at the draw site
+        22 ->         22        C93 the list is drawn as ENTERED whatever the model says
+       127 ->        182  rose  C94 an entered list is drawn as PASSIVE (no marker, no exit)
+        96 ->         99  rose  C95 the interactive list's exit row (MENU) is never drawn
+         5 ->          5        C99 the mark is drawn in the chrome, so EVERY screen shows it
+         2 ->          2        C102 My device's position row reads the LIVE config again (the row can TEAR mid-frame)
+         1 ->          1        C103 own_fix is published as a constant (a fix that was never configured)
+         1 ->          1        C104 own_fix is published from ONE coordinate (the OR narrowed to lat)
+        31 ->         31        C105 the pre-S4 row (9-column label + hops) is composed inline again
+        11 ->         11        C106 every row is drawn from snapshot row 0 (the wrong teammate)
+        11 ->         28  rose  C107 the row marker is hard-wired off (no pick is ever shown)
+         3 ->          3        C108 the team rows are ALSO drawn at the old STATUS x=40 origin
+         5 ->          5        C109 the S4 repaint invalidation is never called (F-8 re-opened)
+         5 ->          5        C110 the invalidation compares the live snapshot with ITSELF
+        47 ->         52  rose  C111 the tick marks the model dirty unconditionally instead
+        28 ->         28        C112 the roster is drawn in REVERSE order (a re-sort by any other name)
+         1 ->          1        C113 the own fix is read LIVE in the renderer (the rows can TEAR mid-frame)
+         6 ->          6        C114 the cache is never read, so no teammate ever has a position
+         2 ->          2        C115 the location age is published as ZERO, so a stale position renders as current
+         5 ->          5        C116 latitude and longitude are published crossed
+         1 ->          1        C117 the cache miss is published as a hit (0,0 becomes a position)
+       259 ->        281  rose  C118 the renderer transmits a request for a peer it has no position for
+         4 ->          4        C119 the wake is hard-wired into the device push entry (wake-on-any-push)
+        83 ->         84  rose  C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel
+         5 ->          5        C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)
+        18 ->         18        C125 the duty gauge's slot is moved (the amendment's frozen x redefined)
+         5 ->          5        C126 a node with no duty limit draws the EMPTY gauge (no limit collapsed into 0 % used)
+         3 ->          3        C127 the duty-BLOCKED state loses its warning mark (100 % looks like 99 %)
+        11 ->         11        C128 every fill level draws the same picture (the bucket's level ignored)
+         2 ->          2        C129 the gauge is read live from the node instead of the frozen bucket
+        14 ->         14        C130 the utilization is never published (the gauge is empty at every percentage)
+         5 ->          5        C131 the duty limit is published as always-on (an unlimited node claims a utilization)
+        13 ->         13        C132 the gauge is driven by the five-minute anti-spam budget, not duty_status()
+         4 ->          4        C133 the home slot keeps its superseded x (the re-anchoring only half done)
+         1 ->          1        C134 an ARMED alarm is not treated as busy (the fire has not happened yet)
+         5 ->          5        C135 a FIRING alarm is not treated as busy (the attempt series is editable mid-flight)
+        32 ->         49  rose  C136 an IDLE node answers busy (every preset verb dead with no alarm at all)
+        46 ->         68  rose  C137 the catalog is never published into the frame (every compose list is empty on the device)
+        12 ->         13  rose  C138 the DM compose renders the CHANNEL list (the two projections crossed)
+        15 ->         20  rose  C139 the row is composed here as %c%s (the location column dropped)
+         1 ->          1        C140 the zero-enabled empty state is bypassed (no note is ever placed)
+         1 ->          1        C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED
+        42 ->         42        B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator
+        40 ->         40        B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated
+        17 ->         17        W4a-S1 the TEAM label is formatted at 14 cells, so the row clips it silently (no marker)
+         5 ->          5        W4a-S2 the label adapter copies RAW name bytes, skipping ui_display_byte (high bytes reach the panel)
+         1 ->          1        W4a-S3 the DELIVERED row is formatted at the header's 15 cells instead of its own 19
+         1 ->          1        W4a-S4 the REPLY sender is re-sanitized after formatting, so the marker becomes a dot
+        20 ->         20        W3-D1 the detail modal's second body row repeats the first row's slice
+        17 ->         17        W3-D2 every detail body row is clipped to 18 columns (a lost final byte)
+         8 ->         12  rose  W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)
+        15 ->         20  rose  W3-C2 the compose location marker is inverted (L and - swapped)
+         2 ->          2        W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2
+       212 ->        216  rose  W4b-N1 the menu cue is drawn in list focus and missing in menu mode
+         2 ->          2        W4b-N2a the 24x24 mark is drawn on Home again
+         8 ->          8        W4b-N2b Home's list rows are drawn at the old STATUS x=40 origin
+        97 ->        101  rose  W4b-N3 the TEAM/INBOX exit row reads BACK instead of MENU
+         1 ->          1        W4b-N4 the Settings preview keeps its body arrow
+         2 ->          2        W4b-N5 My device abbreviates the name instead of splitting it over two rows
+         3 ->          3        W4b-N7 Home's list window starts on the wrong body row
+        11 ->         11        W4b-W1 build_snapshot never publishes the own name
+         1 ->          1        W4b-W2 Home row 0 reads the LIVE own name, so a frame can tear between pages
+         4 ->          4        W4b-W3 the Home body invalidation is never called from the tick
+        20 ->         20        L1 the result's headline is dropped (the verdict never shows)
+         5 ->          5        L2 the id and fingerprint rows are swapped
+         3 ->          3        L3 the fingerprint row is dropped (only the full id is drawn)
+         1 ->          1        L4 the REPLACES warning is composed unconditionally
+         1 ->          1        L5 the REPLACES warning is never drawn (§3.6.3 not applied)
+         8 ->          8        L6 the refusal detail row is dropped (a verdict with no reason)
+        45 ->         45        L7 the confirm and result arms are crossed (the wrong screen)
+       268 ->        270  rose  L8 the model is never given the provisioning adapter
+       152 ->        172  rose  L9 the CREATE child is published as absent on a build that has it
+       351 ->        361  rose  L10 the parent row is hidden on a build that HAS a child
+         1 ->          1        L11 the slot label is drawn from the ROW INDEX instead of the slot number (§B66)
+         1 ->          1        L12 the store-state note is never drawn (an unreadable store looks like an empty list)
+         1 ->          1        L13 the note is drawn but the list is not moved down (the rows collide with it)
+         1 ->          1        L14 the confirmation shows only the label — design §3.6.3's COMPLETE values are dropped
+         1 ->          1        L15 the confirmation always renders SLOT 1 (the pick is ignored)
+         8 ->          8        L16 the waiting screen says JOINED before any correlated adopt (plan §2.3 rule 1)
+         1 ->          1        L17 the RESULT never shows the adopted node id (the one thing §2.3 rule 2 requires)
+         7 ->          7        L18 ★★ the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology
+         1 ->          1        L19 the session guard is dropped (a /mrcfg read on every inbound push)
+         4 ->          4        L20 the push tap is never called, so no adopt can ever complete the screen
+         1 ->          1        L21 ★★ the waiting head is hard-wired to false, so STILL JOINING can never appear
+         1 ->          1        L22 the kind prefilter is dropped (every push pays a /mrcfg read again)
+        96 ->         96        N1 the projection is never published (an audible team reads as an empty band)
+         5 ->          5        N2 the age is published as the raw ARRIVAL STAMP instead of the elapsed time (every row reads old)
+        65 ->         65        N3 the ring is walked BACKWARDS (strongest/newest first) — the ruled first-observed order is gone
+         8 ->          8        N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1)
+         8 ->          8        N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling)
+       308 ->        329  rose  N10 the scan pings each observed team to refresh it (a read-only scan that transmits)
+        66 ->         66        N5 the scan draws the LIVE snapshot array instead of the model FROZEN copy (R-10, and the own-team row returns)
+         1 ->          1        N6 F-1's honest second line is never drawn (the panel claims a general PHY scan)
+         1 ->          1        N7 the empty note is drawn but the list is not moved down (the note and BACK collide)
+       111 ->        111        N8 the JOIN TEAM child is published as absent on a build that has it
+         1 ->          1        N11 the join confirmation is drawn with the CREATE title
+         2 ->          2        N13 the confirmation names the team we are LEAVING, not the selected one
+         2 ->          2        N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)
+         2 ->          2        N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)
+         2 ->          2        N15 the result screen never learned about team_joined (no id, no fingerprint)
+         1 ->          1        N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer)
+         2 ->          2        K5a the offer draws USE SAVED KEY on the BACK row too (the safe word gone from the safe arm)
+         1 ->          1        K5b the offer draws no team identity at all (which team is this key for?)
+         2 ->          2        K5c the offer is drawn with the CREATE title instead of S-28
+         8 ->          8        O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14)
+         1 ->          1        O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36)
+         2 ->          2        O3 every candidate row is drawn UNMARKED — the cursor is invisible on the one list that grants a key
+         9 ->          9        O4 the note row is drawn but the list is not moved down (the note and the first candidate collide)
+         3 ->          3        O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)
+       123 ->        123        O7 the INVITE child is published as absent on a build and a node that have it
+         2 ->          2        O8 the unnamed member's name field is filled from the formatter's HASH branch — a third hash spelling (F-15)
+         4 ->          4        W4a-S5 the invite carrier is formatted at the row's six cells, so NEW MEMBER loses the 14-cell name
+         2 ->          2        W4a-S6 the candidate row is handed the unprojected carrier, so it clips a long name silently (no marker)
+         1 ->          1        O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)
+        97 ->         97        O9b B249's announcement forward calls team-DAD instead of the existing triggered scheduler
+       101 ->        101        O10 ★★ the reqpubkey device forward DROPS the real executor call (the panel waits after airing nothing)
+         2 ->          2        O11 ★★ the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)
+         3 ->          3        O12 NEED PUBKEY is rendered as WAITING before the operator has authorised a request
+         3 ->          3        O13 the waiting screen prints the forbidden ambiguous words WAITING FOR KEY (S-34)
+         3 ->          3        O14 the NEED PUBKEY renderer marks REQUEST instead of the model default BACK
+         2 ->          2        O15 the grant-ready renderer marks GRANT KEY instead of the model default REJECT
+       100 ->        100        O16 ★★ the forward INVENTS the outcome code instead of reporting the executor's (a refusal reads as queued)
+        16 ->         16        O17 the verdict screen draws a FIXED word instead of the outcome's own (S-24 collapsed at the renderer)
+        17 ->         17        O18 the verdict draws the DISCARDED window selection instead of the verdict's own identity (P-7c)
+        13 ->         13        O19 ★★ the device forward PICKS ITS OWN PLANE instead of passing the pure unit's (delegated made reachable)
+         5 ->          5        O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c)
+         3 ->          3        O21 ★★ the grant forward SWALLOWS the origination handle — nothing can ever correlate
+         3 ->          3        O23 ★★ the grant forward SWALLOWS the SEND-TIME resolved dst — the TxDone edge can never match (N6b)
+        11 ->         11        O22 ★★ the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer)
+         7 ->          7        K1 ★★★ the team_key_received case is dropped from mr_ui_on_push (the receipt never reaches the note)
+         1 ->          1        K2 ★★ the grant receipt's name= is drawn as a row of its own (F-3/P-5, S-36's forbidden usage)
+       239 ->        236  FELL  K3 ★★★ the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)
+       225 ->        225        K4 ★★★ the failed-save door does nothing at all ([[B243]] restored from the new end)
+        38 ->         38        K5 ★★ the fifth child is never published, so SAVED KEYS is unreachable from the panel
+         4 ->          4        K6 ★★★ the ACTIVE marker is drawn on EVERY row — the protected record is indistinguishable (S-44 collapsed)
+         1 ->          1        K7 ★★★★ the IRREVERSIBLE confirmation draws the six-hex FINGERPRINT instead of the FULL id — a short-token collision can then name the wrong record on the one screen that destroys one
+         1 ->          1        K8 ★★★★ the PROTECTED screen grows the destructive action row — the panel offers FORGET KEY for the ACTIVE key
+         2 ->          2        K9 ★★★ the removal's verdict screen draws a FIXED word instead of the outcome's own — a failed removal reads as KEY FORGOTTEN
+         2 ->          2        K10 ★★★ the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one
+         5 ->          2  FELL  R1 ★★★ the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (§B66)
+         4 ->          4        R2 ★★★ the row TEXT is resolved without the act, so the grant row renders as a second way out
+        13 ->         15  rose  R3 ★★★★ the act's row is drawn on EVERY DM sub-view, ignoring the model's offer (the four vetoes bypassed)
+         3 ->          3        R4 ★★★ our own stable identity is never published, so the SELF veto can never fire
+         3 ->          3        W3-N1 the settings note is drawn on body row 3 instead of row 4
+         2 ->          2        W4b-N6 the blocked-setup note's reason is drawn on body row 2 instead of row 1
+         - ->         19  NEW   W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND)
+         - ->        105  NEW   W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent)

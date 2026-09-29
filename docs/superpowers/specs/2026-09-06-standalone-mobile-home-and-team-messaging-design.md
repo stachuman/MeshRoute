@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com>; r1 draft: OpenAI Codex (2026-09-06/07); r2/r2.1: Claude, specification author (2026-09-22/23) -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**Revision 2.22 · 2026-09-27 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W1, W3, W4a and W4b scoped by their QA pre-checks; the W4b allocation owner-ruled (§11.1); one W4b transition settled at its coder STOP (§16).** Every decision in
+**Revision 2.23 · 2026-09-29 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W1, W3, W4a, W4b and W6 scoped by their QA pre-checks; the W4b and W6 allocations owner-ruled (§11.1); one W4b transition settled at its coder STOP; W6's reply shape owner-ruled (D14, §7.7) (§16).** Every decision in
 §12 is ruled by the owner (2026-09-23/24): navigation (D1), Home rows and lists (D2, D2a–D2c), the boot splash (D3),
 the editor alphabet (D4), review before every send or save (D5), written-message size and location (D6), phrase
 size (D7), the phrase-record reset (D8), default phrases (D9), names (D10), setup from Home (D11), the Home card of
@@ -700,7 +700,11 @@ position: without a position the core refuses the send exactly as today — the 
 (asynchronous `send_failed`) and `REFUSED` with its code for a team post, whose synchronous refusal does not say
 why (`refuse_reason_of`). Written messages and names never show it, because they never carry location.
 
-A double on a preset row opens this review instead of sending (a behaviour change to UI-10/11 P3). Review opens
+A double on a preset row opens this review instead of sending (a behaviour change to UI-10/11 P3). When a phrase
+review opens, the UI tick resolves the bound slot and generation against the live catalog and copies the exact
+bytes into the review page, as the Inbox copies a message when it opens. No frame reads the catalog or a live
+name while it draws. The review's binding is kept apart from the pending request, so a request already owed —
+for example across an alarm — is never overwritten by a later review. Review opens
 on the non-sending action (`EDIT` or `BACK`); sending costs short + double. Review is a confirmation, not a
 result: R-5's either-press acknowledgement stays with results. It binds destination, exact bytes, location policy
 and — for presets — slot and generation; it is invalidated by the events in §5.5. With Home resting on its
@@ -801,26 +805,42 @@ Results reuse the existing states: `SENDING...`, `QUEUED`, `SENT, waiting`, `DEL
 matching E2E ACK only), `NO KEY`, `NO CONFIRM`, `PICKED UP` (a relay heard it), `NO RELAY HEARD`,
 `NOT CONFIRMED`, refusals with their code. A team post never claims whole-team delivery or a human reply.
 
-### 7.7 Preset catalog v2 [size and default phrases AGREED owner 2026-09-23, D7/D9]
+### 7.7 Preset catalog v2 [size and default phrases AGREED owner 2026-09-23, D7/D9; reply shape owner-ruled 2026-09-29, D14]
 
 - `/mrui` version 2: 17 fixed slots `{enabled, loc, len, text[T+1]}`, `T = 163`: slot 167 B, record 2852 B
-  (12-B header, one named tail byte). Canonical-byte, generation, busy, coalescing and four-state rules unchanged.
+  (12-B header, one named tail byte). The magic stays `'MRU1'`, because it names the store family; the version
+  becomes 2. Canonical-byte, generation, busy and coalescing rules are unchanged; reading gains one
+  classification (§7.8).
 - `validate_preset_text` accepts 1..T bytes of the same grammar. The `ui preset` NDJSON keeps
   `ui_presets_end.capacity` as the **slot count** (`kUiPresets`, 17) and gains a separate `text_max` field — the
   byte limit, from `kUiPresetTextMax` (163) — so the companion sizes its editor from the record's own constants;
   the overlength arm of `bad_text` then uses `text_max`, while absent, empty or all-space text and forbidden bytes
   still answer `bad_text` as today. The companion contract's `ui preset` section
   (`ios-companion/INBOX_SYNC_CONTRACT.md`, which still states 1..17 bytes) changes in the same package.
+- **The whole reply is bounded [owner-ruled 2026-09-29, D14; B475].** At T = 163 a seventeen-record list reaches
+  4185 B, but the USB console stages a response in 2048 B, which B208 forbids growing; a host that is not reading
+  would lose whole lines. So `ui preset list` answers in **pages of at most four records**:
+  - `ui preset list [<page>]`: page n (1..5, derived from the slot count and the page size) lists slots
+    4(n−1)…4n−1 in record order — emergency, dm1..dm8, channel1..channel8 — every slot in range, enabled or not.
+    A bare `list` is page 1.
+  - Each page ends with `ui_presets_end`, which carries `"page":n,"pages":5` after its other fields. The worst
+    page, four maximum channel records, is about 1.1 KB — half the stage.
+  - Any other page token, or a second token, answers `ui_preset_err` with a new reason, `bad_page`.
+  - A client reads pages 1..5 and starts again if `generation` changes between them.
+  - Mutating verbs still answer with the one resulting record. `reset all` still answers with the full list,
+    which is now the compiled defaults: at most 1517 B, with a ten-digit generation (1508 B with a one-digit one).
+  - The page with the most bytes is page 4 (`channel4`..`channel7`), 1097 B at maximum length; page 5 holds only
+    `channel8`.
 - **The reply line** `kPresetLineMax` (a literal 160 today) is re-derived by `static_assert` from the widest record —
   `ui_preset` for `emergency`, enabled, 163 bytes, location off: 243 bytes with its newline, 244 with the NUL. At
-  160, `JsonBuf::finish` would return 0 and a successful `set` or `list` would emit nothing. All four users that
-  size a buffer from it are in W6's fence: `preset_emit_record`, `preset_emit_list` and `preset_emit_err` on the
-  console path, and `preset_boot_restore` on the boot-diagnostic path. Each widened buffer grows by 84 B of stack;
-  the peak stack on either path is measured at the brief, not inferred (§11.1). A brief may instead derive a
-  separate, smaller bound for the boot diagnostic, if it says so.
-- The snapshot projection is **decoupled from T**: each compose row keeps 17 text columns — first 16 bytes plus
-  `»` when longer — and a length, so `UiSnapshot` does not grow with T (without this it would grow 2336 B static
-  and again on the per-tick stack). The full text is read from the live catalog only when a review opens.
+  160, `JsonBuf::finish` would return 0 and a successful `set` or `list` would emit nothing. The console emitters —
+  a record, a page, the full list and an error — size their buffers from it. The boot diagnostic in
+  `preset_boot_restore` uses its own bound, derived from its diagnostic strings (81 B today), so the boot path
+  does not pay for a 244-B buffer. Stack peaks are measured at the brief, not inferred (§11.1).
+- The snapshot projection is **decoupled from T**: each compose row keeps 17 text columns — the first 16 bytes
+  plus `»` when longer, decided when the row is projected — so neither `ComposeSlot` nor `UiSnapshot` grows (without
+  this they would grow 2336 B static and again on the per-tick stack). The full text is copied from the live
+  catalog only when a review opens (§7.3).
 - Default phrases [owner-ruled D9]: the five existing defaults stay (emergency `I'm in danger`, location on;
   personal `Are you OK?`, `I'm OK`; team `Got your message`, `All good`). Added, all location off: team 3
   `Return to base now`, team 4 `On my way`, personal 3 `Where are you?`; the remaining slots stay empty and disabled.
@@ -849,6 +869,17 @@ a phrase have no record and simply get the new defaults.
 
 Recognising the old record needs only its magic, version and size — a distinct message, no reader of its
 contents. Same key; factory reset erases it.
+
+**Reading classifies five results, not four.** The existing four keep their meaning — `ok`, `absent`, `invalid`,
+`io_failed`. The old record adds `old_v1`: after the backend-failure and absent checks, a record of 372 B with
+magic `'MRU1'` and version 1 is `old_v1`, tested before the exact-v2 check. Nothing interprets its slots, flags,
+generation or padding. Its boot line is `  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)`,
+indented like the other two.
+
+**"First successful change"** in the table means a mutation that changes the stored bytes:
+- over an absent record, restating a default stays a zero-write no-op, as today;
+- over an old v1 record, the first successful mutation replaces it even when it restates a default, because it is
+  a repair.
 
 ### 7.9 Emergency slot
 
@@ -980,12 +1011,12 @@ strip during the splash): the mark at x 52–75, y 8–31; the ID line in the 6�
 | Inbox boot boundary (newest sequence per kind, read at UI start) | UI inbox context | 1 | ≈ +8 B | |
 | Inbox ordering key (`rx_time_ms` beside each staged row) | `InboxRowBudget` (one static instance) | 8 rows | ≈ +64 B static | the merge's full-precision key (§6.8); nothing added to `UiSnapshot` |
 | Draft | `UiModel` | 1 | ≈ +170 B | `kDraftMax` 163 + fields |
-| Editor window / review page | `UiState` | 2 | ≈ +48 / +64 B each | sharing a 3-row page with `detail_line` is the review package's choice (W6/W8); W3 keeps `detail_line` at 2 rows |
-| `SendReq` | `UiModel::_req` | 1 | 8 → ≈ 20 B | |
-| Command line | static | 1 | ≈ +200 B static (199 derived, §7.1), −96 B stack | today a 96-B stack local |
-| Preset reply line | stack in `preset_emit_*` (console path) and `preset_boot_restore` (boot-diagnostic path) | one per active call | 160 → 244 B (+84 per widened buffer) | derived from the widest record (§7.7); peak stack measured at the brief, not inferred |
-| Preset catalog v2 (T = 163, owner-ruled D7) | `PresetCatalog` (3 blobs) | 1 | **+7440 B** | the owner accepted this estimate with D7; the brief reports the measured figure against it, and a material excess returns to the owner |
-| Compose rows | `UiSnapshot` | 1 + stack | ≈ +16–32 B | text stays 17 columns |
+| Editor window / review page | `UiState` | 2 | editor ≈ +48 B each (W7); review measured with W6 (below) | W6's review shares the Inbox detail page through a union — three review rows over the Inbox's two `detail_line` rows, which the Inbox keeps — plus a 20-B header |
+| `SendReq` | `UiModel::_req` | 1 | 8 → 16 B (W6, measured); ≈ 20 B with W8's draft ID | W6 adds the bound team and peer hash |
+| Command line | static | 1 | +199 B static (W6, §7.1); the 96-B stack local goes | one owned buffer, passed to the pure composer |
+| Preset reply line | stack in the console emitters; the boot diagnostic has its own bound | one per active call | 160 → 244 B on the console path; the boot line's own bound, 81 B today | derived from the widest record and the diagnostic strings (§7.7); peaks measured at the brief |
+| Preset catalog v2 (T = 163, owner-ruled D7) | `PresetCatalog` (3 blobs) | 1 | **+7440 B**, measured exactly on all three ABIs (W6 pre-check) | the owner accepted this estimate with D7; the brief reports the linked figure against it, and a material excess returns to the owner |
+| Compose rows | `UiSnapshot` | 1 + stack | **0 B** (W6 pre-check) | 17 columns; `»` decided at projection, no length field |
 | `/mrui` record | NVS | 1 | 372 → **2852 B** | 20 KB partition; a mobile image holds ≈ 4.7 KB today (estimate) |
 | Home card (D12) | `UiModel` + `UiState` | 1 + 2 | ≈ +40 + 2×30 B | first 19 bytes, session arrival serial, present flag, epoch, team, origin, time, count |
 | Splash | `UiModel` | 1 | ≈ +5 B | the Git ID is the existing `kGitRevision` string, read, not copied |
@@ -997,12 +1028,25 @@ identities, their count, the selected item and the changed latch, plus the Home 
 32 bytes plus length; one static and one per-tick stack copy), `UiChrome` unchanged (the menu cue fits its padding).
 Any further retained state returns to the owner.
 
+**W6 allocation, owner-ruled 2026-09-29 (D15):** +303 B of static structures on the OLED boards (+319 on the host)
+beyond the catalog, in the QA-measured shape ([W6 pre-check](../evidence/2026-09-29-standalone-mobile-home-w6-precheck.md) §9):
+- `UiState` 520→560 on the boards (568 host): the review's three page rows share the Inbox's detail rows through a
+  union, plus a 20-B header, a phase byte and two flags. It is counted twice — the model's copy and the frozen
+  frame's.
+- `UiModel` 936→1000 on the boards (944→1016 host): a separate 16-B review binding, and `_req` grown by 8 B for the
+  bound team and peer hash (`SendReq` 8→16).
+- The one static 199-B send line.
+
+The catalog measures exactly +7440 B (D7). Together that is +7743 B of board objects, before linked-section
+effects, which the brief measures. Any further retained state returns to the owner.
+
 Without the catalog growth the static estimate stays near 1 KB. The stack changes on two separate paths, so no
 neutrality is claimed: the UI send path loses its 96-B line (now static), and each widened preset buffer gains
 84 B on the console and boot-diagnostic paths; the peaks are measured at the brief. With T = 163 about +8.4 KB static on the six OLED images (`heltec_mobile` last recorded at 211724 B). Board padding differs (`UiModel`
 912 board vs 928 host; B246): every figure is re-derived with `tools/probe_board_abi.py` pins and a
-`tools/measure_board.py` pair at each brief. **Apart from the catalog estimate the owner accepted with D7 and the
-W4b structures the owner approved on 2026-09-27 (above), no allocation is granted by this document.**
+`tools/measure_board.py` pair at each brief. **Apart from the catalog estimate the owner accepted with D7, the W4b structures
+approved on 2026-09-27 and the W6 structures approved on 2026-09-29 (above), no allocation is granted by this
+document.**
 
 ### 11.2 Profiles
 
@@ -1037,6 +1081,8 @@ prediction is re-checked at each gate, never assumed.
 | D11 | Setup from Home | **Resolved — owner 2026-09-23 (as proposed):** `JOIN`/`CREATE` pass the same settings gate, factored once; `INVITE MEMBER` opens without it (changes no settings); an explicit `home`/`settings` origin returns exits to Home (unknown → the PROVISION menu); a blocked gate shows a SETTINGS-slot note; the gate runs before the name prompt | Not chosen: hide `JOIN`/`CREATE` while blocked; gate `INVITE` too (r2–r2.10) | Keeps R-3's Home body rule; no settings text on Home; SETTINGS → PROVISION unchanged |
 | D12 | Preview | **Resolved — owner 2026-09-24 (D):** a display-only card — the newest unread sealed team post in Home's rows 1–2, no rows added, cleared by the existing unread rule, a team change or an epoch change; no DM preview | Not chosen: the r2 card with `OPEN`/`HIDE` (absent when a post wakes a panel already on Home); deferring; dropping | ≈ 100 B RAM; no wake, read or navigation change |
 | D13 | Inbox order | **Resolved — owner 2026-09-23:** one newest-first list across DMs and team posts (§6.8). **D13b resolved — owner 2026-09-23 (the lighter rule):** this session's messages merged by receive time; earlier ones below, each kind newest-first, ages `--` | Not chosen: a persistent arrival serial in every Inbox record, exact across restarts | `src`-only — ≈ 8 B for the boot boundary plus an estimated 64 B payload of full-precision ordering keys (§11.1), before padding; existing accessors — and closes B445; the accepted residue is the DM-versus-team order among rows from before the last restart. The rejected alternative needed a `lib/core` Inbox change plus a store-format migration on both backends and still could not show pre-restart ages |
+| D14 | `ui preset` reply size (B475) | **Resolved — owner 2026-09-29 (pages of four):** `ui preset list [<page>]` answers at most four records, and the end record names the page and the page count; a bare `list` is page 1; a client reads pages 1..5 and restarts when `generation` changes; mutation replies and `reset all` unchanged (§7.7) | Not chosen: one phrase per request; one list per kind (2046 B, two bytes under the stage); streaming across service passes | Every reply fits the 2048-B USB console stage with about half to spare; reading the whole catalog takes five requests |
+| D15 | W6 allocation | **Resolved — owner 2026-09-29 (+303 B):** the review shares the Inbox detail page through a union; a separate review binding; `SendReq` 8→16; the static 199-B send line (§11.1) | Not chosen: a separate review page (+383 B); a separate page and review body (+551 B) | +7743 B of board objects with the catalog; the shared page's lifetime and the pending request's coexistence are proved by tests |
 
 ## 13. Proposed implementation packages (for QA briefs — not a frozen slice list)
 
@@ -1053,7 +1099,7 @@ prediction is re-checked at each gate, never assumed.
 | W4c | fix, `src` | B445: the Inbox boot boundary (`dm_newest_seq()`/`chan_newest_seq()` read once at UI start); rows from before the restart show age `--` | — | native (both sides of the stamp), `model` battery, firmware-UI probe |
 | W4d | feature, `src` | Inbox newest-first merge (§6.8) over the unchanged per-kind budget, keyed on the full receive time kept beside each staged row; the identity cursor and the after-delete neighbour follow the displayed order | W4c | native (merge, ties, restart split, sub-second order), `model` battery (B231's M92/M93 re-anchored, never weakened), firmware-UI probe; metal UI-02 |
 | W5 | feature, `src` | boot splash: the mark and the build's Git ID (D3) | W4b | native (the pure line formatter, including an over-long ID), probe render, POWER metal |
-| W6 | feature, `src` + NV | `/mrui` v2 (an old v1 record: defaults and a distinct message at every boot until the first change), T, validation, `text_max` beside the unchanged slot `capacity` and the companion contract's `ui preset` section, the reply line `kPresetLineMax` and its four users (three console emitters and `preset_boot_restore`), row projection with `»`, review for phrases (with `LOC` when located), team-binding gate, static line buffer, defaults | W2, W3, W4b | native, `uipresets`/`uipresetverbs`/`devicenv`/`uisend`/`model` (full 163-byte `set` and `list` replies through `PresetPrintLines`, with a control restoring the 160-byte line), W54 green, probe exact send lines, ABI, RAM pair; closes B335 with QA |
+| W6 | feature, `src` + NV | `/mrui` v2 (an old v1 record: defaults and a distinct message at every boot until the first change; one added read classification), T, validation, `text_max` beside the unchanged slot `capacity` and the companion contract's `ui preset` section, the paged `ui preset list` (D14, B475), the reply line `kPresetLineMax` for the console emitters with the boot diagnostic's own bound, row projection with `»` (no length field), review for phrases (with `LOC` when located), the team and peer-hash binding, the static line buffer, defaults; allocation owner-ruled (D15) | W2, W3, W4b | native; the selector-(a) batteries (`model`, `devicenv`, `uisend`, `uipresets`, `uipresetverbs`, `sliceCbudget`, `sliceCsend`, `w4aident`, `w4bhome`) and the brief's selector (b); full 163-byte `set` replies and every `list` page through the real output path with zero `CONSOLE_DROP` on a clean stage, with a control restoring the 160-byte line; board-UI default; probe exact send lines and review renders; an OLED-enabled router arm; ABI; RAM pair; closes B335 and B475 with QA. **Status 2026-09-29: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `70ff486`; [QA receipt](../evidence/2026-09-29-standalone-mobile-home-w6-qa.md). **B335/B475/B477 closed**; D14/D15 reproduced, nine touched batteries 437/437 RED, corpus unchanged and both board images reproduce the coder freeze. Mobile linked RAM +7752 B = catalog +7440 + D15 objects +303 + alignment +9; gateway unchanged. [Metal UI-12/UI-22/NV-06](../../2026-09-20-metal-test-plan.md#ui-22) OWED. B476 and B478–B481 stay separate. The approved brief and coder evidence remain frozen; commits are not progress gates. |
 | W7 | feature, `src` | editor + rename (CHANGE NAME, name prompt; the name origins `my_device`/`setup_join`/`setup_create`, with the settings gate re-asked on continuing into setup) | W0, W4b, W6 | new `uieditor` target, `model`, probe |
 | W8 | feature, `src` | written DM/team messages: WRITE MESSAGE rows, locked draft (163 bytes), new kinds and kind-scoped gates, the §7.4.1 caller table, never `-l` (D6) | W6, W7 (candidate pairing under P6) | `uisend`/`model`/`uieditor`, probe exact lines, ABI, RAM pair |
 | W9 | feature, `src` | the Home card of the newest unread team post (§8, D12) | W4b | native (eligibility matrix, newest wins with `+n`, clearing on read, team and epoch change, header-only under `RESTART NEEDED`, list items and the arrow's item unchanged), `model`, probe render, UI-14/POWER metal |
@@ -1081,7 +1127,7 @@ must preserve every tracked and untracked input and deletion.
 | Inbox order | B231 per-kind newest-first cases (mutations M92/M93); the §B64 cursor cases | one list newest-first across kinds for this session's rows; rows under one second apart in both kind orders (never ordered by the published age); genuinely equal times; receive times above 2^32 ms; rows from before the restart below, each kind newest-first, ages `--` on both sides of the stamp (B445); per-kind budget of four unchanged; cursor follows `(kind, seq)` through reordering; after-delete neighbour in displayed order; Home `INBOX` lands on the newest | UI-02 |
 | Multiline and send | ui7-line exact strings (`test_firmware_ui_send.cpp`) | 17/18 and cap/cap+1 (163/164) for team, DM and phrases — one limit (D6/D7); wrap concatenation property; long words; page count (≤ 6); page change sends nothing; reviewed bytes = composed quoted body; location variants for phrases, with `LOC` on the review exactly when the slot requests it; a written message's composed line never contains `-l`; a DM review header with a long label fits 19 columns | UI-15, UI-12 |
 | Context and lifetime | P3 generation cases, `PRESET CHANGED` | team change, recipient hash change, duplicate names (review shows hash), locked draft drained after the editor closes, ordinary path never touches `/mrui` or the emergency tracker; every §7.4.1 row for each caller and request state — gates scoped by kind (a phrase request is never refused for lacking a draft), the saved-phrase return to its list, presses ignored while a written request is still queued, withdrawal of a queued written message at `long_fire` with the emergency request untouched, the known-refused `long_fire` path (draft kept for a fresh review, nothing re-submitted), the accepted-open residual, the typed retain/release classification, and both name origins | UI-15 |
-| Catalog version 2 | P1 four-state cases | a v1 fixture boots as compiled defaults with the distinct old-record line and zero writes; fresh → exactly the eight defaults of §7.7; invalid/truncated/`io_failed` unchanged; first change writes canonical v2; save failure keeps live; emergency slot rules; `capacity` 17 and `text_max` 163 asserted independently; full 163-byte `set` and `list` replies through the real output path and the boot diagnostic with a full v2 record, with a control restoring the 160-byte line | NV-06, UI-12 |
+| Catalog version 2 | P1 four-state cases | a v1 fixture boots as compiled defaults with the distinct old-record line and zero writes; fresh → exactly the eight defaults of §7.7; invalid/truncated/`io_failed` unchanged; first change writes canonical v2; save failure keeps live; emergency slot rules; `capacity` 17 and `text_max` 163 asserted independently; full 163-byte `set` replies and every `list` page through the real output path with zero `CONSOLE_DROP` on a clean stage, `reset all`'s default list, `bad_page`, and the boot diagnostic in each read state, with a control restoring the 160-byte line | NV-06, UI-12 |
 | Home card (D12) | wake cases | eligibility matrix (sealed, same team, team channel, nonzero seq; cleartext, foreign, other-channel and internal never); no card from history after boot; newest wins and `+n` capped `9+`; `T<n>` kept after ID reuse; clears when the read watermark reaches the card's arrival serial, on a team change and on an epoch change — including a restored store whose sequences start above zero (never compared with the record sequence), a sequence gap after a delete, clearing by the Inbox's menu-mode preview, an arrival while an Inbox frame pages out (the card stays) and the arrival serial wrapping at 2^32; header-only under `RESTART NEEDED`; list items and the arrow's item unchanged when it appears; widest header `FROM T254 59m +9+`, 17 columns; first 19 bytes with `»` | UI-14, POWER-02 |
 | Splash | — | boot only, deadline, dismiss consumed, long hold → emergency, never on wake, then Home in list focus; the ID line equals `kGitRevision`, centred, `»` past 19 columns | UI-01, POWER-01 |
 | Production reachability | `probe_firmware_ui` drives the real `firmware_ui.cpp` (asserts no composed line today) | the probe asserts exact composed lines through the real composer into the faked executor; Home, menu mode, editor and review renders | UI-15 |
@@ -1282,3 +1328,19 @@ over an open service, and otherwise SETTINGS is its closed view in menu mode (re
 the coder raised are written down: a press in the same tick as the change that raises `OPTIONS CHANGED` is consumed
 without clearing it (§6.4), and with no phrases the Send list's `PRESET CHANGED` covers its `MENU` row for one press
 (§6.5). Author decision within D1; no owner ruling. Documentation only.
+
+**r2.23, 2026-09-29 — W6's reply shape and allocation owner-ruled; contract completions from the W6 pre-check.** Preparing the W6 pre-check, the author found that §7.7 sized one reply line but not a whole seventeen-record list, which reaches 4185 B against the 2048-B USB console stage (B475). The owner ruled pages of four (D14) and the W6 allocation, +303 B of board objects beyond the catalog (D15). From the [W6 pre-check](../evidence/2026-09-29-standalone-mobile-home-w6-precheck.md):
+- the magic stays `'MRU1'`, with version 2;
+- reading adds one classification (`old_v1`), and the four existing ones keep their meaning;
+- a first successful change means a mutation that changes the stored bytes, and it repairs an old v1 record even
+  when it restates a default;
+- compose rows keep 20 B, with the `»` decided at projection (no length field);
+- the boot diagnostic uses its own bound;
+- `reset all` answers the defaults (at most 1517 B), not a maximum catalog;
+- a phrase review copies its bytes from the live catalog when it opens, and its binding stays apart from the
+  pending request (§7.3).
+
+**Erratum within r2.23 (W6 brief review, W6R-2):** `reset all`'s maximum reply is 1517 B, with a ten-digit
+generation; the 1508 B first recorded here is the one-digit case. The page figures come from the same review.
+
+Documentation only.

@@ -68,14 +68,16 @@ struct IPresetLines {
     virtual void line(const char* s, size_t n) = 0;
 };
 
-// ★★ THE LINE BUFFER, SIZED FROM THE RECORD'S OWN MAXIMUM rather than guessed. The widest record this file can
-//    produce is a `ui_preset` for `channel8` with a full 17-byte text:
-//      {"ev":"ui_preset","slot":"channel8","enabled":false,"text":"<17>","location":false}\n  = 98 B + NUL.
-//    The widest `ui_presets_end` is 96 B + NUL (`generation` at 4294967295), and `ui_preset_err` is far shorter.
-// ⓘ NO ESCAPE GROWTH IS POSSIBLE: `validate_preset_text` refuses `"` and `\` and everything outside 0x20..0x7e, and
-//   `presets_canonical` refuses a stored record that breaks that — so `JsonBuf::str` copies 17 bytes as 17 bytes.
-//   The margin below is for a FUTURE field, ⛔ not for an escape nobody can produce.
-inline constexpr size_t kPresetLineMax = 160;
+// ★★ THE LINE BUFFER, DERIVED FROM P1's FIELD SPELLINGS THE WRITERS USE (W6, §7.7): `emergency`'s record with 163 text
+//    bytes = 243 B + NUL. ⛔ WITHDRAWN: the literal 160, at which a 163-byte record would VANISH. ⓘ No escapes: 0x20..0x7e.
+inline constexpr size_t kPresetSlotTokenMax = 9, kPresetU32Digits = 10;   // `emergency`; 4294967295 (any number)
+inline constexpr size_t kPresetRecordMax = preset_lit_len(kPresetRecHead) + kPresetSlotTokenMax + 1 + preset_lit_len(kPresetRecEnabled) +
+    4 /* true */ + preset_lit_len(kPresetRecText) + 2 + mrnv::kUiPresetTextMax + preset_lit_len(kPresetRecLocation) + 5 /* false */ + 2;
+inline constexpr size_t kPresetEndMax = preset_lit_len(kPresetEndHead) + preset_lit_len(kPresetEndTextMax) + preset_lit_len(kPresetEndDm) +
+    preset_lit_len(kPresetEndChannel) + preset_lit_len(kPresetEndGen) + preset_lit_len(kPresetEndPage) + preset_lit_len(kPresetEndPages) +
+    7 * kPresetU32Digits + 2;                                                        // each Max ends `}` + '\n'
+inline constexpr size_t kPresetLineMax = (kPresetRecordMax > kPresetEndMax ? kPresetRecordMax : kPresetEndMax) + 1;
+static_assert(kPresetLineMax == 244 && kPresetEndMax < kPresetRecordMax && kPresetBootLineMax < kPresetLineMax, "W6 §2.2");
 
 // ---- the stable slot TOKEN (§3.2.3's `emergency` / `dm1..dm8` / `channel1..channel8`) ----------------------------
 // ★ COMPOSED FROM P1's `preset_kind_name` + `preset_ordinal_of` (U1), ⛔ never a second table of seventeen strings:
@@ -137,12 +139,12 @@ inline size_t write_ui_preset(char* buf, size_t cap, uint8_t slot, const mrnv::U
     char tok[16];
     preset_slot_token(slot, tok, sizeof tok);
     meshroute::console::JsonBuf j(buf, cap);
-    j.lit("{\"ev\":\"ui_preset\",\"slot\":\""); j.lit(tok); j.ch('"');
-    j.lit(",\"enabled\":");  j.lit(s.enabled ? "true" : "false");
+    j.lit(kPresetRecHead); j.lit(tok); j.ch('"');
+    j.lit(kPresetRecEnabled);  j.lit(s.enabled ? "true" : "false");
     // ★ A DISABLED SLOT RENDERS `"text":""` AND `"location":false`, by construction rather than by a special case:
     //   P1's canonical rule zeroes a disabled slot whole (`preset_slot_put`), so `len` is 0 and `loc` is 0 here.
-    j.lit(",\"text\":");     j.str(s.text, s.len);
-    j.lit(",\"location\":"); j.lit(s.loc ? "true" : "false");
+    j.lit(kPresetRecText);     j.str(s.text, s.len);
+    j.lit(kPresetRecLocation); j.lit(s.loc ? "true" : "false");
     j.ch('}');
     return j.finish();
 }
@@ -150,19 +152,20 @@ inline size_t write_ui_preset(char* buf, size_t cap, uint8_t slot, const mrnv::U
 //   stable slots"* — so the number the companion sizes its editor from must be the number the record actually has,
 //   and the ONLY way that can never drift is to read it from the record's own constant.
 inline size_t write_ui_presets_end(char* buf, size_t cap, uint8_t dm_active, uint8_t channel_active,
-                                   uint32_t generation) {
+                                   uint32_t generation, uint8_t page = 0) {   // W6 D14: `page` ≠ 0 = a `list` page
     meshroute::console::JsonBuf j(buf, cap);
-    j.lit("{\"ev\":\"ui_presets_end\",\"capacity\":"); j.u32(mrnv::kUiPresets);
-    j.lit(",\"dm_active\":");      j.u32(dm_active);
-    j.lit(",\"channel_active\":"); j.u32(channel_active);
+    j.lit(kPresetEndHead); j.u32(mrnv::kUiPresets); j.lit(kPresetEndTextMax); j.u32(mrnv::kUiPresetTextMax);   // W6: BYTES
+    j.lit(kPresetEndDm);       j.u32(dm_active);
+    j.lit(kPresetEndChannel);  j.u32(channel_active);
     // ★★ THE GENERATION RIDES THE END RECORD, and it is not decoration: §3.2.3 makes it the equality token a
     //    `SendReq` seals and a companion editor re-reads. A list without it cannot tell the reader WHICH catalog
     //    it just described.
-    j.lit(",\"generation\":");     j.u32(generation);
+    j.lit(kPresetEndGen);      j.u32(generation);
+    if (page != 0) { j.lit(kPresetEndPage); j.u32(page); j.lit(kPresetEndPages); j.u32(kPresetPages); }
     j.ch('}');
     return j.finish();
 }
-// ★★ THE SIX REASONS ARE SPELLED BY P1's `preset_err_name` (U1) — ⛔ never re-spelled here. That mapper is
+// ★★ THE SEVEN REASONS (W6 added `bad_page`) ARE SPELLED BY P1's `preset_err_name` (U1) — ⛔ never re-spelled here. That mapper is
 //    `default`-less and `-Werror=switch`-fenced, so an owner re-wording changes ONE place and a native case sees
 //    it. ⓘ `none` and the `count` sentinel HAVE no producer on this path; they are deliberately NOT special-cased,
 //    so a future defect that reached here would emit a VISIBLE `"reason":"none"` rather than be swallowed by a
@@ -183,18 +186,18 @@ inline void preset_emit_record(const PresetCatalog& cat, uint8_t slot, IPresetLi
     char b[kPresetLineMax];
     preset_emit(out, b, write_ui_preset(b, sizeof b, slot, cat.slot(slot)));
 }
-// ★★★ `list` = **ALL SEVENTEEN, IN STABLE SLOT ORDER, INCLUDING THE DISABLED ONES**, then `ui_presets_end`
+// ★★★ THE LIST = **ALL SEVENTEEN, IN STABLE SLOT ORDER, INCLUDING THE DISABLED ONES**, then `ui_presets_end`
 //     (§3.2.3, verbatim: *"this lets the companion edit exact stable slots without inferring them from
 //     active-list positions"*). ⛔ Filtering the disabled rows out is the defect this loop exists to prevent: an
 //     editor that only ever sees the enabled slots cannot address `dm5` to turn it ON, and it would have to infer
 //     `dmN` from a list position — §B66's exact cure, undone one layer up.
-inline void preset_emit_list(const PresetCatalog& cat, IPresetLines& out) {
-    for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);
+// ★★★ W6 (D14): `page` 1..kPresetPages = slots [4(n−1), min(4n, 17)) + `page`/`pages`; 0 = `reset all`'s whole list.
+inline void preset_emit_list(const PresetCatalog& cat, IPresetLines& out, uint8_t page = 0) {
+    const uint8_t first = page ? uint8_t((page - 1) * kPresetPageSize) : 0, last = page ? first + kPresetPageSize : mrnv::kUiPresets;
+    for (uint8_t i = first; i < last && i < mrnv::kUiPresets; ++i) preset_emit_record(cat, i, out);
     char b[kPresetLineMax];
-    preset_emit(out, b, write_ui_presets_end(b, sizeof b,
-                                             cat.enabled_count(PresetKind::dm),
-                                             cat.enabled_count(PresetKind::channel),
-                                             cat.generation()));
+    preset_emit(out, b, write_ui_presets_end(b, sizeof b, cat.enabled_count(PresetKind::dm),
+                                             cat.enabled_count(PresetKind::channel), cat.generation(), page));
 }
 inline void preset_emit_err(PresetErr e, IPresetLines& out) {
     char b[kPresetLineMax];
@@ -202,17 +205,14 @@ inline void preset_emit_err(PresetErr e, IPresetLines& out) {
 }
 
 // ---- the retained storage DIAGNOSIS (the design's *"visible boot/status warning"*) --------------------------------
-// ★★ P1 owns the two exact lines and the `nullptr` third answer (`preset_boot_line`); this owns WHEN THEY STOP
-//    BEING TRUE, which is a decision and therefore belongs in a unit a case can drive.
-//   · a boot read of `invalid` is a fault the wearer must see — and the owner ruled it REPAIRABLE: *"a later
-//     successful mutation MAY rewrite the complete canonical catalog and repair it"*. ⇒ the first `ok` verdict
-//     CLEARS the warning, because at that moment the record on flash IS canonical again and the line would
-//     otherwise go on claiming a fault that has been fixed.
-//   · a boot read of `io_failed` can NEVER be cleared here, and that too is by construction rather than by a
-//     rule: every mutation over an unreadable store returns `store` with zero writes, so no `ok` verdict exists
-//     to clear it. ⛔ Do not "fix" that by clearing on any other verdict.
-// ⓘ The initial value is `absent`, the SILENT state — so a read before the boot restore can never invent a
-//   warning (`preset_boot_line(absent)` is `nullptr`).
+// ★★ P1 owns the THREE exact lines (W6 added `old_v1`'s; "two" before) and the `nullptr` answer (`preset_boot_line`);
+//    this owns WHEN THEY STOP BEING TRUE, which is a decision and therefore belongs in a unit a case can drive.
+//   · `invalid` (owner-ruled REPAIRABLE: *"a later successful mutation MAY rewrite the complete canonical catalog"*)
+//     and `old_v1` (W6: replaced by the first successful change) — the first `ok` verdict CLEARS the line, because
+//     the record on flash IS canonical v2 again and the line would otherwise go on claiming a fixed fault.
+//   · `io_failed` can NEVER be cleared here, by construction: every mutation over an unreadable store returns
+//     `store` with zero writes, so no `ok` verdict exists. ⛔ Do not "fix" that by clearing on any other verdict.
+// ⓘ The initial value is `absent`, the SILENT state — a read before the boot restore can never invent a warning.
 struct PresetDiag {
     mrnv::UiPresetRead boot = mrnv::UiPresetRead::absent;
     void on_boot(mrnv::UiPresetRead st) { boot = st; }
@@ -231,9 +231,9 @@ inline mrnv::UiPresetRead preset_boot_restore(PresetCatalog& cat, PresetDiag& di
     diag.on_boot(st);
     const char* ln = diag.line();
     if (!ln) return st;                          // ★ `ok` / `absent` print NOTHING — an ordinary first boot is silent
-    char b[kPresetLineMax];
+    char b[kPresetBootLineMax];
     size_t n = strlen(ln);
-    if (n > sizeof b - 2) n = sizeof b - 2;      // last fence in front of a memcpy bound; both ruled lines are ~78 B
+    if (n > sizeof b - 2) n = sizeof b - 2;      // last fence in front of a memcpy bound; the derived bound fits every line
     memcpy(b, ln, n);
     b[n] = '\n';
     preset_emit(out, b, n + 1);
@@ -301,7 +301,7 @@ inline void preset_render(const PresetCatalog& cat, long slot, bool whole_list, 
             return;
         case PresetVerdict::refused:
         case PresetVerdict::nv_failed:
-            // ⓘ `nv_failed` carries `PresetErr::store` from P1 — the design's sixth reason, ⛔ not a seventh.
+            // ⓘ `nv_failed` carries `PresetErr::store` from P1 — one of the published reasons, ⛔ never a new one for this arm.
             preset_emit_err(r.err, out);
             return;
         case PresetVerdict::count:
@@ -326,9 +326,9 @@ inline bool preset_verb(PresetCatalog& cat, PresetDiag& diag, const char* args, 
     if (!a.word(t, n)) return false;                                   // `ui preset` alone -> the usage line
 
     if (preset_word_is(t, n, "list")) {
-        if (!a.exhausted()) return false;                              // C2 — a trailing token is a MISTYPE
-        preset_emit_list(cat, out);
-        return true;
+        const uint8_t pg = a.word(t, n) ? (a.exhausted() ? preset_page_of_token(t, n) : uint8_t(0)) : uint8_t(1);
+        if (pg) preset_emit_list(cat, out, pg); else preset_emit_err(PresetErr::bad_page, out);   // W6 D14: bare = 1
+        return true;                                                   // ⛔ a bad token or a 2nd token = `bad_page`
     }
     if (preset_word_is(t, n, "set")) {
         const char* st = nullptr; size_t sn = 0;
@@ -360,7 +360,7 @@ inline bool preset_verb(PresetCatalog& cat, PresetDiag& diag, const char* args, 
         if (!a.exhausted()) return false;                              // C2 — `clear dm1 now` is a MISTYPE
         const long slot = preset_slot_of_token(st, sn);
         if (slot < 0) { preset_emit_err(PresetErr::bad_slot, out); return true; }
-        // ⛔ `clear emergency` IS REFUSED BY THE SERVICE, ⛔ not filtered here: `mandatory` is one of the six
+        // ⛔ `clear emergency` IS REFUSED BY THE SERVICE, ⛔ not filtered here: `mandatory` is one of the seven
         //    reasons and P1 owns which slot is mandatory (`preset_slot_mandatory`). A second opinion in the parser
         //    is exactly the fork U1 forbids — and it would answer `mandatory` even during an alarm, where the
         //    ruled answer is `busy`.

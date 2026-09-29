@@ -1,0 +1,195 @@
+{
+  "scope": "Reconciled original QA-measured struct-only shape, whose inputs are unchanged; scratch model hashes verified. No fresh ABI or linked-board gate run during brief review.",
+  "variants": {
+    "base": {
+      "model_sha256_matches": true,
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": 21,
+          "mrnv::UiPresetBlob": 372,
+          "mrfw::PresetCatalog": 1144,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 8,
+          "mrui::UiState": 520,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 944
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": 21,
+          "mrnv::UiPresetBlob": 372,
+          "mrfw::PresetCatalog": 1132,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 8,
+          "mrui::UiState": 520,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 936
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": 21,
+          "mrnv::UiPresetBlob": 372,
+          "mrfw::PresetCatalog": 1132,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 8,
+          "mrui::UiState": 520,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 936
+        }
+      }
+    },
+    "catalog_only": {
+      "model_sha256_matches": true,
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8584,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 8,
+          "mrui::UiState": 520,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 944
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 8,
+          "mrui::UiState": 520,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 936
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 8,
+          "mrui::UiState": 520,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 936
+        }
+      }
+    },
+    "shared_page": {
+      "model_sha256_matches": true,
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8584,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 568,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1016
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 560,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1000
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 560,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1000
+        }
+      }
+    },
+    "separate_page": {
+      "model_sha256_matches": true,
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8584,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 600,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1048
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 600,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1040
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 600,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1040
+        }
+      }
+    },
+    "separate_body_page": {
+      "model_sha256_matches": true,
+      "targets": {
+        "native": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8584,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 600,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1224
+        },
+        "heltec_mobile": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 600,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1208
+        },
+        "gateway": {
+          "mrnv::UiPresetSlot": 167,
+          "mrnv::UiPresetBlob": 2852,
+          "mrfw::PresetCatalog": 8572,
+          "mrui::ComposeSlot": 20,
+          "mrui::ComposeList": 161,
+          "mrui::SendReq": 16,
+          "mrui::UiState": 600,
+          "mrui::UiSnapshot": 1368,
+          "mrui::UiModel": 1208
+        }
+      }
+    }
+  }
+}

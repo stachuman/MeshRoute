@@ -1,0 +1,17 @@
+{
+  "entry_files": 2024,
+  "final_files": 2024,
+  "changed": [
+    "docs/2026-07-30-open-bug-register.md"
+  ],
+  "change_authority": "M1: B477 row plus next-free marker only; reconstructing the entry register reproduces its SHA-256",
+  "missing": [],
+  "unexplained_additions": [],
+  "brief_unchanged": true,
+  "other_preparation_unchanged": true,
+  "production_tests_tools_unchanged": true,
+  "simulator_paths_unchanged": 285,
+  "simulator_clean": true,
+  "index_empty": true,
+  "command_inventory_rows": 197
+}

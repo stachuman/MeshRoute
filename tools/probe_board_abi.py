@@ -306,6 +306,24 @@ FIXTURE_SOURCE = (
 #    `idedata` flags) after the edit, whose printed block equals this table; independently, the W4b supplemental
 #    layout driver (the pre-check's recipe, the same `measure`) on the final headers, and the pre-check's
 #    `layout-measure.py` `reuse_focus_append_name` variant (520 / 1368 / 944|936|936) — three readings, one answer.
+# ★★ RE-PIN — 2026-09-29, W6 (saved phrases of up to 163 bytes), AUTHORIZED: the OWNER-RULED allocation (D15, design
+#    r2.23 §11.1, brief §2.7 — "Any other size, alignment or retained state is a STOP"). SIX rows move their SIZE on
+#    every target; ⛔ no alignof and ⛔ no T column moves:
+#      mrnv::UiPresetSlot    21 ->  167  all three   (T = 163 + the terminator; 3 x uint8 + 164 char, alignof 1)
+#      mrnv::UiPresetBlob   372 -> 2852  all three   (the 12-B header + 17 x 167 + ONE named tail byte, alignof 4)
+#      mrfw::PresetCatalog 1144 -> 8584  native      (three records + the refs/counters; the boards' 1132 -> 8572,
+#                          1132 -> 8572  boards       +7440 exactly = 3 x 2480)
+#      mrui::SendReq          8 ->   16  all three   (`peer_known` in the old padding byte, then `team_id`, `peer_hash`)
+#      mrui::UiState        520 ->  568  native      (the review's union over `detail_line` is 20 B wider — every later
+#                           520 ->  560  boards       member moves — plus the appended phase/flags/20-B header)
+#      mrui::UiModel        944 -> 1016  native      (the larger `UiState` + the review's own 16-B `SendReq _review`)
+#                           936 -> 1000  boards
+#    `ComposeSlot` 20 / `ComposeList` 161 / `UiSnapshot` 1368 / `UiChrome` 20 are UNMOVED, as D15 requires. THE DERIVATION:
+#    this probe's own measurement on the final headers (the stock run PASSES at exactly these pins on all three
+#    toolchains), and independently the pre-check's `layout-measure.py` `shared_page` variant (167 / 2852 /
+#    8584|8572 / 16 / 568|560 / 1016|1000) — the same numbers from a scratch model the pre-check built before any code.
+#    The two NEW types (`mrui::SendLive`, `mrui::ReviewPhase`) are measured by the W6 supplemental `--extra-pins`
+#    manifest in the W6 evidence, never folded into this table.
 PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
     "native": {
         "meshroute::Node":         (235208, 8, True),   # Slice 10 R-RA-6: 235248 - 40 legacy mirrors, measured on native
@@ -320,14 +338,14 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "meshroute::DeferredActionRecord": (40, 8, True),
         "meshroute::TranscriptHeader": (32, 8, True),
         "meshroute::RemoteSessionState": (8904, 8, True),
-        "mrnv::UiPresetSlot":      (21, 1, True),
-        "mrnv::UiPresetBlob":      (372, 4, True),
+        "mrnv::UiPresetSlot":      (167, 1, True),   # W6 re-pin (owner-ruled D15): 21 -> 167
+        "mrnv::UiPresetBlob":      (2852, 4, True),   # W6 re-pin (owner-ruled D15): 372 -> 2852
         "mrfw::SavedKeyEntry":     (8, 4, True),
         "mrfw::SavedKeyList":      (36, 4, True),
-        "mrfw::PresetCatalog":     (1144, 8, False),   # T: [[B255]] re-pin — native declares no MR_FEAT_OLED=1
-        "mrui::UiState":           (520, 8, False),    # W4b re-pin: 504 -> 520 (see the block above)
+        "mrfw::PresetCatalog":     (8584, 8, False),   # W6 re-pin (owner-ruled D15): 1144 -> 8584; T: [[B255]] — native declares no MR_FEAT_OLED=1
+        "mrui::UiState":           (568, 8, False),   # W6 re-pin (owner-ruled D15): 520 -> 568
         "mrui::UiSnapshot":        (1368, 8, False),   # W4b re-pin: 1336 -> 1368
-        "mrui::UiModel":           (944, 8, False),    # W4b re-pin: 928 -> 944
+        "mrui::UiModel":           (1016, 8, False),   # W6 re-pin (owner-ruled D15): 944 -> 1016
         "mrui::UiChrome":          (20, 2, False),
         "mrui::InviteWindow":      (104, 4, False),
         "mrui::InviteMember":      (20, 4, False),
@@ -336,7 +354,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "mrui::UiProvIntent":      (32, 4, False),
         "mrui::ComposeSlot":       (20, 1, False),
         "mrui::ComposeList":       (161, 1, False),
-        "mrui::SendReq":           (8, 4, False),
+        "mrui::SendReq":           (16, 4, False),   # W6 re-pin (owner-ruled D15): 8 -> 16
         FIXTURE_NAME:              (24, 8, True),
     },
     "heltec_mobile": {
@@ -352,14 +370,14 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "meshroute::DeferredActionRecord": (40, 8, True),
         "meshroute::TranscriptHeader": (32, 8, True),
         "meshroute::RemoteSessionState": (8904, 8, True),
-        "mrnv::UiPresetSlot":      (21, 1, True),
-        "mrnv::UiPresetBlob":      (372, 4, True),
+        "mrnv::UiPresetSlot":      (167, 1, True),   # W6 re-pin (owner-ruled D15): 21 -> 167
+        "mrnv::UiPresetBlob":      (2852, 4, True),   # W6 re-pin (owner-ruled D15): 372 -> 2852
         "mrfw::SavedKeyEntry":     (8, 4, True),
         "mrfw::SavedKeyList":      (36, 4, True),
-        "mrfw::PresetCatalog":     (1132, 4, True),
-        "mrui::UiState":           (520, 8, True),     # W4b re-pin: 504 -> 520
+        "mrfw::PresetCatalog":     (8572, 4, True),   # W6 re-pin (owner-ruled D15): 1132 -> 8572
+        "mrui::UiState":           (560, 8, True),   # W6 re-pin (owner-ruled D15): 520 -> 560
         "mrui::UiSnapshot":        (1368, 8, True),    # W4b re-pin: 1336 -> 1368
-        "mrui::UiModel":           (936, 8, True),     # W4b re-pin: 912 -> 936
+        "mrui::UiModel":           (1000, 8, True),   # W6 re-pin (owner-ruled D15): 936 -> 1000
         "mrui::UiChrome":          (20, 2, True),
         "mrui::InviteWindow":      (104, 4, True),
         "mrui::InviteMember":      (20, 4, True),
@@ -368,7 +386,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "mrui::UiProvIntent":      (32, 4, True),
         "mrui::ComposeSlot":       (20, 1, True),
         "mrui::ComposeList":       (161, 1, True),
-        "mrui::SendReq":           (8, 4, True),
+        "mrui::SendReq":           (16, 4, True),   # W6 re-pin (owner-ruled D15): 8 -> 16
         FIXTURE_NAME:              (16, 4, True),
     },
     "gateway": {
@@ -387,14 +405,14 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "meshroute::DeferredActionRecord": (40, 8, True),
         "meshroute::TranscriptHeader": (32, 8, True),
         "meshroute::RemoteSessionState": (8904, 8, True),
-        "mrnv::UiPresetSlot":      (21, 1, True),
-        "mrnv::UiPresetBlob":      (372, 4, True),
+        "mrnv::UiPresetSlot":      (167, 1, True),   # W6 re-pin (owner-ruled D15): 21 -> 167
+        "mrnv::UiPresetBlob":      (2852, 4, True),   # W6 re-pin (owner-ruled D15): 372 -> 2852
         "mrfw::SavedKeyEntry":     (8, 4, True),
         "mrfw::SavedKeyList":      (36, 4, True),
-        "mrfw::PresetCatalog":     (1132, 4, False),   # T: [[B255]] re-pin — headless build, the instance is compiled out
-        "mrui::UiState":           (520, 8, False),    # W4b re-pin: 504 -> 520
+        "mrfw::PresetCatalog":     (8572, 4, False),   # W6 re-pin (owner-ruled D15): 1132 -> 8572; T: [[B255]] — headless build, the instance is compiled out
+        "mrui::UiState":           (560, 8, False),   # W6 re-pin (owner-ruled D15): 520 -> 560
         "mrui::UiSnapshot":        (1368, 8, False),   # W4b re-pin: 1336 -> 1368
-        "mrui::UiModel":           (936, 8, False),    # W4b re-pin: 912 -> 936
+        "mrui::UiModel":           (1000, 8, False),   # W6 re-pin (owner-ruled D15): 936 -> 1000
         "mrui::UiChrome":          (20, 2, False),
         "mrui::InviteWindow":      (104, 4, False),
         "mrui::InviteMember":      (20, 4, False),
@@ -403,7 +421,7 @@ PIN_TABLE: dict[str, dict[str, tuple[int, int, bool]]] = {
         "mrui::UiProvIntent":      (32, 4, False),
         "mrui::ComposeSlot":       (20, 1, False),
         "mrui::ComposeList":       (161, 1, False),
-        "mrui::SendReq":           (8, 4, False),
+        "mrui::SendReq":           (16, 4, False),   # W6 re-pin (owner-ruled D15): 8 -> 16
         FIXTURE_NAME:              (16, 4, True),
     },
 }

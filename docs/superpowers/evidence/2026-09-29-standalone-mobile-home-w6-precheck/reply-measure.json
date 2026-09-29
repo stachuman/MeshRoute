@@ -1,0 +1,156 @@
+{
+  "scope": "Counterfactual T=163 measurement of real writer/emitter/adapter/sinks; scratch copies only, not implementation.",
+  "scratch": "/tmp/w6-reply-measure-5tggs60f",
+  "command": [
+    "g++",
+    "-std=c++20",
+    "-O2",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-Wl,--gc-sections",
+    "-fno-exceptions",
+    "-fno-rtti",
+    "-I/home/staszek/MeshRoute/tools/probe_console_sink/fakes",
+    "-I/tmp/w6-reply-measure-5tggs60f/src",
+    "-I/home/staszek/MeshRoute/lib/console",
+    "-I/home/staszek/MeshRoute/lib/core",
+    "-I/home/staszek/MeshRoute/lib/hal",
+    "-I/home/staszek/MeshRoute/lib/monocypher/src",
+    "/tmp/w6-reply-measure-5tggs60f/query.cpp",
+    "/home/staszek/MeshRoute/lib/console/console_json.cpp",
+    "-o",
+    "/tmp/w6-reply-measure-5tggs60f/query"
+  ],
+  "adapter_sha256": "4d2938c31beb2ed9c2f778a7dadd30b93543d6cbdbb9fb5ea4b4f6275ca80d9e",
+  "result": {
+    "line_sizes": [
+      243,
+      237,
+      237,
+      237,
+      237,
+      237,
+      237,
+      237,
+      237,
+      242,
+      242,
+      242,
+      242,
+      242,
+      242,
+      242,
+      242,
+      110
+    ],
+    "list_bytes": 4185,
+    "old160_max_record_return": 0,
+    "wide244_max_record_return": 243,
+    "sink_cases": [
+      {
+        "fifo": 0,
+        "drain_per_poll": 0,
+        "bytes_immediate": 0,
+        "dropped": 9,
+        "final_bytes": 2037,
+        "complete": false,
+        "drop_report": true
+      },
+      {
+        "fifo": 0,
+        "drain_per_poll": 128,
+        "bytes_immediate": 0,
+        "dropped": 9,
+        "final_bytes": 2037,
+        "complete": false,
+        "drop_report": true
+      },
+      {
+        "fifo": 0,
+        "drain_per_poll": 256,
+        "bytes_immediate": 0,
+        "dropped": 9,
+        "final_bytes": 2037,
+        "complete": false,
+        "drop_report": true
+      },
+      {
+        "fifo": 128,
+        "drain_per_poll": 0,
+        "bytes_immediate": 128,
+        "dropped": 9,
+        "final_bytes": 2164,
+        "complete": false,
+        "drop_report": true
+      },
+      {
+        "fifo": 128,
+        "drain_per_poll": 128,
+        "bytes_immediate": 2304,
+        "dropped": 0,
+        "final_bytes": 4185,
+        "complete": true,
+        "drop_report": false
+      },
+      {
+        "fifo": 128,
+        "drain_per_poll": 256,
+        "bytes_immediate": 2304,
+        "dropped": 0,
+        "final_bytes": 4185,
+        "complete": true,
+        "drop_report": false
+      },
+      {
+        "fifo": 256,
+        "drain_per_poll": 0,
+        "bytes_immediate": 256,
+        "dropped": 8,
+        "final_bytes": 2274,
+        "complete": false,
+        "drop_report": true
+      },
+      {
+        "fifo": 256,
+        "drain_per_poll": 128,
+        "bytes_immediate": 2432,
+        "dropped": 0,
+        "final_bytes": 4185,
+        "complete": true,
+        "drop_report": false
+      },
+      {
+        "fifo": 256,
+        "drain_per_poll": 256,
+        "bytes_immediate": 4185,
+        "dropped": 0,
+        "final_bytes": 4185,
+        "complete": true,
+        "drop_report": false
+      }
+    ],
+    "ble_linesink_bytes": 4185,
+    "ble_linesink_flushes": 18,
+    "ble_linesink_exact": true,
+    "per_kind_bytes": [
+      353,
+      2006,
+      2046
+    ],
+    "reset_all_default_bytes": 1508,
+    "reset_all_records": 18,
+    "reset_writes": 1,
+    "invalid_boot_bytes": 80,
+    "boot_writes": 0,
+    "longest_set_command_bytes": 197,
+    "set_handled": true,
+    "set_exact": true,
+    "default_channel3_len": 18,
+    "first16_default": "Return to base n"
+  },
+  "modified_scratch_headers": {
+    "src/firmware_ui_preset_verbs.h": "5ff7363293c59c5a768841b66e695009e9bd3015d6e4fb4b06baef733a63603b",
+    "src/device_nv.h": "3d0a7cb08ff2e330efce28518e058d153080beba893e36d8e69d8cb1388221e4",
+    "src/firmware_ui_presets.h": "8353f1e0dd21bef72a609b0713ff6e55aaa1aa0898ad9f01fdb80b431e824755"
+  }
+}

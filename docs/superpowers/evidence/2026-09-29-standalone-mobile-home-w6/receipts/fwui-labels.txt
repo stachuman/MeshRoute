@@ -1,0 +1,48 @@
+# firmware-UI check labels (PROBE_LIST=1 of the live probe, both arms unioned): base 70ff486 vs the frozen tree
+# base 995 labels, final 1031
+## added (36 new + 4 renamed-in-place successors)
+P14d W6: the phrase REVIEW keeps SEND selected
+P24k7 precondition (W6): the compiled `dm3` is cleared for K7's landed layout
+P24k7 (W6): the compiled `dm3` is restored for the phases that follow
+P26a ...while `list` still answers page 1 (4 records + the end record) during the alarm
+P26b ...and the emergency slot is live and non-empty on every one of the five
+P26b the five /mrui states (W6: + old_v1) each drive the ruled boot line and return their own state
+P27a the shipped catalog starts on the compiled defaults (3 DM presets, non-zero generation)
+P27c W6: ★★★ a catalog move before the capture opens NO review — the list says PRESET CHANGED
+P27c W6: ...and SEND is selected before the interleaved write
+P27c W6: ⛔ ...and submits NOTHING
+P27c W6: the capture-time write really ran inside that tick
+P27c W6: the note's press clears it and sends nothing
+P27c W6: the phrase's review is open, BACK selected, nothing submitted
+P28c W6: the REVIEW names the keyless teammate exactly
+P28c W6: the REVIEW names the named teammate exactly
+P28c W6: the REVIEW names the NAMELESS teammate exactly
+P28c W6: the REVIEW names the UNKNOWN-hash teammate exactly
+P31a ⛔ ...and the marker reaches the canvas RAW — no sanitizer turned it into a dot
+P31a the D9 18-byte phrase is drawn ABBREVIATED — 16 bytes and the generated 0xBB
+P31b ⛔ ...and opening it submitted NOTHING
+P31b ...BACK is selected first and there is NO `LOC` (the phrase does not ask for location)
+P31b BACK returns to the list with the arrow on that phrase, nothing submitted
+P31b ...its body is the WHOLE phrase, all 18 bytes
+P31b precondition: the arrow is on the abbreviated phrase
+P31b the review's row 0 names the team with its FULL id
+P31c ⛔ ...and neither the review nor a page turn submitted anything
+P31c page 1: its action row is ` SEND >BACK LOC 1/n` — BACK first, `LOC` at columns 12-14
+P31c page 1: the three wrapped rows, exact
+P31c page 2 turns on the cadence alone, its rows exact
+P31c precondition: the REAL verb stores a 163-byte located phrase
+P31c the list row abbreviates it: `L`, 16 bytes and the marker
+P31c the oracle's layout is within the design's bound (≤ 6 pages)
+P31d ...and the NEXT frame is the re-read list with PRESET CHANGED over item 1 (the review closed)
+P31d every page of that frame drew the SAME review row — nothing read the live catalog mid-frame
+P31d ⛔ ...submitting nothing
+P31d the mid-frame write is accepted by the REAL verb
+P31e ★★★ the review's SEND issues the WHOLE 163-byte phrase, `-l` because the slot asks for it
+P31f `preset reset all` restores the compiled catalog
+P31 precondition: the compiled catalog is live (3 DM, 4 channel phrases)
+P9a W6: the phrase double opened its review and submitted NOTHING
+## retired (each renamed in place; successor above)
+P26a ...while `list` still answers 17 records + the end record during the alarm
+P26b ...and the emergency slot is live and non-empty on every one of the four
+P26b the four /mrui states each drive the ruled boot line and return their own state
+P27a the shipped catalog starts on the compiled defaults (2 DM presets, non-zero generation)

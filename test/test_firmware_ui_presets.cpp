@@ -95,22 +95,25 @@ bool all_zero(const void* p, size_t n) {
 // ==================================================================== THE RECORD AND ITS STORAGE-LEVEL FOUR STATES
 TEST_CASE("ui10-p1-abi: the /mrui record's ABI is what the size check guards, and the tail padding is NAMED") {
     // The two per-ABI pins the header asserts, re-stated as runtime facts so a failure NAMES the number.
-    CHECK(sizeof(mrnv::UiPresetSlot) == 21);
+    // ⓘ W6 (owner-ruled D7/D15, v2): 167 / 2852 / T = 163 / `text[164]` (was 21 / 372 / 17 / `text[18]`, OQ-A's v1).
+    CHECK(sizeof(mrnv::UiPresetSlot) == 167);
     CHECK(alignof(mrnv::UiPresetSlot) == 1);
-    CHECK(sizeof(mrnv::UiPresetBlob) == 372);
-    CHECK(mrnv::kUiPresets == 17);
-    CHECK(mrnv::kUiPresetTextMax == 17);          // ★ OQ-A's owner ruling, and `text[18]` = 17 + the terminator
-    CHECK(sizeof(mrnv::UiPresetSlot::text) == 18);
+    CHECK(sizeof(mrnv::UiPresetBlob) == 2852);
+    CHECK(mrnv::kUiPresets == 17);                // ⓘ the SLOT count stays 17 — only the text bound moved
+    CHECK(mrnv::kUiPresetTextMax == 163);         // ★ D7, and `text[164]` = 163 + the terminator
+    CHECK(sizeof(mrnv::UiPresetSlot::text) == 164);
+    CHECK(mrnv::kUiPresetVersion == 2);           // ★ W6: v2 — the magic stays 'MRU1' (below)
 
-    // ★★ EVERY BYTE IS ACCOUNTED FOR BY A DECLARED MEMBER. If `reserved_tail` were dropped the struct would carry 3
-    //    bytes of IMPLICIT padding — indeterminate after value-initialisation — and the whole-record compare that IS
-    //    the write-coalescing policy would answer differently on identical catalogs.
+    // ★★ EVERY BYTE IS ACCOUNTED FOR BY A DECLARED MEMBER. If `reserved_tail` were dropped the struct would carry 1
+    //    byte (W6; v1: 3) of IMPLICIT padding — indeterminate after value-initialisation — and the whole-record compare
+    //    that IS the write-coalescing policy would answer differently on identical catalogs.
     CHECK(offsetof(mrnv::UiPresetBlob, magic)      == 0);
     CHECK(offsetof(mrnv::UiPresetBlob, version)    == 4);
     CHECK(offsetof(mrnv::UiPresetBlob, reserved)   == 6);
     CHECK(offsetof(mrnv::UiPresetBlob, generation) == 8);
     CHECK(offsetof(mrnv::UiPresetBlob, slot)       == 12);
-    CHECK(offsetof(mrnv::UiPresetBlob, reserved_tail) == 12 + 17 * 21);
+    CHECK(offsetof(mrnv::UiPresetBlob, reserved_tail) == 12 + 17 * 167);   // W6: 2851 (was 12 + 17 * 21)
+    CHECK(sizeof(mrnv::UiPresetBlob::reserved_tail) == 1);                  // W6: ONE named tail byte (was 3)
     CHECK(sizeof(mrnv::UiPresetBlob) % alignof(mrnv::UiPresetBlob) == 0);
 
     // ★★★ ITS OWN MAGIC AND ITS OWN SLOT — the separation the design demands in as many words (*"editing a phrase
@@ -180,8 +183,15 @@ TEST_CASE("ui10-p1-defaults: the compiled catalog is §3.2.2's table verbatim") 
     // rows 4-5 — channel1/channel2 enabled, location OFF
     CHECK(b.slot[9].enabled  == 1); CHECK(b.slot[9].loc  == 0); CHECK(std::strcmp(b.slot[9].text, "Got your message") == 0);
     CHECK(b.slot[10].enabled == 1); CHECK(b.slot[10].loc == 0); CHECK(std::strcmp(b.slot[10].text, "All good") == 0);
-    // ★ dm3..dm8 and channel3..channel8 — DISABLED and ALL-ZERO, which is the canonical form of "empty"
-    for (uint8_t i : {3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16}) {
+    // ★ W6 (owner-ruled D9) — three more, all location OFF: dm3, channel3 (18 B — longer than a compose row) and
+    //   channel4. ⓘ The five landed rows above are unchanged.
+    CHECK(b.slot[3].enabled  == 1); CHECK(b.slot[3].loc  == 0); CHECK(std::strcmp(b.slot[3].text, "Where are you?") == 0);
+    CHECK(b.slot[11].enabled == 1); CHECK(b.slot[11].loc == 0); CHECK(std::strcmp(b.slot[11].text, "Return to base now") == 0);
+    CHECK(b.slot[11].len == 18);
+    CHECK(b.slot[12].enabled == 1); CHECK(b.slot[12].loc == 0); CHECK(std::strcmp(b.slot[12].text, "On my way") == 0);
+    // ★ dm4..dm8 and channel5..channel8 — DISABLED and ALL-ZERO, which is the canonical form of "empty"
+    //   (W6: was dm3..dm8 and channel3..channel8, before D9 enabled three of them).
+    for (uint8_t i : {4, 5, 6, 7, 8, 13, 14, 15, 16}) {
         CHECK(b.slot[i].enabled == 0);
         CHECK(b.slot[i].loc == 0);
         CHECK(b.slot[i].len == 0);
@@ -203,17 +213,26 @@ TEST_CASE("ui10-p1-defaults: THE DRIFT FENCE IS DISCHARGED — the compiled defa
     mrui::ComposeList dm{}, ch{};
     mrui::compose_project(f.cat.live(), PresetKind::dm,      dm);
     mrui::compose_project(f.cat.live(), PresetKind::channel, ch);
-    CHECK(dm.n == 2);
-    CHECK(ch.n == 2);
+    CHECK(dm.n == 3);   // ⓘ W6 (D9): was 2 / 2
+    CHECK(ch.n == 4);
     CHECK(std::strcmp(dm.row[0].text, mrfw::kPresetDefaults[1].text)  == 0);
     CHECK(std::strcmp(dm.row[1].text, mrfw::kPresetDefaults[2].text)  == 0);
+    CHECK(std::strcmp(dm.row[2].text, mrfw::kPresetDefaults[3].text)  == 0);
     CHECK(std::strcmp(ch.row[0].text, mrfw::kPresetDefaults[9].text)  == 0);
     CHECK(std::strcmp(ch.row[1].text, mrfw::kPresetDefaults[10].text) == 0);
+    // ★ W6 (§2.3): an 18-byte default PROJECTS ABBREVIATED — its first 16 bytes and the generated `»` (0xBB) in the
+    //   row's 17 cells; the catalog (and so the review and the send) keeps all 18.
+    CHECK(std::strcmp(ch.row[2].text, "Return to base n\xBB") == 0);
+    CHECK(std::strlen(f.cat.slot(uint8_t(mrfw::kPresetChannelFirst + 2)).text) == 18);
+    CHECK(std::strcmp(ch.row[3].text, mrfw::kPresetDefaults[12].text) == 0);
     // ★ ...and each row carries its STABLE SLOT, which is the identity the retired tables could not express at all.
     CHECK(dm.row[0].slot == mrfw::kPresetDmFirst);
     CHECK(dm.row[1].slot == uint8_t(mrfw::kPresetDmFirst + 1));
+    CHECK(dm.row[2].slot == uint8_t(mrfw::kPresetDmFirst + 2));        // W6 (D9)
     CHECK(ch.row[0].slot == mrfw::kPresetChannelFirst);
     CHECK(ch.row[1].slot == uint8_t(mrfw::kPresetChannelFirst + 1));
+    CHECK(ch.row[2].slot == uint8_t(mrfw::kPresetChannelFirst + 2));   // W6 (D9)
+    CHECK(ch.row[3].slot == uint8_t(mrfw::kPresetChannelFirst + 3));
     // ★ THE EMERGENCY PHRASE IS NEVER A COMPOSE ROW (§3.2.2) — it reaches the wire only through the long press.
     for (uint8_t i = 0; i < dm.n; ++i) CHECK(dm.row[i].slot != mrfw::kPresetEmergency);
     for (uint8_t i = 0; i < ch.n; ++i) CHECK(ch.row[i].slot != mrfw::kPresetEmergency);
@@ -294,13 +313,18 @@ TEST_CASE("ui10-p1-states: VALID is LOADED — the wearer's configured phrases, 
     CHECK(f.cat.io_failed_loads() == 0);
 }
 
-TEST_CASE("ui10-p1-states: the two boot lines are the ONLY two, and `ok`/`absent` are silent") {
-    // The whole four-valued domain swept, so an arm added to `UiPresetRead` without a wording decision is visible.
+// ⓘ W6 (owner-ruled D8): THREE boot lines now — `old_v1` has its own; the sweep covers the FIVE-valued domain
+//   (was "the two boot lines", four values).
+TEST_CASE("ui10-p1-states: the three boot lines are the ONLY three, and `ok`/`absent` are silent") {
+    // The whole five-valued domain swept, so an arm added to `UiPresetRead` without a wording decision is visible.
     CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::ok)        == nullptr);
     CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::absent)    == nullptr);
     CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::invalid)   == mrfw::kPresetInvalidLine);
     CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::io_failed) == mrfw::kPresetIoFailedLine);
+    CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::old_v1)    == mrfw::kPresetOldV1Line);
     CHECK(std::strcmp(mrfw::kPresetInvalidLine, mrfw::kPresetIoFailedLine) != 0);
+    CHECK(std::strcmp(mrfw::kPresetOldV1Line, mrfw::kPresetInvalidLine) != 0);
+    CHECK(std::strcmp(mrfw::kPresetOldV1Line, mrfw::kPresetIoFailedLine) != 0);
 }
 
 // ============================================= QA ROUND 2 — `valid` REQUIRES FULL SEMANTIC VALIDATION, NOT A HEADER
@@ -311,11 +335,13 @@ TEST_CASE("ui10-p1-semantic: a size/header-valid record with ANY canonical viola
     const Case cases[] = {
         { "generation 0",              [](mrnv::UiPresetBlob& b) { b.generation = 0; } },
         { "header reserved dirty",     [](mrnv::UiPresetBlob& b) { b.reserved = 1; } },
-        { "tail padding dirty",        [](mrnv::UiPresetBlob& b) { b.reserved_tail[2] = 1; } },
+        { "tail padding dirty",        [](mrnv::UiPresetBlob& b) { b.reserved_tail[0] = 1; } },   // W6: ONE byte (was [2] of 3)
         { "enabled is not 0/1",        [](mrnv::UiPresetBlob& b) { b.slot[1].enabled = 7; } },
         { "loc is not 0/1",            [](mrnv::UiPresetBlob& b) { b.slot[1].loc = 2; } },
-        { "len past the OQ-A bound",   [](mrnv::UiPresetBlob& b) { b.slot[1].len = 18; } },
-        { "len past the buffer",       [](mrnv::UiPresetBlob& b) { b.slot[1].len = 40; } },
+        // ⓘ W6 (D7): the bound is T = 163 now — one past it is 164 (was OQ-A's 17 → 18), and past the 164-byte
+        //   buffer is 200 (was 40, past `text[18]`).
+        { "len past the T bound",      [](mrnv::UiPresetBlob& b) { b.slot[1].len = mrnv::kUiPresetTextMax + 1; } },
+        { "len past the buffer",       [](mrnv::UiPresetBlob& b) { b.slot[1].len = 200; } },
         { "emergency DISABLED",        [](mrnv::UiPresetBlob& b) { b.slot[0].enabled = 0; } },
         // ★★★★ THE ONE THAT ISOLATES THE MANDATORY RULE, and it was ADDED after the battery measured its absence:
         //      with only the row above, `enabled = 0` was caught by the DISABLED-slot rule (the phrase was still in
@@ -325,11 +351,11 @@ TEST_CASE("ui10-p1-semantic: a size/header-valid record with ANY canonical viola
         //      one could ever be written, and the reader must refuse to adopt it.
         { "emergency cleared AND zeroed", [](mrnv::UiPresetBlob& b) { b.slot[0] = mrnv::UiPresetSlot{}; } },
         { "emergency EMPTY",           [](mrnv::UiPresetBlob& b) { b.slot[0].len = 0;
-                                                                   std::memset(b.slot[0].text, 0, 18); } },
+                                                                   std::memset(b.slot[0].text, 0, sizeof b.slot[0].text); } },
         { "enabled slot, empty text",  [](mrnv::UiPresetBlob& b) { b.slot[1].len = 0; } },
         { "enabled slot, all spaces",  [](mrnv::UiPresetBlob& b) { std::memset(b.slot[1].text, ' ', 3);
                                                                    b.slot[1].len = 3;
-                                                                   std::memset(b.slot[1].text + 3, 0, 15); } },
+                                                                   std::memset(b.slot[1].text + 3, 0, sizeof b.slot[1].text - 3); } },
         { "enabled slot, control byte",[](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = '\n'; } },
         { "enabled slot, quote byte",  [](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = '"'; } },
         { "enabled slot, backslash",   [](mrnv::UiPresetBlob& b) { b.slot[1].text[2] = '\\'; } },
@@ -550,11 +576,13 @@ TEST_CASE("ui10-p1-emergency: it IS text-editable, and every edit keeps it enabl
     CHECK(f.cat.slot(0).loc == 1);
     CHECK(f.cat.slot(0).enabled == 1);
     // and `reset all` never disables it either
-    CHECK(set_text(f.cat, 3, false, "x marks it").verdict == PresetVerdict::ok);
+    // ⓘ W6 (D9): `dm3` is a compiled default now, so the wearer-enabled slot this case reverts is `dm4` (was `dm3`),
+    //   still disabled in the defaults; and the compiled DM count is 3 (was 2).
+    CHECK(set_text(f.cat, 4, false, "x marks it").verdict == PresetVerdict::ok);
     CHECK(f.cat.reset_all().verdict == PresetVerdict::ok);
     CHECK(f.cat.slot(0).enabled == 1);
-    CHECK(f.cat.slot(3).enabled == 0);
-    CHECK(f.cat.enabled_count(PresetKind::dm) == 2);
+    CHECK(f.cat.slot(4).enabled == 0);
+    CHECK(f.cat.enabled_count(PresetKind::dm) == 3);
 }
 
 // ================================================================ SPEC §2 — `busy`: AN ACTIVE EMERGENCY SERIES
@@ -645,27 +673,31 @@ TEST_CASE("ui10-p1-io: an io_failed store refuses EVERY mutation with `store` an
 }
 
 // ================================================================================ VALIDATION — OQ-A's BOUND AND §3.2.2
-TEST_CASE("ui10-p1-validation: 1..17 printable ASCII, both sides of the bound, for BOTH location states") {
-    const char* k17 = "seventeen chars!!";
-    const char* k18 = "eighteen chars!!!!";
-    CHECK(slen(k17) == 17);
-    CHECK(slen(k18) == 18);
-    CHECK(mrfw::validate_preset_text(k17, 17) == PresetErr::none);
-    CHECK(mrfw::validate_preset_text(k18, 18) == PresetErr::bad_text);
+// ⓘ W6 (owner-ruled D7): the bound is T = 163 — the case keeps its shape at the new edge (was 1..17 with 17 / 18).
+TEST_CASE("ui10-p1-validation: 1..163 printable ASCII, both sides of the bound, for BOTH location states") {
+    char k163[mrnv::kUiPresetTextMax + 1];
+    char k164[mrnv::kUiPresetTextMax + 1];
+    std::memset(k163, 'p', sizeof k163);          // 164 printable bytes: the first 163 are k163, all 164 are k164
+    std::memset(k164, 'q', sizeof k164);
+    CHECK(mrnv::kUiPresetTextMax == 163);
+    CHECK(mrfw::validate_preset_text(k163, 163) == PresetErr::none);
+    CHECK(mrfw::validate_preset_text(k164, 164) == PresetErr::bad_text);
+    CHECK(mrfw::validate_preset_text(k163, 17) == PresetErr::none);    // ⓘ OQ-A's old edge is now an ordinary length
+    CHECK(mrfw::validate_preset_text(k164, 18) == PresetErr::none);
     CHECK(mrfw::validate_preset_text("a", 1) == PresetErr::none);
     CHECK(mrfw::validate_preset_text("", 0) == PresetErr::bad_text);
     CHECK(mrfw::validate_preset_text(nullptr, 3) == PresetErr::bad_text);
 
-    // ★★★ OQ-A: 17 FOR EVERY PRESET, IN BOTH LOCATION STATES. ⛔ The withdrawn draft's conditional bound (18 when
-    //     `loc=off`) would accept an 18-byte phrase here — the row always shows a location marker, so it would be
-    //     clipped and the wearer would send a suffix he could not inspect.
+    // ★★★ OQ-A's RULE SURVIVES AT T: ONE BOUND FOR EVERY PRESET, IN BOTH LOCATION STATES. ⛔ The withdrawn draft's
+    //     conditional bound (one more when `loc=off`) would accept a 164-byte phrase here. (W6, D7: T = 163 is the
+    //     smallest admission of any destination with location on, so every phrase fits every shape.)
     Fix f;
     seed_valid(f.store);
     f.cat.begin();
     for (uint8_t s : {uint8_t(0), uint8_t(1), uint8_t(9)}) {
         for (bool loc : {false, true}) {
-            CHECK(f.cat.set(s, loc, k17, 17).verdict != PresetVerdict::refused);
-            CHECK(f.cat.set(s, loc, k18, 18).err == PresetErr::bad_text);
+            CHECK(f.cat.set(s, loc, k163, 163).verdict != PresetVerdict::refused);
+            CHECK(f.cat.set(s, loc, k164, 164).err == PresetErr::bad_text);
         }
     }
 
@@ -691,28 +723,30 @@ TEST_CASE("ui10-p1-validation: 1..17 printable ASCII, both sides of the bound, f
     }
 }
 
-TEST_CASE("ui10-p1-validation: ★ A 273-BYTE PHRASE IS REFUSED — the length check is not bypassable by narrowing") {
+TEST_CASE("ui10-p1-validation: ★ A 419-BYTE PHRASE IS REFUSED (273 at T = 17) — the length check is not bypassable by narrowing") {
     // ★★★★ THE REGRESSION, AND THE NUMBER IS THE DEFECT: with a `uint8_t len` boundary, 273 narrows AT THE CALL to
     //      273 & 0xFF = **17** — the exact bound — so a 273-byte phrase was ACCEPTED as a valid 17-byte one and
     //      `memcpy`'d as 17. The validator could not have caught it: it never saw the real length. ⇒ the boundary is
     //      `size_t` and the bound is tested on the WIDE value, before any narrowing.
-    char big[300];
+    char big[4096];                                // ⓘ W6: was 300 — every length below now fits, so even a mutant
+                                                   //   that reads before it checks stays in bounds
     std::memset(big, 'a', sizeof big);
-    const size_t n273 = 273;                       // 273 & 0xFF == 17  — the collision, spelled out
+    // ⓘ W6 (D7): at T = 163 the colliding length is 163 + 256 = 419 (was 273 at T = 17); `big` grows to hold it.
+    const size_t n273 = 163 + 256;                 // 419 & 0xFF == 163 — the collision, spelled out (name kept)
     CHECK((n273 & 0xFFu) == mrnv::kUiPresetTextMax);
     CHECK(mrfw::validate_preset_text(big, n273) == PresetErr::bad_text);
-    // The other two collisions in the same family, each on its own: 256 -> 0 ("empty"), 274 -> 18 ("too long").
+    // The other two collisions in the same family, each on its own: 256 -> 0 ("empty"), 420 -> 164 ("too long").
     CHECK(mrfw::validate_preset_text(big, size_t(256)) == PresetErr::bad_text);
-    CHECK(mrfw::validate_preset_text(big, size_t(274)) == PresetErr::bad_text);
-    CHECK(mrfw::validate_preset_text(big, size_t(18))  == PresetErr::bad_text);
-    CHECK(mrfw::validate_preset_text(big, size_t(17))  == PresetErr::none);   // the control: 17 still passes
+    CHECK(mrfw::validate_preset_text(big, size_t(420)) == PresetErr::bad_text);
+    CHECK(mrfw::validate_preset_text(big, size_t(164)) == PresetErr::bad_text);
+    CHECK(mrfw::validate_preset_text(big, size_t(163)) == PresetErr::none);   // the control: 163 still passes
 
     // ★★ AND THROUGH THE PUBLIC BOUNDARY, which is where the narrowing actually happened — ⛔ zero writes, and the
     //    slot is untouched, so nothing was `memcpy`'d under a laundered length either.
     Fix f;
     seed_valid(f.store);
     f.cat.begin();
-    for (size_t n : { size_t(256), n273, size_t(274), size_t(4096) }) {
+    for (size_t n : { size_t(256), n273, size_t(420), size_t(4096) }) {
         const mrfw::PresetResult r = f.cat.set(1, false, big, n);
         CHECK(r.verdict == PresetVerdict::refused);
         CHECK(r.err == PresetErr::bad_text);
@@ -723,7 +757,7 @@ TEST_CASE("ui10-p1-validation: ★ A 273-BYTE PHRASE IS REFUSED — the length c
     // ⓘ `preset_slot_put` takes `size_t` for the same reason and CLAMPS — the last fence in front of the memcpy.
     mrnv::UiPresetSlot s{};
     mrfw::preset_slot_put(s, true, false, big, n273);
-    CHECK(s.len == mrnv::kUiPresetTextMax);        // clamped, ⛔ never 273 bytes into an 18-byte buffer
+    CHECK(s.len == mrnv::kUiPresetTextMax);        // clamped, ⛔ never 419 bytes into a 164-byte buffer
     CHECK(mrfw::preset_slot_canonical(s, false));
 }
 
@@ -809,15 +843,18 @@ TEST_CASE("ui10-p1-slots: the index IS the stable slot identity, and the ends bo
     CHECK(f.store.saves == 0);
     CHECK(f.store.loads == 1);   // ⛔ ZERO loads for every one of those refusals
     // ★ A GAP IS VALID (§3.2.2's own example): dm1, dm4 and dm8 enabled, the rest not — and each row keeps ITS id.
+    // ⓘ W6 (D9): `dm3` is a compiled default now, so it is cleared too to reach the same example.
     CHECK(f.cat.clear(2).verdict == PresetVerdict::ok);
+    CHECK(f.cat.clear(3).verdict == PresetVerdict::ok);
     CHECK(set_text(f.cat, 4, false, "at the col").verdict == PresetVerdict::ok);
     CHECK(set_text(f.cat, 8, true, "descending").verdict == PresetVerdict::ok);
     CHECK(f.cat.enabled_count(PresetKind::dm) == 3);
     CHECK(f.cat.slot(1).enabled == 1);
     CHECK(f.cat.slot(2).enabled == 0);
+    CHECK(f.cat.slot(3).enabled == 0);
     CHECK(f.cat.slot(4).enabled == 1);
     CHECK(f.cat.slot(8).enabled == 1);
-    CHECK(f.cat.enabled_count(PresetKind::channel) == 2);   // ⛔ the DM edits touched no channel slot
+    CHECK(f.cat.enabled_count(PresetKind::channel) == 4);   // ⛔ the DM edits touched no channel slot (W6 D9: 4, was 2)
     // ⛔ AND THE ACCESSOR NEVER READS PAST THE ARRAY: an out-of-range index answers the emergency slot.
     CHECK(std::strcmp(f.cat.slot(200).text, f.cat.slot(0).text) == 0);
 }
@@ -831,10 +868,10 @@ TEST_CASE("ui10-p1-slots: zero enabled per kind is representable — P3's empty 
     CHECK(f.cat.enabled_count(PresetKind::channel) == 0);
     CHECK(f.cat.slot(0).enabled == 1);          // ⛔ the emergency slot survives an empty catalog
     CHECK(mrfw::presets_canonical(f.store.rec));
-    // `reset all` brings the compiled catalog back.
+    // `reset all` brings the compiled catalog back (W6, D9: 3 DM + 4 channel, was 2 + 2).
     CHECK(f.cat.reset_all().verdict == PresetVerdict::ok);
-    CHECK(f.cat.enabled_count(PresetKind::dm) == 2);
-    CHECK(f.cat.enabled_count(PresetKind::channel) == 2);
+    CHECK(f.cat.enabled_count(PresetKind::dm) == 3);
+    CHECK(f.cat.enabled_count(PresetKind::channel) == 4);
 }
 
 // ================================================================================ THE ENUM INVENTORIES AND WORDS
@@ -868,7 +905,10 @@ TEST_CASE("ui10-p1-words: every enum arm is worded, distinct, and swept BY CONST
     //     enum SHORT ONE REASON while asserting the published set was complete. `bad_location` is now declared;
     //     ⛔ P1 has no producer for it and does not pretend to (its producer is P2's `loc=<on|off>` parser), so it
     //     appears HERE — in the inventory and the wording — and in no service-level outcome case.
-    CHECK(uint8_t(PresetErr::count) == 7);      // none + §3.2.3's SIX reasons
+    // ⓘ W6 (owner-ruled D14): SEVEN reasons — `bad_page` joins (a `list` page token that is not 1..5); was `== 7`
+    //   (none + six). ⛔ The overlength / empty / forbidden-byte arms stay `bad_text`, never a new reason.
+    CHECK(uint8_t(PresetErr::count) == 8);      // none + the SEVEN reasons
+    CHECK(std::strcmp(mrfw::preset_err_name(PresetErr::bad_page), "bad_page") == 0);
     CHECK(std::strcmp(mrfw::preset_err_name(PresetErr::bad_slot), "bad_slot") == 0);
     CHECK(std::strcmp(mrfw::preset_err_name(PresetErr::bad_text), "bad_text") == 0);
     CHECK(std::strcmp(mrfw::preset_err_name(PresetErr::bad_location), "bad_location") == 0);
@@ -890,15 +930,115 @@ TEST_CASE("ui10-p1-resources: the catalog's residency is MEASURED, and ⛔ no fu
     // ★★★ THE OWNER-RULED STACK GATE (spec §5). The service holds THREE records — the LIVE catalog plus TWO scratch
     //     (the candidate it composes and the record it read, which are exactly the two the byte-identical compare is
     //     between). ⇒ 1116 B RESIDENT and ⛔ ZERO bytes of catalog on any stack, on any path.
+    //     ⓘ W6 (owner-ruled D15): 3 × 2852 = 8556 B resident (PresetCatalog 8584 host / 8572 boards) — still ZERO on
+    //       any stack, which at 2852 B a record matters even more for.
     //     ⛔ The rejected alternative, stated with its arithmetic: as stack locals the two scratch records would be
     //     744 B in the mutating frame — 18 % of the nRF52 Arduino loop task's FIXED 4 KB, on which this tree has
     //     already HARDFAULTED once with `stackhw` down to 72 B (the `do_post_ack` frame). `begin()` runs from
     //     `setup()` on exactly that task.
-    CHECK(sizeof(mrnv::UiPresetBlob) == 372);
-    CHECK(3 * sizeof(mrnv::UiPresetBlob) == 1116);
+    CHECK(sizeof(mrnv::UiPresetBlob) == 2852);             // W6 re-sync (D15), was 372
+    CHECK(3 * sizeof(mrnv::UiPresetBlob) == 8556);         // W6 re-sync (D15), was 1116
+    CHECK(sizeof(mrfw::PresetCatalog) == 8584);            // W6 (D15) — the HOST figure; the boards' 8572 is the ABI probe's
     // The service is its three records plus two references and three counters — ⛔ no hidden fourth copy.
     CHECK(sizeof(mrfw::PresetCatalog) >= 3 * sizeof(mrnv::UiPresetBlob));
     CHECK(sizeof(mrfw::PresetCatalog) <= 3 * sizeof(mrnv::UiPresetBlob) + 64);
     // The flash record's size IS the migration policy (`load_ui_presets`' exact size check), pinned per-ABI.
-    CHECK(sizeof(mrnv::UiPresetBlob) == 12 + mrnv::kUiPresets * sizeof(mrnv::UiPresetSlot) + 3);
+    CHECK(sizeof(mrnv::UiPresetBlob) == 12 + mrnv::kUiPresets * sizeof(mrnv::UiPresetSlot) + 1);   // W6: ONE tail byte (was 3)
+}
+
+// ================================================================================================================
+// ★★★★ W6 (design r2.23 §7.7-§7.8, owner-ruled D7/D8/D9/D14) — THE v2 RECORD's NEW BEHAVIOUR, each on its own case.
+// ================================================================================================================
+namespace {
+// An OLD v1 record as the medium would hand it back: the 12-byte header the two versions share (`'MRU1'`, version 1)
+// and a NONSENSICAL payload — so any classifier that read a v1 slot, flag, generation or padding would show it.
+mrnv::UiPresetBlob old_v1_bytes() {
+    mrnv::UiPresetBlob b;
+    std::memset(&b, 0xA5, sizeof b);
+    b.magic = mrnv::kUiPresetMagic;
+    b.version = mrnv::kUiPresetV1Version;
+    return b;
+}
+// The counting store, answering `old_v1` exactly as `load_ui_presets` would for a 372-byte v1 file.
+struct V1Fix : Fix { V1Fix() { store.state = mrnv::UiPresetRead::old_v1; } };
+}  // namespace
+
+TEST_CASE("w6-v1: an old v1 record is recognised by SIZE, MAGIC and VERSION ONLY — before the exact-v2 check") {
+    CHECK(mrnv::kUiPresetV1Bytes == 372);             // 12 + 17 × 21 + 3 — v1's size, spelled once
+    CHECK(mrnv::kUiPresetV1Version == 1);
+    CHECK(mrnv::kUiPresetV1Bytes != int(sizeof(mrnv::UiPresetBlob)));
+    const mrnv::UiPresetBlob b = old_v1_bytes();
+    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kUiPresetV1Bytes) == mrnv::UiPresetRead::old_v1);
+    // ★ ⛔ NOTHING ELSE IS LOOKED AT: a second nonsensical payload answers the same.
+    mrnv::UiPresetBlob c = b; std::memset(c.slot, 0x00, sizeof c.slot); c.generation = 0; c.reserved = 0xFFFF;
+    CHECK(mrnv::ui_preset_blob_state(c, mrnv::kUiPresetV1Bytes) == mrnv::UiPresetRead::old_v1);
+    // Each of the three facts on its own: a neighbouring size, another version, another magic → `invalid`.
+    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kUiPresetV1Bytes - 1) == mrnv::UiPresetRead::invalid);
+    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kUiPresetV1Bytes + 1) == mrnv::UiPresetRead::invalid);
+    mrnv::UiPresetBlob v = b; v.version = mrnv::kUiPresetVersion;          // a 372-byte file claiming v2
+    CHECK(mrnv::ui_preset_blob_state(v, mrnv::kUiPresetV1Bytes) == mrnv::UiPresetRead::invalid);
+    mrnv::UiPresetBlob m = b; m.magic = mrnv::kMagic;                      // `/mrcfg`'s magic at v1's size
+    CHECK(mrnv::ui_preset_blob_state(m, mrnv::kUiPresetV1Bytes) == mrnv::UiPresetRead::invalid);
+    CHECK(mrnv::ui_preset_blob_state(b, int(sizeof b)) == mrnv::UiPresetRead::invalid);   // v1's header at v2's size
+    // ★ THE ORDER: a dead backend and an over-long file outrank the v1 test; absence is still absence.
+    mrnv::SlotIo io{}; io.backend_failed = true;
+    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kUiPresetV1Bytes, io) == mrnv::UiPresetRead::io_failed);
+    mrnv::SlotIo over{}; over.oversize = true;
+    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kUiPresetV1Bytes, over) == mrnv::UiPresetRead::invalid);
+    CHECK(mrnv::ui_preset_blob_state(b, mrnv::kSlotAbsent) == mrnv::UiPresetRead::absent);
+    // ...and a canonical v2 record is still `ok`.
+    mrnv::UiPresetBlob ok{}; mrfw::preset_defaults(ok);
+    CHECK(mrnv::ui_preset_blob_state(ok, int(sizeof ok)) == mrnv::UiPresetRead::ok);
+}
+
+TEST_CASE("w6-v1: at boot an old v1 record runs the DEFAULTS, says so, and writes NOTHING — at EVERY boot") {
+    V1Fix f;
+    for (int boot = 0; boot < 2; ++boot) {             // ★ the store is unchanged, so the second boot says it again
+        CAPTURE(boot);
+        mrfw::PresetCatalog cat{f.store, f.gate};
+        const mrnv::UiPresetRead st = cat.begin();
+        CHECK(st == mrnv::UiPresetRead::old_v1);
+        CHECK(std::strcmp(mrfw::preset_boot_line(st),
+                          "  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)") == 0);
+        CHECK(f.store.saves == 0);                     // ⛔ ZERO boot writes, ⛔ no migration
+        CHECK(cat.invalid_loads() == 0);               // ⓘ its own state, ⛔ not a counted `invalid`
+        CHECK(cat.io_failed_loads() == 0);
+        mrnv::UiPresetBlob d{}; mrfw::preset_defaults(d);
+        CHECK(std::memcmp(&cat.live(), &d, sizeof d) == 0);   // ★ exactly the compiled defaults
+    }
+}
+
+TEST_CASE("w6-v1: the FIRST successful mutation REPLACES the v1 record — even one that restates a default") {
+    V1Fix f;
+    f.cat.begin();
+    // `dm1` already says this in the running defaults — over `ok`/`absent` it would be a ZERO-write no-op.
+    const mrfw::PresetResult r = set_text(f.cat, 1, false, "Are you OK?");
+    CHECK(r.verdict == PresetVerdict::ok);             // ⛔ never `unchanged`: v1 is no baseline — it is a REPAIR
+    CHECK(f.store.saves == 1);
+    CHECK(f.store.rec.version == mrnv::kUiPresetVersion);
+    CHECK(mrfw::presets_canonical(f.store.rec));
+    CHECK(mrnv::ui_preset_blob_state(f.store.rec, int(sizeof f.store.rec)) == mrnv::UiPresetRead::ok);
+    // ...and the next boot is an ordinary, silent `ok`.
+    mrfw::PresetCatalog again{f.store, f.gate};
+    CHECK(again.begin() == mrnv::UiPresetRead::ok);
+    CHECK(mrfw::preset_boot_line(mrnv::UiPresetRead::ok) == nullptr);
+    // ⛔ an io_failed store still refuses — `old_v1` did not widen the write-refusing predicate.
+    CHECK(mrfw::preset_read_refuses_writes(mrnv::UiPresetRead::old_v1) == false);
+    CHECK(mrfw::preset_read_refuses_writes(mrnv::UiPresetRead::io_failed) == true);
+}
+
+TEST_CASE("w6-bounds: the boot line's own bound is derived from the three lines (81 B), and the page geometry is 4 × 5") {
+    const size_t widest = std::strlen(mrfw::kPresetOldV1Line) > std::strlen(mrfw::kPresetInvalidLine)
+                            ? std::strlen(mrfw::kPresetOldV1Line) : std::strlen(mrfw::kPresetInvalidLine);
+    CHECK(mrfw::kPresetBootLineMax == widest + 2);     // + '\n' + NUL
+    CHECK(mrfw::kPresetBootLineMax == 81);
+    CHECK(std::strlen(mrfw::kPresetIoFailedLine) + 2 <= mrfw::kPresetBootLineMax);
+    CHECK(mrfw::kPresetPageSize == 4);
+    CHECK(mrfw::kPresetPages == 5);
+    CHECK(mrfw::kPresetPages * mrfw::kPresetPageSize >= mrnv::kUiPresets);
+    CHECK((mrfw::kPresetPages - 1) * mrfw::kPresetPageSize < mrnv::kUiPresets);   // ⛔ no empty last page
+    for (char c = '1'; c <= '5'; ++c) CHECK(mrfw::preset_page_of_token(&c, 1) == uint8_t(c - '0'));
+    for (const char* t : { "0", "6", "9", "x", "01", "+1", "1 ", "" })
+        CHECK(mrfw::preset_page_of_token(t, std::strlen(t)) == 0);
+    CHECK(mrfw::preset_page_of_token(nullptr, 1) == 0);
 }

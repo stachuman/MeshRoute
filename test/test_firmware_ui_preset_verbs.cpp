@@ -117,10 +117,21 @@ const char* const kRecDm1 =
     "{\"ev\":\"ui_preset\",\"slot\":\"dm1\",\"enabled\":true,\"text\":\"Are you OK?\",\"location\":false}\n";
 const char* const kRecDm3Disabled =
     "{\"ev\":\"ui_preset\",\"slot\":\"dm3\",\"enabled\":false,\"text\":\"\",\"location\":false}\n";
+// ⓘ W6 (D9): `dm3` is a compiled default now, so the defaults' first DISABLED slot is `dm4` (was `dm3`).
+const char* const kRecDm4Disabled =
+    "{\"ev\":\"ui_preset\",\"slot\":\"dm4\",\"enabled\":false,\"text\":\"\",\"location\":false}\n";
 const char* const kRecChannel1 =
     "{\"ev\":\"ui_preset\",\"slot\":\"channel1\",\"enabled\":true,\"text\":\"Got your message\",\"location\":false}\n";
+// ⓘ W6 (D14 + D9): `text_max` after `capacity`, and the compiled actives are 3 / 4 (was no `text_max`, 2 / 2).
 const char* const kEndDefaults =
-    "{\"ev\":\"ui_presets_end\",\"capacity\":17,\"dm_active\":2,\"channel_active\":2,\"generation\":1}\n";
+    "{\"ev\":\"ui_presets_end\",\"capacity\":17,\"text_max\":163,\"dm_active\":3,\"channel_active\":4,\"generation\":1}\n";
+// A `list` page's end record: the same fields, then `page` and `pages` (D14's exact order).
+std::string end_page(uint8_t dm, uint8_t ch, unsigned gen, unsigned page) {
+    char b[160];
+    std::snprintf(b, sizeof b, "{\"ev\":\"ui_presets_end\",\"capacity\":17,\"text_max\":163,\"dm_active\":%u,"
+                  "\"channel_active\":%u,\"generation\":%u,\"page\":%u,\"pages\":5}\n", dm, ch, gen, page);
+    return b;
+}
 
 }  // namespace
 
@@ -136,22 +147,29 @@ TEST_CASE("P2 the three NDJSON records are byte-exact (design §3.2.3)") {
     CHECK(std::string(b) == std::string(kRecEmergency));
     n = mrfw::write_ui_preset(b, sizeof b, mrfw::kPresetDmFirst, d.slot[mrfw::kPresetDmFirst]);
     CHECK(std::string(b) == std::string(kRecDm1));
-    // ★ A DISABLED SLOT RENDERS `""` AND `false` — canonical zeroing seen from the wire side.
-    n = mrfw::write_ui_preset(b, sizeof b, 3, d.slot[3]);
-    CHECK(std::string(b) == std::string(kRecDm3Disabled));
+    // ★ A DISABLED SLOT RENDERS `""` AND `false` — canonical zeroing seen from the wire side (W6: `dm4`, was `dm3`).
+    n = mrfw::write_ui_preset(b, sizeof b, 4, d.slot[4]);
+    CHECK(std::string(b) == std::string(kRecDm4Disabled));
     n = mrfw::write_ui_preset(b, sizeof b, mrfw::kPresetChannelFirst, d.slot[mrfw::kPresetChannelFirst]);
     CHECK(std::string(b) == std::string(kRecChannel1));
 
-    // ---- `ui_presets_end`: capacity, BOTH actives, and the generation.
-    n = mrfw::write_ui_presets_end(b, sizeof b, 2, 2, 1);
+    // ---- `ui_presets_end`: capacity, `text_max` (W6), BOTH actives, and the generation — `reset all`'s form.
+    n = mrfw::write_ui_presets_end(b, sizeof b, 3, 4, 1);
     CHECK(std::string(b) == std::string(kEndDefaults));
     n = mrfw::write_ui_presets_end(b, sizeof b, 8, 0, 4294967295u);
     CHECK(std::string(b) ==
-          std::string("{\"ev\":\"ui_presets_end\",\"capacity\":17,\"dm_active\":8,\"channel_active\":0,"
+          std::string("{\"ev\":\"ui_presets_end\",\"capacity\":17,\"text_max\":163,\"dm_active\":8,\"channel_active\":0,"
                       "\"generation\":4294967295}\n"));
     CHECK(n > 0);
+    // ★ W6 (D14): a `list` page's end record appends `page` then `pages`, AFTER the generation — exact bytes.
+    n = mrfw::write_ui_presets_end(b, sizeof b, 8, 0, 4294967295u, 5);
+    CHECK(std::string(b) == end_page(8, 0, 4294967295u, 5));
+    CHECK(n > 0);
+    // ★ `capacity` and `text_max` are asserted INDEPENDENTLY: the slot count and the byte limit are two numbers.
+    CHECK(mrnv::kUiPresets == 17);
+    CHECK(mrnv::kUiPresetTextMax == 163);
 
-    // ---- `ui_preset_err`: THE SIX REASONS, each spelled exactly as the design's alternation lists them.
+    // ---- `ui_preset_err`: THE SEVEN REASONS (W6: `bad_page`, D14), each spelled exactly as the contract lists them.
     struct { PresetErr e; const char* word; } six[] = {
         { PresetErr::bad_slot,     "bad_slot"     },
         { PresetErr::bad_text,     "bad_text"     },
@@ -159,54 +177,98 @@ TEST_CASE("P2 the three NDJSON records are byte-exact (design §3.2.3)") {
         { PresetErr::mandatory,    "mandatory"    },
         { PresetErr::busy,         "busy"         },
         { PresetErr::store,        "store"        },
+        { PresetErr::bad_page,     "bad_page"     },
     };
     for (const auto& r : six) {
         mrfw::write_ui_preset_err(b, sizeof b, r.e);
         CHECK(std::string(b) == std::string("{\"ev\":\"ui_preset_err\",\"reason\":\"") + r.word + "\"}\n");
     }
-    // ⛔ AND THE SIX ARE SIX: the reason set is the design's published alternation, so a SEVENTH spelling reaching
-    //    a companion is a contract break. `PresetErr` carries `none` + the six + the `count` fence.
-    CHECK(static_cast<int>(PresetErr::count) == 7);
+    // ⛔ AND THE SEVEN ARE SEVEN: the reason set is the published alternation, so an EIGHTH spelling reaching a
+    //    companion is a contract break. `PresetErr` carries `none` + the seven + the `count` fence (W6; was six / 7).
+    CHECK(static_cast<int>(PresetErr::count) == 8);
 }
 
-// ======================================================================== (10) `list` = 17 + end, STABLE ORDER
-TEST_CASE("P2 list emits all 17 records in stable slot order incl. disabled, then ui_presets_end") {
+// ======================================================================== (10) `list` = PAGES of 4 + end, STABLE ORDER
+// ★★★★ W6 (owner-ruled D14; [[B475]]) — REWRITTEN IN PLACE, and the WITHDRAWN SHAPE IS KEPT VISIBLE: this case pinned
+//      *"`list` emits all 17 records ... then ui_presets_end"* (`lines == kUiPresets + 1`). At 163-byte phrases that
+//      reply outgrows the 2048-B console stage, so `list [<page>]` answers ONE page. ★ The property the case exists for
+//      is UNCHANGED, and it is measured ACROSS the five pages: every slot, disabled ones included, in stable order,
+//      exactly once — "an editor that cannot see `dm4` cannot turn it on".
+TEST_CASE("P2 list emits all 17 records in stable slot order incl. disabled — W6: across FIVE pages of four, each ending ui_presets_end") {
     Fix f;
-    CHECK(f.run("preset list"));
-    CHECK(f.out.lines == mrnv::kUiPresets + 1);          // ★ 17 records + the end record, ⛔ never the enabled 4
-    CHECK(f.st.saves == 0);                              // a read verb writes NOTHING
-
-    // The order is the STABLE SLOT order and every slot is present — asserted by walking the captured stream and
-    // requiring each `"slot":"<token>"` to appear exactly once, in index order.
-    const char* p = f.out.buf;
+    std::string all;
+    for (unsigned page = 1; page <= mrfw::kPresetPages; ++page) {
+        CAPTURE(page);
+        char cmd[32]; std::snprintf(cmd, sizeof cmd, "preset list %u", page);
+        f.zero();
+        CHECK(f.run(cmd));
+        const unsigned recs = (page < mrfw::kPresetPages) ? mrfw::kPresetPageSize
+                                                          : mrnv::kUiPresets - (mrfw::kPresetPages - 1) * mrfw::kPresetPageSize;
+        CHECK(f.out.lines == int(recs + 1));             // ★ its records + ONE end record (page 5: `channel8` alone)
+        CHECK(f.st.saves == 0);                          // a read verb writes NOTHING
+        const std::string end = end_page(3, 4, 1, page);
+        CHECK(f.out.len >= end.size());
+        if (f.out.len >= end.size()) CHECK(std::string(f.out.buf + f.out.len - end.size()) == end);   // ★ LAST
+        all.append(f.out.buf, f.out.len - (f.out.len >= end.size() ? end.size() : 0));
+    }
+    // The order is the STABLE SLOT order and every slot is present EXACTLY ONCE across the pages — asserted by walking
+    // the concatenated records and requiring each `"slot":"<token>"` to appear once, in index order.
+    const char* p = all.c_str();
     for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) {
         char tok[16]; mrfw::preset_slot_token(i, tok, sizeof tok);
         char needle[32]; std::snprintf(needle, sizeof needle, "\"slot\":\"%s\",", tok);
         const char* hit = std::strstr(p, needle);
         CHECK(hit != nullptr);
         if (!hit) break;
+        CHECK(std::strstr(hit + 1, needle) == nullptr);  // ★ exactly once — no slot on two pages
         p = hit + std::strlen(needle);
     }
-    // ★ THE DISABLED SLOTS ARE IN IT — the pin §3.2.3 states outright ("including disabled slots"), because an
-    //   editor that cannot see `dm3` cannot turn it on.
-    CHECK(std::strstr(f.out.buf, kRecDm3Disabled) != nullptr);
-    CHECK(std::strstr(f.out.buf, kRecEmergency)   != nullptr);
-    // ★ ...AND THE END RECORD IS LAST, with the capacity, both actives and the generation.
-    const size_t endlen = std::strlen(kEndDefaults);
-    CHECK(f.out.len >= endlen);
-    if (f.out.len >= endlen) CHECK(std::string(f.out.buf + f.out.len - endlen) == std::string(kEndDefaults));
-
-    // ★★ THE TWO ACTIVE COUNTS ARE MADE UNEQUAL ON PURPOSE — over the compiled defaults they are BOTH 2, so a
-    //    dm/channel SWAP in the end record would be invisible. Enabling one more DM makes the pair 3/2, which is
-    //    the only shape in which "the right count is in the right field" is a measurement.
-    f.zero();
-    CHECK(f.run("preset set dm3 loc=off \"third\""));
+    // ★ THE DISABLED SLOTS ARE IN IT — the pin §3.2.3 states outright ("including disabled slots").
+    CHECK(all.find(kRecDm4Disabled) != std::string::npos);
+    CHECK(all.find(kRecEmergency)   != std::string::npos);
+    // ★ A BARE `list` IS PAGE 1, byte for byte.
     f.zero();
     CHECK(f.run("preset list"));
-    CHECK(std::strstr(f.out.buf, "\"dm_active\":3,\"channel_active\":2,") != nullptr);
-    CHECK(f.out.lines == mrnv::kUiPresets + 1);          // ⛔ still SEVENTEEN + the end record, gaps and all
-    // ...and the generation moved with the change, which is the equality token P3's frozen frame seals.
-    CHECK(std::strstr(f.out.buf, "\"generation\":2}") != nullptr);
+    const std::string bare(f.out.buf, f.out.len);
+    f.zero();
+    CHECK(f.run("preset list 1"));
+    CHECK(std::string(f.out.buf, f.out.len) == bare);
+
+    // ★★ THE GENERATION IS THE RESTART TOKEN: with no change between two page reads they report EQUAL generations,
+    //    and a `set` between them moves the later page's — which is what tells a companion to start again (D14).
+    //    ⓘ The two active counts are unequal over the D9 defaults (3 / 4) and the change keeps them unequal (3 / 5),
+    //    so a dm/channel SWAP in the end record is a measurement, not a coincidence.
+    f.zero();
+    CHECK(f.run("preset list 2"));
+    CHECK(std::strstr(f.out.buf, "\"generation\":1,\"page\":2,") != nullptr);
+    f.zero();
+    CHECK(f.run("preset set channel5 loc=off \"fifth\""));
+    f.zero();
+    CHECK(f.run("preset list 3"));
+    CHECK(std::strstr(f.out.buf, "\"dm_active\":3,\"channel_active\":5,") != nullptr);
+    CHECK(std::strstr(f.out.buf, "\"generation\":2,\"page\":3,\"pages\":5}") != nullptr);
+}
+
+// ★★★ W6 (D14): `bad_page` — every page token that is not a canonical 1..5, and a second token, answer ONE error
+//     record; nothing is loaded or written. ⛔ It REPLACES the usage-line answer a token after `list` used to get.
+TEST_CASE("w6-bad_page: a non-canonical page token or a second token answers bad_page, reading and writing nothing") {
+    Fix f;
+    for (const char* line : { "preset list 0", "preset list 6", "preset list 9", "preset list 01", "preset list +1",
+                              "preset list all", "preset list x", "preset list 1 2", "preset list 5 extra" }) {
+        CAPTURE(line);
+        f.zero();
+        CHECK(f.run(line) == true);                      // ★ the family ANSWERED (NDJSON), ⛔ not the usage line
+        CHECK(f.out.lines == 1);
+        CHECK(std::string(f.out.buf) == std::string("{\"ev\":\"ui_preset_err\",\"reason\":\"bad_page\"}\n"));
+        CHECK(f.st.saves == 0);
+        CHECK(f.st.loads == 0);
+    }
+    // ...and the five canonical pages each answer records, never the error.
+    for (const char* line : { "preset list 1", "preset list 2", "preset list 3", "preset list 4", "preset list 5" }) {
+        f.zero();
+        CHECK(f.run(line));
+        CHECK(std::strstr(f.out.buf, "bad_page") == nullptr);
+    }
 }
 
 // ======================================================================== (10) MUTATING VERBS RETURN THE RECORD
@@ -241,14 +303,16 @@ TEST_CASE("P2 a mutating verb answers with the RESULTING record; reset all answe
     CHECK(f.out.lines == 1);
     CHECK(std::string(f.out.buf) == std::string(kRecDm1));
 
-    // ★ `reset all` -> THE FULL LIST (17 + end), because there is no ONE slot it changed.
+    // ★ `reset all` -> THE FULL LIST (17 + end, UNPAGED — D14 leaves it unchanged), because there is no ONE slot it
+    //   changed. ⓘ W6 (D9): the wearer-enabled slot it reverts is `channel5` (was `channel4`, now a default).
     f.zero();
-    CHECK(f.run("preset set channel4 loc=off \"x\""));
+    CHECK(f.run("preset set channel5 loc=off \"x\""));
     f.zero();
     CHECK(f.run("preset reset all"));
     CHECK(f.out.lines == mrnv::kUiPresets + 1);
     CHECK(std::strstr(f.out.buf, kRecEmergency) != nullptr);
-    CHECK(std::strstr(f.out.buf, "\"slot\":\"channel4\",\"enabled\":false") != nullptr);
+    CHECK(std::strstr(f.out.buf, "\"slot\":\"channel5\",\"enabled\":false") != nullptr);
+    CHECK(std::strstr(f.out.buf, "\"page\"") == nullptr);   // ⛔ no page fields on `reset all`
 
     // ⛔ `clear emergency` -> `mandatory`, and the emergency slot is UNTOUCHED.
     f.zero();
@@ -293,9 +357,10 @@ TEST_CASE("P2 the busy table (spec §2): an ACTIVE emergency answers busy to EVE
     CHECK(std::memcmp(&before, &f.st.rec, sizeof before) == 0);
 
     // ★ `list` is NOT a mutating verb and is NOT busy: reading the catalog during an alarm is harmless and useful.
+    //   ⓘ W6 (D14): a bare `list` is page 1 — four records + the end (was all 17 + the end).
     f.zero();
     CHECK(f.run("preset list"));
-    CHECK(f.out.lines == mrnv::kUiPresets + 1);
+    CHECK(f.out.lines == mrfw::kPresetPageSize + 1);
 
     // ...and the moment the series ends, the same no-op answers `unchanged` (its record), with zero writes.
     f.gate.active = false;
@@ -353,10 +418,12 @@ TEST_CASE("P2 the remaining reasons: bad_slot, bad_text and an unreadable store"
         CHECK(std::string(f.out.buf) == std::string("{\"ev\":\"ui_preset_err\",\"reason\":\"bad_slot\"}\n"));
         CHECK(f.st.saves == 0);
     }
+    // ⓘ W6 (D7): the overlength arm is T + 1 = 164 bytes (was 18, OQ-A's 17 + 1) — built, not typed.
+    const std::string over = "preset set dm1 loc=on \"" + std::string(mrnv::kUiPresetTextMax + 1, 'o') + "\"";
     const char* bad_texts[] = {
         "preset set dm1 loc=on \"\"",                       // empty
         "preset set dm1 loc=on \"   \"",                    // all spaces
-        "preset set dm1 loc=on \"123456789012345678\"",     // 18 bytes — OQ-A's bound is 17
+        over.c_str(),                                       // 164 bytes — the bound is T = 163
         "preset set dm1 loc=on unquoted",                   // not a quoted term
         "preset set dm1 loc=on \"unterminated",             // no closing quote
     };
@@ -366,10 +433,12 @@ TEST_CASE("P2 the remaining reasons: bad_slot, bad_text and an unreadable store"
         CHECK(std::string(f.out.buf) == std::string("{\"ev\":\"ui_preset_err\",\"reason\":\"bad_text\"}\n"));
         CHECK(f.st.saves == 0);
     }
-    // ...and exactly 17 is ACCEPTED (the bound is inclusive).
+    // ...and exactly T = 163 is ACCEPTED (the bound is inclusive) — and its record carries all 163 bytes (W6; was 17).
+    const std::string full(mrnv::kUiPresetTextMax, 'k');
     f.zero();
-    CHECK(f.run("preset set dm1 loc=on \"12345678901234567\""));
-    CHECK(std::strstr(f.out.buf, "\"text\":\"12345678901234567\"") != nullptr);
+    CHECK(f.run(("preset set dm1 loc=on \"" + full + "\"").c_str()));
+    CHECK(std::strstr(f.out.buf, ("\"text\":\"" + full + "\"").c_str()) != nullptr);
+    CHECK(f.cat.slot(mrfw::kPresetDmFirst).len == mrnv::kUiPresetTextMax);
 
     // ★ AN UNREADABLE STORE: every mutating verb answers `store` with ⛔ ZERO writes — never a blind rewrite of a
     //   possibly-intact record.
@@ -396,7 +465,8 @@ TEST_CASE("P2 the grammar: an unknown sub-verb or a trailing token is REFUSED, n
     const char* not_this_grammar[] = {
         "preset",                       // no sub-verb
         "preset frobnicate",            // unknown sub-verb
-        "preset list all",              // ⛔ a trailing token is refused, not read as `list`
+        // ⓘ W6 (D14): `preset list all` LEFT this list — a token after `list` is a PAGE token now, and a bad one answers
+        //   `bad_page` (NDJSON), not the usage line: see `w6-bad_page`.
         "preset clear",                 // missing argument
         "preset reset",
         "preset set dm1",               // too few terms
@@ -431,9 +501,14 @@ TEST_CASE("P2 USB and BLE byte-agree: ONE emitter, two sink shapes, identical st
     //   re-assembled stream AND the shipped-line count to match the direct capture proves both halves: the bytes
     //   are the same, and every record is a WHOLE '\n'-terminated line, so the streaming transport can never fuse
     //   two companion events into one notification or drop a long one.
+    // ⓘ W6: the WIDEST record is `emergency` with a full 163-byte text and location off (243 B); pages and `bad_page`
+    //   join (was `channel8` with 17 bytes).
+    const std::string widest = "preset set emergency loc=off \"" + std::string(mrnv::kUiPresetTextMax, 'w') + "\"";
     const char* lines[] = {
         "preset list",
-        "preset set channel8 loc=on \"12345678901234567\"",   // the WIDEST record this file can produce
+        "preset list 5",
+        "preset list 9",                                      // a `bad_page` record
+        widest.c_str(),                                       // the WIDEST record this file can produce
         "preset clear channel8",
         "preset set dm1 loc=maybe \"x\"",                     // an error record
         "preset reset all",
@@ -455,13 +530,15 @@ TEST_CASE("P2 USB and BLE byte-agree: ONE emitter, two sink shapes, identical st
     }
 }
 
-// ======================================================================== (10) THE FOUR BOOT-LINE STATES
-TEST_CASE("P2 the boot restore: the four storage states each drive the ruled line (or none), with zero writes") {
+// ======================================================================== (10) THE FIVE BOOT-LINE STATES
+// ⓘ W6 (D8): `old_v1` is the fifth arm — its own line, zero writes (was "the four storage states").
+TEST_CASE("P2 the boot restore: the five storage states each drive the ruled line (or none), with zero writes") {
     struct { mrnv::UiPresetRead st; const char* expect; } arms[] = {
         { mrnv::UiPresetRead::ok,        nullptr },                        // ★ loaded — say NOTHING
         { mrnv::UiPresetRead::absent,    nullptr },                        // ★ a first boot is SILENT
         { mrnv::UiPresetRead::invalid,   mrfw::kPresetInvalidLine  },
         { mrnv::UiPresetRead::io_failed, mrfw::kPresetIoFailedLine },
+        { mrnv::UiPresetRead::old_v1,    mrfw::kPresetOldV1Line    },      // ★ W6: at EVERY boot until replaced
     };
     for (const auto& a : arms) {
         FakePresetStore st; FakeGate g; mrfw::PresetCatalog cat{st, g}; mrfw::PresetDiag diag; Rec out;
@@ -498,23 +575,51 @@ TEST_CASE("P2 the boot restore: the four storage states each drive the ruled lin
     CHECK(mrfw::preset_verb(cat2, diag2, "preset set dm3 loc=off \"ok now\"", 31, out2));
     CHECK(st2.saves == 0);
     CHECK(diag2.line() == mrfw::kPresetIoFailedLine);
+    // ★ W6 (D8): an `old_v1` boot says so at EVERY boot — the store is untouched, so a second restore prints it again —
+    //   and the first successful change REPLACES the record (even restating a default) and retires the line.
+    FakePresetStore st4; FakeGate g4; mrfw::PresetDiag diag4; Rec out4;
+    st4.state = mrnv::UiPresetRead::old_v1;
+    for (int boot = 0; boot < 2; ++boot) {
+        mrfw::PresetCatalog c{st4, g4}; out4.reset();
+        CHECK(mrfw::preset_boot_restore(c, diag4, out4) == mrnv::UiPresetRead::old_v1);
+        CHECK(std::strcmp(out4.buf, (std::string(mrfw::kPresetOldV1Line) + "\n").c_str()) == 0);
+        CHECK(st4.saves == 0);
+    }
+    mrfw::PresetCatalog cat4{st4, g4};
+    mrfw::preset_boot_restore(cat4, diag4, out4);
+    CHECK(mrfw::preset_verb(cat4, diag4, "preset set dm1 loc=off \"Are you OK?\"", 36, out4));   // a restated default
+    CHECK(st4.saves == 1);
+    CHECK(st4.rec.version == mrnv::kUiPresetVersion);
+    CHECK(diag4.line() == nullptr);
+    // ★ The boot path's buffer is its OWN derived bound — the widest of the three lines (`invalid`'s, whose em dash is
+    //   three UTF-8 bytes) + '\n' + NUL — and every line fits it whole.
+    CHECK(mrfw::kPresetBootLineMax == 81);
+    CHECK(std::strlen(mrfw::kPresetInvalidLine) + 2 == mrfw::kPresetBootLineMax);
+    CHECK(std::strlen(mrfw::kPresetOldV1Line) + 2 <= mrfw::kPresetBootLineMax);
+    CHECK(std::strlen(mrfw::kPresetIoFailedLine) + 2 <= mrfw::kPresetBootLineMax);
 }
 
 // ======================================================================== THE RESIDENT COST (spec §5)
 TEST_CASE("P2 the resident cost of the ONE live catalog is measured, not assumed") {
     // ★ P2 is where the ruled no-stack placement is PAID: `preset_catalog()` holds one `PresetCatalog` in `.bss`.
     //   The figure is asserted so a future member cannot grow it silently; the per-board RAM delta is QG's.
-    CHECK(sizeof(mrnv::UiPresetBlob) == 372);
+    CHECK(sizeof(mrnv::UiPresetBlob) == 2852);           // W6 re-sync (D15), was 372
     CHECK(sizeof(mrfw::PresetCatalog) >= 3 * sizeof(mrnv::UiPresetBlob));
     CHECK(sizeof(mrfw::PresetCatalog) <= 3 * sizeof(mrnv::UiPresetBlob) + 32);
-    // ⓘ The line buffer is a STACK local of the emitters and is bounded by the widest record (98 B) — 160 B in the
-    //   8 KB console/BLE task, i.e. the same order as every existing `char b[160]` formatter, and ⛔ nowhere near
-    //   the 744-B catalog temporary the stack gate refused.
-    CHECK(mrfw::kPresetLineMax == 160);
+    // ⓘ The line buffer is a STACK local of the emitters and is bounded by the widest record — W6: DERIVED, 243 B +
+    //   NUL = 244 (was the literal 160 over a 98-B widest record). Still a formatter-sized local in the 8 KB
+    //   console/BLE task, and ⛔ nowhere near a catalog record on any stack.
+    CHECK(mrfw::kPresetLineMax == 244);
     char b[mrfw::kPresetLineMax];
     mrnv::UiPresetBlob d{}; mrfw::preset_defaults(d);
-    mrfw::preset_slot_put(d.slot[mrnv::kUiPresets - 1], true, true, "12345678901234567", 17);
-    const size_t widest = mrfw::write_ui_preset(b, sizeof b, mrnv::kUiPresets - 1, d.slot[mrnv::kUiPresets - 1]);
-    CHECK(widest > 0);                                   // ⇒ the widest record FITS (0 would mean it overflowed)
-    CHECK(widest < mrfw::kPresetLineMax);
+    const std::string t(mrnv::kUiPresetTextMax, 'e');
+    mrfw::preset_slot_put(d.slot[mrfw::kPresetEmergency], true, false, t.c_str(), t.size());   // enabled, 163, loc off
+    const size_t widest = mrfw::write_ui_preset(b, sizeof b, mrfw::kPresetEmergency, d.slot[mrfw::kPresetEmergency]);
+    CHECK(widest == 243);                                // ★ the real writer's maximum — the bound is EXACT, not slack
+    CHECK(widest + 1 == mrfw::kPresetLineMax);
+    // ...and ONE byte less loses the whole record (JsonBuf's latch answers 0) — the derivation is what keeps it.
+    char short_b[mrfw::kPresetLineMax - 1];
+    CHECK(mrfw::write_ui_preset(short_b, sizeof short_b, mrfw::kPresetEmergency, d.slot[mrfw::kPresetEmergency]) == 0);
+    // the widest END record (a page, ten-digit generation) fits too
+    CHECK(mrfw::write_ui_presets_end(b, sizeof b, 8, 8, 4294967295u, 5) > 0);
 }

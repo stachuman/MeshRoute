@@ -1,0 +1,289 @@
+# W6 reader audit (D6/P7) — every reader of the changed statements and symbols in lib/ src/ test/ tools/, on the frozen tree
+# Method: `grep -rnw` per symbol over *.h/*.hpp/*.cpp/*.c/*.py/*.sh (counts per file below), plus the reply/usage strings;
+# the pre-check's symbol-readers.json / source-readers.json were the starting point. Dispositions first, raw counts after.
+
+## Dispositions — readers OUTSIDE the §3 fence
+- src/firmware_commands.h:208 — comment "load `/mrui` through the four-state read and print the ruled diagnostic line for
+  the two fault states": NOW STALE (W6: five states, three lines — invalid, io_failed, old_v1). OUT OF FENCE ⇒ not
+  edited; reported as drift for QA/the register. No executable reader.
+- src/firmware_commands.h:203 (`stale-SendReq` in a comment) — still true (the gate re-asks the generation). No change.
+- src/firmware_admin_identity.h:120 (`UiPresetSlot::enabled` in a comment) — the field and its 0/1 ruling are unchanged.
+- `team_changed` in src/firmware_config.cpp, src/firmware_provisioning_service.h, src/fw_main.cpp,
+  test/test_firmware_provisioning_service.cpp, tools/probe_prov_tx/probe.py — UNRELATED identifiers (config/provisioning
+  booleans); W6's `DmState::team_changed` / `ChanState::team_changed` are scoped enumerators. No reader.
+- tools/probe_board_ui/run.sh W7/W8 read `mrui::ui_perform_send(` in firmware_ui.cpp: W7's pattern
+  `mrui::ui_perform_send\([^;]*ui_have_fix\(\), ui_exec` still matches the one call (now also passing `ui_send_live(req),
+  s_send_line, sizeof s_send_line`); W8 (no `"send(_channel)? ` literal in the file) still holds. Board-UI default re-ran
+  green: 592 identities, wiring 60/60, 186 controls RED. W49–W54 (firmware_commands.cpp) anchors unmoved: the file is
+  1915 lines, only the usage text and the named comment corrections changed.
+- tools/probe_console_sink/ble_guard.py:255/291 and test/test_firmware_admin_verbs.cpp:157 treat `ui preset list` as a
+  non-guarded, non-admin command line: still a valid command (bare `list` = page 1, D14). Console-sink re-ran green
+  (720/152); native green.
+- The inbox builder contract (tools/probe_deferred_actions/run.py:140): the boundary `rc=0\nif ! build_support;` occurs
+  EXACTLY ONCE in tools/probe_inbox_verbs/run.sh (lines 361–362); `build_support`/`build_variant` callable as before;
+  the OLED arm's code is `#if MR_FEAT_OLED` / `MR_PROBE_ARM=oled` only (the deferred build is MR_PROBE_ARM=accept).
+  Deferred-actions default re-ran green (b0-p1 150, b1-p1 151, b2-p1 158, b2-p0 158; 40 controls RED) with its source
+  byte-identical (inputs-*.json readonly_rerun).
+- Directory scanners (read everything): check_data_type_literals.py (218 files) PASS; probe_features/ownership.py PASS
+  and --controls 43/0; gen_command_inventory.py --check 197 rows byte-identical (it pins
+  src/firmware_ui_preset_verbs.h:325/328/333/357/372/376 — kept at their base lines, see the coder ledger's ruling);
+  check_command_authority.py PASS + 6/6 selftests; warning census 6/6. All re-ran in the final chain.
+- The six EXCLUDED union batteries (uistatus, uiprov, uijoin, provservice, config, teamkeyring): their target files
+  (src/firmware_ui_status.h, firmware_ui_prov.h, firmware_ui_join.h, firmware_provisioning_service.h,
+  firmware_config_service.h, firmware_team_keyring.h) are UNTOUCHED by W6 and every one of their 200 anchors still
+  matches exactly once; W6 moves no transition or field carrier of theirs (UiState's saved-key/invite members only
+  SHIFT by +24 behind the review union — same types, same fields). Also run as a supplemental measurement
+  (receipts/supplemental-union.txt), outside the §4.1 chain.
+
+## Raw per-symbol reader counts (file: occurrences)
+### kPresetLineMax
+      1 src/firmware_ui_presets.h
+      5 src/firmware_ui_preset_verbs.h
+      5 test/test_firmware_ui_preset_verbs.cpp
+      2 tools/probe_inbox_verbs/run.sh
+### kUiPresetTextMax
+      5 src/device_nv.h
+      2 src/firmware_ui_model.h
+      5 src/firmware_ui_presets.h
+      2 src/firmware_ui_preset_verbs.h
+      3 src/firmware_ui_send.h
+      3 test/test_firmware_ui_model.cpp
+      7 test/test_firmware_ui_presets.cpp
+      6 test/test_firmware_ui_preset_verbs.cpp
+     12 test/test_firmware_ui_send.cpp
+      8 tools/probe_ui_model_mutations.py
+### kUiPresetVersion
+      6 src/device_nv.h
+      5 test/test_firmware_ui_presets.cpp
+      1 test/test_firmware_ui_preset_verbs.cpp
+      1 tools/probe_ui_model_mutations.py
+### kUiPresetV1Bytes
+      3 src/device_nv.h
+     10 test/test_firmware_ui_presets.cpp
+      2 tools/probe_inbox_verbs/run.sh
+      6 tools/probe_ui_model_mutations.py
+### kUiPresetV1Version
+      2 src/device_nv.h
+      2 test/test_firmware_ui_presets.cpp
+      2 tools/probe_inbox_verbs/run.sh
+      5 tools/probe_ui_model_mutations.py
+### UiPresetSlot
+      8 src/device_nv.h
+      1 src/firmware_admin_identity.h
+      2 src/firmware_ui_model.h
+      6 src/firmware_ui_presets.h
+      1 src/firmware_ui_preset_verbs.h
+      2 src/firmware_ui_send.h
+      8 test/test_firmware_ui_presets.cpp
+      6 tools/probe_board_abi.py
+      2 tools/probe_ui_model_mutations.py
+### UiPresetBlob
+     15 src/device_nv.h
+      2 src/firmware_commands.cpp
+      3 src/firmware_ui_model.h
+     12 src/firmware_ui_presets.h
+      4 src/firmware_ui_send.h
+      2 test/test_firmware_ui_chrome.cpp
+     26 test/test_firmware_ui_model.cpp
+     53 test/test_firmware_ui_presets.cpp
+      9 test/test_firmware_ui_preset_verbs.cpp
+     20 test/test_firmware_ui_send.cpp
+      6 tools/probe_board_abi.py
+      6 tools/probe_firmware_ui/probe_main.cpp
+      1 tools/probe_inbox_verbs/fakes/Preferences.h
+     14 tools/probe_inbox_verbs/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+### old_v1
+      3 src/device_nv.h
+      1 src/firmware_commands.cpp
+      6 src/firmware_ui_presets.h
+      2 src/firmware_ui_preset_verbs.h
+      9 test/test_firmware_ui_presets.cpp
+      5 test/test_firmware_ui_preset_verbs.cpp
+      2 tools/probe_firmware_ui/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+     10 tools/probe_ui_model_mutations.py
+### bad_page
+      1 src/firmware_commands.cpp
+      3 src/firmware_ui_presets.h
+      3 src/firmware_ui_preset_verbs.h
+      2 test/test_firmware_ui_presets.cpp
+      9 test/test_firmware_ui_preset_verbs.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      6 tools/probe_ui_model_mutations.py
+### SendReq
+      2 src/device_nv.h
+      1 src/firmware_commands.h
+      4 src/firmware_ui.cpp
+     19 src/firmware_ui_model.h
+      5 src/firmware_ui_presets.h
+      4 src/firmware_ui_preset_verbs.h
+      6 src/firmware_ui_send.h
+      2 test/test_firmware_ui_chrome.cpp
+    111 test/test_firmware_ui_model.cpp
+      2 test/test_firmware_ui_presets.cpp
+     87 test/test_firmware_ui_send.cpp
+      6 tools/probe_board_abi.py
+      1 tools/probe_firmware_ui/run.sh
+      6 tools/probe_ui_model_mutations.py
+### SendGate
+     21 src/firmware_ui_send.h
+     27 test/test_firmware_ui_send.cpp
+      9 tools/probe_ui_model_mutations.py
+### SendLive
+      3 src/firmware_ui.cpp
+      6 src/firmware_ui_send.h
+      1 test/test_firmware_ui_chrome.cpp
+      7 test/test_firmware_ui_model.cpp
+     71 test/test_firmware_ui_send.cpp
+      1 tools/probe_board_abi.py
+### send_gate_of
+      1 src/firmware_ui.cpp
+      5 src/firmware_ui_model.h
+      1 src/firmware_ui_presets.h
+      1 src/firmware_ui_preset_verbs.h
+      4 src/firmware_ui_send.h
+      1 test/test_firmware_ui_model.cpp
+     29 test/test_firmware_ui_send.cpp
+### ui_perform_send
+      6 src/firmware_ui.cpp
+      2 src/firmware_ui_model.h
+      3 src/firmware_ui_send.h
+     45 test/test_firmware_ui_send.cpp
+      3 tools/probe_board_ui/run.sh
+      1 tools/probe_firmware_ui/probe_main.cpp
+      3 tools/probe_firmware_ui/run.sh
+### kSendLineCap
+      2 src/firmware_ui.cpp
+      4 src/firmware_ui_send.h
+     16 test/test_firmware_ui_send.cpp
+      6 tools/probe_firmware_ui/run.sh
+### kSendU8Digits
+      3 src/firmware_ui_send.h
+### preset_emit_list
+      3 src/firmware_ui_preset_verbs.h
+      1 tools/probe_firmware_ui/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+      6 tools/probe_ui_model_mutations.py
+### write_ui_presets_end
+      2 src/firmware_ui_preset_verbs.h
+      4 test/test_firmware_ui_preset_verbs.cpp
+      2 tools/probe_ui_model_mutations.py
+### kPresetBootLineMax
+      2 src/firmware_ui_presets.h
+      2 src/firmware_ui_preset_verbs.h
+      3 test/test_firmware_ui_presets.cpp
+      4 test/test_firmware_ui_preset_verbs.cpp
+      2 tools/probe_ui_model_mutations.py
+### kPresetPageSize
+      2 src/firmware_ui_presets.h
+      1 src/firmware_ui_preset_verbs.h
+      3 test/test_firmware_ui_presets.cpp
+      3 test/test_firmware_ui_preset_verbs.cpp
+      1 tools/probe_firmware_ui/probe_main.cpp
+      2 tools/probe_ui_model_mutations.py
+### kPresetPages
+      4 src/firmware_ui_presets.h
+      2 src/firmware_ui_preset_verbs.h
+      3 test/test_firmware_ui_presets.cpp
+      3 test/test_firmware_ui_preset_verbs.cpp
+      3 tools/probe_ui_model_mutations.py
+### preset_page_of_token
+      1 src/firmware_ui_presets.h
+      1 src/firmware_ui_preset_verbs.h
+      3 test/test_firmware_ui_presets.cpp
+      2 tools/probe_ui_model_mutations.py
+### kPresetOldV1Line
+      3 src/firmware_ui_presets.h
+      5 test/test_firmware_ui_presets.cpp
+      3 test/test_firmware_ui_preset_verbs.cpp
+      1 tools/probe_firmware_ui/probe_main.cpp
+      1 tools/probe_ui_model_mutations.py
+### team_changed
+      1 src/firmware_config.cpp
+      1 src/firmware_provisioning_service.h
+      2 src/firmware_ui.cpp
+      6 src/firmware_ui_model.h
+      6 src/firmware_ui_send.h
+      2 src/fw_main.cpp
+      3 test/test_firmware_provisioning_service.cpp
+      4 test/test_firmware_ui_send.cpp
+      1 tools/probe_prov_tx/probe.py
+      3 tools/probe_ui_model_mutations.py
+### recipient_changed
+      1 src/firmware_ui.cpp
+      3 src/firmware_ui_model.h
+      6 src/firmware_ui_send.h
+      5 test/test_firmware_ui_send.cpp
+      4 tools/probe_ui_model_mutations.py
+### ReviewPhase
+      1 src/firmware_ui.cpp
+     31 src/firmware_ui_model.h
+      6 src/firmware_ui_send.h
+      1 test/test_firmware_ui_chrome.cpp
+     37 test/test_firmware_ui_model.cpp
+      3 test/test_firmware_ui_send.cpp
+      1 tools/probe_board_abi.py
+     11 tools/probe_ui_model_mutations.py
+### review_line
+      1 src/firmware_ui.cpp
+      3 src/firmware_ui_model.h
+      9 test/test_firmware_ui_model.cpp
+      1 tools/probe_ui_model_mutations.py
+### detail_line
+      1 src/firmware_ui.cpp
+      5 src/firmware_ui_model.h
+     18 test/test_firmware_ui_model.cpp
+      1 tools/probe_board_abi.py
+      4 tools/probe_firmware_ui/run.sh
+### kDetailBodyRows
+      1 src/firmware_ui.cpp
+      9 src/firmware_ui_model.h
+      7 test/test_firmware_ui_model.cpp
+      1 tools/probe_ui_model_mutations.py
+### s_send_line
+      2 src/firmware_ui.cpp
+     10 tools/probe_firmware_ui/run.sh
+### ui_review_capture
+      2 src/firmware_ui.cpp
+      1 src/firmware_ui_model.h
+      1 src/firmware_ui_send.h
+      2 test/test_firmware_ui_chrome.cpp
+     10 test/test_firmware_ui_model.cpp
+      3 test/test_firmware_ui_send.cpp
+      2 tools/probe_firmware_ui/run.sh
+### review_capture_owed
+      1 src/firmware_ui.cpp
+      1 src/firmware_ui_model.h
+      1 src/firmware_ui_send.h
+### kPresetRecHead
+      1 src/firmware_ui_presets.h
+      2 src/firmware_ui_preset_verbs.h
+### kPresetEndHead
+      1 src/firmware_ui_presets.h
+      2 src/firmware_ui_preset_verbs.h
+      3 tools/probe_ui_model_mutations.py
+### preset_lit_len
+      1 src/firmware_ui_presets.h
+      4 src/firmware_ui_preset_verbs.h
+### text_max
+      1 src/firmware_ui_presets.h
+      6 test/test_firmware_ui_preset_verbs.cpp
+      1 tools/probe_inbox_verbs/probe_main.cpp
+      2 tools/probe_ui_model_mutations.py
+### reserved_tail
+      3 src/device_nv.h
+      2 src/firmware_ui_presets.h
+      6 test/test_firmware_ui_presets.cpp
+
+## reply/usage strings (`ui preset list`, ui_presets_end, "text_max", "page")
+      2 src/firmware_commands.cpp
+      1 src/firmware_commands.h
+      6 src/firmware_ui_presets.h
+      5 src/firmware_ui_preset_verbs.h
+      1 test/test_firmware_admin_verbs.cpp
+     14 test/test_firmware_ui_preset_verbs.cpp
+      2 tools/probe_console_sink/ble_guard.py
+      1 tools/probe_firmware_ui/probe_main.cpp
+     15 tools/probe_inbox_verbs/probe_main.cpp
+      3 tools/probe_ui_model_mutations.py

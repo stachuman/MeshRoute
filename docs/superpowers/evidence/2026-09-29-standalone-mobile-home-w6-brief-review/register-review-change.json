@@ -1,0 +1,7 @@
+{
+  "reason": "M1: register newly measured tool defect; brief/design and all other preparation inputs remain unchanged. Only next-free marker and B477 row added. Author must refresh register pin in revised brief.",
+  "before_sha256": "4a7185f2a0de684276fbb0d7554dc3a74aaa80a4f07d4d908ad0f6b462b124a7",
+  "after_sha256": "2fa50e241d6a55cf54c987ce5e818944a68d6069ccb479f41555afd728c5c815",
+  "finding": "B477",
+  "next_free": "B478"
+}

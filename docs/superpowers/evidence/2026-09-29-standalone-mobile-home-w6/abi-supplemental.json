@@ -1,0 +1,7 @@
+{"include_dirs": ["src"],
+ "headers": ["firmware_ui_send.h"],
+ "types": [{"name": "mrui::SendLive", "included_if": "MR_FEAT_OLED"},
+           {"name": "mrui::ReviewPhase", "included_if": "MR_FEAT_OLED"}],
+ "pins": {"native":        {"mrui::SendLive": [12, 4, false], "mrui::ReviewPhase": [1, 1, false]},
+          "heltec_mobile": {"mrui::SendLive": [12, 4, true],  "mrui::ReviewPhase": [1, 1, true]},
+          "gateway":       {"mrui::SendLive": [12, 4, false], "mrui::ReviewPhase": [1, 1, false]}}}

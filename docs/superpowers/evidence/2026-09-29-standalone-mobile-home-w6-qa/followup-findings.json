@@ -1,0 +1,21 @@
+{
+  "strict_decode": {
+    "scope": "Labelled synthetic child stdout; real AST-extracted run_suite, build stub only",
+    "exception": "'utf-8' codec can't decode byte 0xbb in position 19: invalid start byte",
+    "function_sha256": "f13cf87b76996587c3fbd8d3d1f28459bbcecff2c5f21f07245f69726e56a6cb"
+  },
+  "missing_direct_mutation": {
+    "statement": "if (preset_generation_moved(s)) close_compose();",
+    "model_entries": 264,
+    "matching_entries": [],
+    "predicate_entry": "Y06 changes the equality predicate; it does not remove the on_tick close call",
+    "scope": "Static literal-target census, not a claimed surviving mutation"
+  },
+  "legacy_test_unchanged": true,
+  "header_comment": {
+    "path": "src/firmware_commands.h",
+    "line": 208,
+    "text": "// setup(): load `/mrui` through the four-state read and print the ruled diagnostic line for the two fault states",
+    "scope": "Out of W6 fence; stale four-state/two-diagnostic wording against actual five-state classifier"
+  }
+}

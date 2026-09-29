@@ -293,17 +293,17 @@ the token, never a list position. The family answers in NDJSON over USB; a misty
 
 | Command or form | Access/build | Effect | First classification |
 | --- | --- | --- | --- |
-| `ui preset list` | USB; OLED builds | Read | Emits all 17 `ui_preset` records in stable slot order, including disabled slots, then `ui_presets_end` with the capacity, both active counts and the catalog generation. |
-| `ui preset set <emergency\|dm1..dm8\|channel1..channel8> loc=<on\|off> "<text>"` | USB; OLED builds | Persistent + live | Validates the full record and enables that slot. Text is 1-17 printable ASCII bytes with at least one non-space; `"`, `\`, CR and LF are rejected. Answers with the resulting record. |
+| `ui preset list [<1..5>]` | USB; OLED builds | Read | Emits ONE page of four `ui_preset` records in stable slot order, including disabled slots (page 5 is `channel8` alone), then `ui_presets_end` with the capacity (17), `text_max` (163), both active counts, the catalog generation and `page`/`pages`. A bare `list` is page 1; any other page token, or a second token, answers `bad_page`. Read pages 1-5 and start again if their generations differ. |
+| `ui preset set <emergency\|dm1..dm8\|channel1..channel8> loc=<on\|off> "<text>"` | USB; OLED builds | Persistent + live | Validates the full record and enables that slot. Text is 1-163 printable ASCII bytes with at least one non-space; `"`, `\`, CR and LF are rejected. Answers with the resulting record. |
 | `ui preset clear <dm1..dm8\|channel1..channel8>` | USB; OLED builds | Persistent + live | Disables the slot and clears its text and location flag. `clear emergency` is refused with `mandatory`. |
-| `ui preset reset <emergency\|dm1..dm8\|channel1..channel8>` | USB; OLED builds | Persistent + live | Restores that slot's compiled default; slots 3-8 return to disabled. Answers with the resulting record. |
-| `ui preset reset all` | USB; OLED builds | Persistent + live + Recovery | Restores the complete compiled catalog. Answers with the full list. The generation still advances. |
+| `ui preset reset <emergency\|dm1..dm8\|channel1..channel8>` | USB; OLED builds | Persistent + live | Restores that slot's compiled default (`dm1`-`dm3`, `channel1`-`channel4` and `emergency` have one); every other slot returns to disabled. Answers with the resulting record. |
+| `ui preset reset all` | USB; OLED builds | Persistent + live + Recovery | Restores the complete compiled catalog. Answers with the full unpaged list (17 records + an end record without page fields). The generation still advances. |
 
 Storage uses a separate versioned UI record (`/mrui`), so editing a phrase does not reprovision radio, identity,
 team, or key configuration. A factory reset erases it with the rest of the `mr` namespace.
 
-Refusals are reported as `{"ev":"ui_preset_err","reason":"…"}` with exactly six values: `bad_slot`, `bad_text`,
-`bad_location`, `mandatory`, `busy`, `store`. `store` covers both an unreadable record and a failed write; a
+Refusals are reported as `{"ev":"ui_preset_err","reason":"…"}` with exactly seven values: `bad_slot`, `bad_text`,
+`bad_location`, `mandatory`, `busy`, `store`, `bad_page`. `store` covers both an unreadable record and a failed write; a
 failed write may have changed flash partially, so it must not be read as "nothing was written".
 
 While an emergency alarm is active, **every** mutating verb answers `busy` — including one that would change
@@ -316,13 +316,18 @@ successful durable update and is compared for equality, never ordering.
 At boot the node prints nothing when the record is valid or absent. A corrupt record prints
 `  ui presets = DEFAULTS (record invalid — repaired on next successful change)` and repairs itself on the next
 successful change; an unreadable store prints `  ui presets = DEFAULTS (store unreadable — changes disabled)`
-and refuses every mutation with `store` and no writes. `cfg` also reports
+and refuses every mutation with `store` and no writes. An old version-1 record (the pre-W6 17-byte catalog) prints
+`  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)` at every boot, runs the compiled defaults with no
+boot write and no migration, and is replaced by the first successful change. `cfg` also reports
 `  presets: generation=<n> dm_active=<n> channel_active=<n> saves=<n>`.
 
 The textual `ui preset` storage and administration commands and the on-device compose-list rendering that
 consumes this catalog are both implemented (UI-10/11, 2026-08-26): the compose lists show the enabled slots in
 stable-slot order with an `L`/`-` location marker, and a catalog change between the wearer's selection and its
-execution is refused on the panel as `PRESET CHANGED` rather than sending newly configured words.
+execution is refused on the panel as `PRESET CHANGED` rather than sending newly configured words. Since W6
+(2026-09-29) a phrase longer than 17 bytes is abbreviated on its row (16 bytes and `»`), and a double on any phrase
+opens a review of the whole text — `BACK` selected, `SEND` to confirm — before anything is queued; a team change or a
+re-keyed recipient refuses as `TEAM CHANGED` / `RECIPIENT CHANGED` with nothing sent.
 
 ## Configuration keys
 

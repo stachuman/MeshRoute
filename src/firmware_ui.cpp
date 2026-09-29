@@ -573,9 +573,37 @@ bool ui_have_fix() {
 //      may have waited in `_req_pending` for seconds behind a busy tracker or a firing alarm, so the frozen frame's
 //      projection is not the question `send_gate_of` has to answer. ⛔ Do not "tidy" this into the snapshot's copy.
 // ⓘ The SAME instance `build_snapshot` projects from and the `ui preset` verbs write — one catalog, three readers.
+// ★★★ W6 (owner-ruled D15, brief §2.5) — THE ONE SEND LINE: 199 B (`mrui::kSendLineCap`, derived) of STATIC storage,
+//     owned HERE and passed into the pure operation — a 163-byte phrase no longer fits the old 96-B stack local, and
+//     the loop task's stack is not where 199 B belong. ⛔ Never a second copy (one per TU or instantiation) and ⛔
+//     never live across a recursive executor: `ui_exec` → `mrfw::exec_command` never re-enters `mr_ui_tick`.
+char s_send_line[mrui::kSendLineCap];
+// ★★ W6 — THE GATE's LIVE ANSWERS, read at the instant of asking (brief §2.5): the node's own team and, for a DM, the
+//    existing `Node::team_key_of_id` authority's OWN boolean and hash — the resolver `label_for_team_id` asks (U1).
+//    ⛔ No ID-indexed cache and no six-cell label: a known zero hash stays known (`peer_found`), never "unknown".
+mrui::SendLive ui_send_live(const mrui::SendReq& req) {
+    mrui::SendLive l{};
+    l.team_id = g_node.config().team_id;
+    if (req.kind == mrui::SendKind::dm) l.peer_found = g_node.team_key_of_id(req.peer_id, l.peer_hash);
+    if (!l.peer_found) l.peer_hash = 0;
+    return l;
+}
 void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
     mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, s_model, req, mrfw::preset_catalog().live(),
+                          ui_send_live(req), s_send_line, sizeof s_send_line,
                           uint8_t(MR_UI_TEAM_CHANNEL_ID), ui_have_fix(), ui_exec, nullptr, now_ms);
+}
+// ★★★ W6 (design r2.23 §7.3) — THE REVIEW's CAPTURE, SERVED IN THE TICK exactly as the Inbox's open is: a double on a
+//     phrase REQUESTED it, and this answers from the LIVE catalog, team and peer before the frame freezes. The pure
+//     `mrui::ui_review_capture` does all of it; this supplies the resolver's answer and the peer's FULL counted name
+//     (`label_from_hash`'s read, W4a — ⛔ never a pre-clipped prefix). ⛔ It never queues and never calls `ui_exec`.
+void ui_service_review(const mrui::UiSnapshot& s, uint32_t now_ms) {
+    mrui::SendReq b{};
+    if (!s_model.review_capture_owed(b)) return;
+    const mrui::SendLive live = ui_send_live(b);
+    char raw[MESHROUTE_NS::protocol::peer_name_max];
+    const uint8_t n = live.peer_found ? g_node.peer_name_find(live.peer_hash, raw, uint8_t(sizeof raw)) : uint8_t(0);
+    (void)mrui::ui_review_capture(s_model, mrfw::preset_catalog().live(), live, raw, n, s, now_ms);
 }
 
 // ---- snapshot ----------------------------------------------------------------------------------------------------
@@ -2302,6 +2330,15 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
                 body_text(1, mrui::kPresetChangedText);
                 body_text(2, "not sent");
                 break;
+            // ★ W6 (brief §2.5) — the gate's two new refusals, the same shape: ZERO submission, a word of their own.
+            case mrui::DmState::team_changed:
+                body_text(1, mrui::kTeamChangedText);
+                body_text(2, "not sent");
+                break;
+            case mrui::DmState::recipient_changed:
+                body_text(1, mrui::kRecipientChangedText);
+                body_text(2, "not sent");
+                break;
         }
     } else {
         switch (v.chan) {
@@ -2334,12 +2371,30 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
                 body_text(1, mrui::kPresetChangedText);
                 body_text(2, "not sent");
                 break;
+            case mrui::ChanState::team_changed:   // ★ W6 — the team binding broke at execution, zero submission
+                body_text(1, mrui::kTeamChangedText);
+                body_text(2, "not sent");
+                break;
         }
     }
     body_text(4, "press = back");
 }
 
+// ★★★ W6 (design r2.23 §7.3, D5) — THE REVIEW REPLACES THE LIST, and everything it draws is FROZEN in `UiState`:
+//     row 0 (`TO …`, built at capture), the page's three word-wrapped rows and the action row from the pure unit.
+//     ⛔ Nothing here reads the catalog or a live name, so a `ui preset set` between two page replays cannot tear it.
+// §7.3 AUDIT (19-column body): `TO TEAM 12A1B2C3` 16 · `TO <7> 3F2A91BC` 19 · `TO T255 UNVERIFIED` 18 · page rows ≤ 19
+//   by the wrap · ` SEND >BACK LOC 1/2` 19.
+void draw_review(const mrui::UiState& st) {
+    char l[kLineCap];
+    body_text(0, st.review_header);
+    for (uint8_t row = 0; row < mrui::kReviewBodyRows; ++row) body_text(row + 1, st.review_line[row]);
+    mrui::review_action_line(l, sizeof l, st.review_send, st.review_loc, st.detail_page, st.detail_pages);
+    body_text(4, l);
+}
+
 void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v) {
+    if (st.review_phase == mrui::ReviewPhase::open) { draw_review(st); return; }   // ★ W6: the review owns the body
     const bool dm = (st.compose == mrui::Compose::dm);
     char head[kLineCap];
     if (dm) {
@@ -2377,6 +2432,11 @@ void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outc
     const uint8_t first = list_first(st.cursor, n, rows);
     for (uint8_t row = 0; row < rows && first + row < n; ++row) {
         char l[kLineCap];
+        // ★ W6: a closed review's note over item 1 (`TEAM CHANGED` / `RECIPIENT CHANGED` / a DM list's `PRESET CHANGED`).
+        if (mrui::review_note_row(l, sizeof l, uint8_t(first + row), st.review_phase, (first + row) == st.cursor)) {
+            body_text(uint8_t(row + top), l);
+            continue;
+        }
         // ★ W4b (design §6.5): the SEND LIST's two special rows — `PRESET CHANGED` over item 1 while the note is up,
         //   `MENU` for the exit row. ⛔ Every phrase row still goes through the unchanged compose line below.
         if (!dm && mrui::send_list_row_override(l, sizeof l, uint8_t(first + row), list,
@@ -2586,6 +2646,9 @@ void mr_ui_tick(uint32_t now_ms) {
     // ★★ §UI-7D slice B: serve the inbox detail/delete request, and BEFORE the frame gate below — the answer must be in
     //    `UiState` by the time the frame FREEZES, or the press would appear to do nothing for one whole frame.
     ui_service_inbox_request(now_ms);
+    // ★★★ W6: the phrase review's capture, for the same reason and in the same place — its exact bytes and row 0 must be
+    //     in `UiState` when the frame freezes, and no frame may read the live catalog or a live name while it draws.
+    ui_service_review(s, now_ms);
 
     // ★★★★ §CHROME-3 / design §8.3 — THE REPAINT INVALIDATION. Snapshot-only facts move with NO gesture and NO app
     //   push: a team route arrives on a beacon, the mobile-home link changes state, a battery sample lands, and the

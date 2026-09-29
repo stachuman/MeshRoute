@@ -1,0 +1,25 @@
+{
+  "scope": "Host reproduction of the existing native fixture through the real model; no production change",
+  "compile_command": [
+    "g++",
+    "-std=gnu++20",
+    "-O2",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-Wl,--gc-sections",
+    "-fno-exceptions",
+    "-fno-rtti",
+    "-DMESHROUTE_NATIVE=1",
+    "-DMR_N_LAYERS=2",
+    "-I/home/staszek/MeshRoute/src",
+    "-I/home/staszek/MeshRoute/lib/core",
+    "-I/home/staszek/MeshRoute/lib/hal",
+    "-I/home/staszek/MeshRoute/lib/console",
+    "-I/home/staszek/MeshRoute/lib/monocypher/src",
+    "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa/alarm-fixture-query.cpp",
+    "-o",
+    "/tmp/mr-w6-qa-rkz9ymlg/alarm-fixture-query"
+  ],
+  "exit": 0,
+  "output": "compose_none=1 emergency_first=1 ordinary_request=0\n"
+}
