@@ -1,0 +1,13 @@
+# W0 — the R-fixture live precondition is NECESSARY (dev measurement, 2026-09-30)
+# method: a scratch copy of lib/ src/ tools/ variants/ with every install_live_name_pos(...) call stripped from
+#   tools/probe_inbox_verbs/probe_main.cpp (the helper marked [[maybe_unused]] so the -Werror harness still builds),
+#   then MR_PROBE_ARM=accept run.sh --no-neg. Full log: artifacts/2026-09-29-standalone-mobile-home-w0/dev-r-fixture-necessity.log
+# result: exactly these rows fail — the live name is the probe's constructor default "node", not the seeded record's
+  FAIL R12 the BLE sink receives EXACTLY the success line [> regen ok  key_hash32= 0xB12D4983  name="node"
+  FAIL R21 ...and the operator name was PRESERVED across the mint
+  FAIL R22 the medium retained EXACTLY the record production wrote (name/magic/version kept, seed fresh)
+  FAIL R23 the USB console receives BYTE-IDENTICAL bytes through `mrcon` [> regen ok  key_hash32= 0xB12D4983  name="node"
+  FAIL R25 a record with NO name emits no `name=` segment, and still nothing on USB [> regen ok  key_hash32= 0xB12D4983  name="node"
+  FAIL R26 a MAXIMUM-length (32 B) name is emitted in full, and still nothing on USB [> regen ok  key_hash32= 0xB12D4983  name="node"
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 6 failed (pin 1400)
+# with the precondition (the frozen tree): accept 1400/1400, 63/63 controls (final-inboxverbs.log)

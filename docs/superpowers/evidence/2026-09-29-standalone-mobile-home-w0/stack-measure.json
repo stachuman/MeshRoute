@@ -1,0 +1,142 @@
+{
+  "scope": "W0 coder gate \u00a74.1 step 6 \u2014 compile-only `-fstack-usage` frames for the name, coordinate and `regen` paths on the\nheltec_mobile toolchain, base vs final. Compiler frames and call-chain subtotals only: NOT a task high-water mark and\nNOT a whole-program stack bound. Base = `git archive 0f23aee src`; final = the working tree. Raw `.su` files and\ncompiler logs go under the ignored artifacts folder. \u24d8 The gateway compiles the same two TUs; its frames are recorded\ntoo, for the board attribution (a headless build still links `cfg set` and `regen`).",
+  "scratch": "/tmp/w0-stack-ycg69pqu",
+  "compiles": [
+    {
+      "variant": "base",
+      "target": "heltec_mobile",
+      "unit": "firmware_config.cpp",
+      "exit": 0,
+      "su": "base-heltec_mobile-firmware_config.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "heltec_mobile",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "su": "base-heltec_mobile-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "heltec_mobile",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "su": "base-heltec_mobile-fw_main.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "gateway",
+      "unit": "firmware_config.cpp",
+      "exit": 0,
+      "su": "base-gateway-firmware_config.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "gateway",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "su": "base-gateway-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "base",
+      "target": "gateway",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "su": "base-gateway-fw_main.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "heltec_mobile",
+      "unit": "firmware_config.cpp",
+      "exit": 0,
+      "su": "final-heltec_mobile-firmware_config.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "heltec_mobile",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "su": "final-heltec_mobile-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "heltec_mobile",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "su": "final-heltec_mobile-fw_main.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "gateway",
+      "unit": "firmware_config.cpp",
+      "exit": 0,
+      "su": "final-gateway-firmware_config.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "gateway",
+      "unit": "firmware_commands.cpp",
+      "exit": 0,
+      "su": "final-gateway-firmware_commands.cpp.su"
+    },
+    {
+      "variant": "final",
+      "target": "gateway",
+      "unit": "fw_main.cpp",
+      "exit": 0,
+      "su": "final-gateway-fw_main.cpp.su"
+    }
+  ],
+  "frames": {
+    "base-heltec_mobile-firmware_config.cpp": {
+      "void mrfw::handle_cfg_set(const char*, Print&)": 352
+    },
+    "base-heltec_mobile-firmware_commands.cpp": {
+      "void mrfw::print_identity(const mrnv::IdBlob&, Print&)": 48,
+      "void mrfw::do_regen(Print&)": 320,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 336,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 400
+    },
+    "base-heltec_mobile-fw_main.cpp": {
+      "void mesh_service_once()": 2128
+    },
+    "base-gateway-firmware_config.cpp": {
+      "void mrfw::handle_cfg_set(const char*, Print&)": 440
+    },
+    "base-gateway-firmware_commands.cpp": {
+      "void mrfw::print_identity(const mrnv::IdBlob&, Print&)": 32,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 312,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 376
+    },
+    "base-gateway-fw_main.cpp": {
+      "void mesh_service_once()": 728
+    },
+    "final-heltec_mobile-firmware_config.cpp": {
+      "bool mrfw::id_candidate_from_live(mrnv::IdBlob&, const char*, size_t)": 80,
+      "mrfw::RenameResult mrfw::rename_node(const char*, size_t)": 240,
+      "void mrfw::handle_cfg_set(const char*, Print&)": 352
+    },
+    "final-heltec_mobile-firmware_commands.cpp": {
+      "void mrfw::print_identity(const mrnv::IdBlob&, Print&)": 48,
+      "void mrfw::do_regen(Print&)": 320,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 336,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 400
+    },
+    "final-heltec_mobile-fw_main.cpp": {
+      "void mesh_service_once()": 2128
+    },
+    "final-gateway-firmware_config.cpp": {
+      "bool mrfw::id_candidate_from_live(mrnv::IdBlob&, const char*, size_t)": 64,
+      "mrfw::RenameResult mrfw::rename_node(const char*, size_t)": 0,
+      "void mrfw::handle_cfg_set(const char*, Print&)": 448
+    },
+    "final-gateway-firmware_commands.cpp": {
+      "void mrfw::print_identity(const mrnv::IdBlob&, Print&)": 32,
+      "bool mrfw::dispatch(const char*, size_t, Print&, CommandTransport)": 312,
+      "mrfw::LineExec mrfw::exec_console_line(const char*, size_t, LineFormat, Print&, char*, size_t, const CommandContext&)": 376
+    },
+    "final-gateway-fw_main.cpp": {
+      "void mesh_service_once()": 728
+    }
+  }
+}

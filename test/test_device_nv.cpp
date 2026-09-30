@@ -31,6 +31,7 @@
 
 #include <cstddef>       // offsetof — the on-flash PeerRec field order is a pinned contract
 #include <cstring>
+#include <string>        // W0: the 65537-byte overlength name
 
 using namespace mrnv;
 
@@ -927,4 +928,93 @@ TEST_CASE("device_nv: §RADMIN-4 — the CONTROLLER records' ABI and the four-va
     // …and a failed load leaves the caller's buffer alone to inspect and re-classify.
     CHECK(mk.magic == kMgmtKeyMagic);
     CHECK(tb.magic == kTargetMagic);
+}
+
+// ================================================================================================================
+// ★★★ W0 (design §4.3; B440/B448) — THE ONE LIVE → RECORD CONVERSION, `mrnv::id_blob_from_live`, through the REAL
+//     helper. Every `/mrid` writer builds its candidate here from LIVE values, so these cases pin what a writer can
+//     never get wrong again: every field copied, the stamp applied, unused name bytes zero, and the length admitted
+//     on its `size_t` BEFORE any narrowing. ⓘ Diagnostics compare BYTES (`memcmp`, integer counts) and never print
+//     a name — a raw high byte in doctest's output is B478's territory (the owner ruled W0's tests hex/bytes-only).
+// ================================================================================================================
+namespace {
+// The candidate a correct conversion must produce, built INDEPENDENTLY of the helper (field by field on a zeroed
+// record), so a helper defect cannot also be the expectation.
+IdBlob w0_expected(const uint8_t (&seed)[32], const char* name, size_t name_len, int32_t lat, int32_t lon) {
+    IdBlob e{};
+    e.magic = kIdMagic; e.version = kIdVersion;
+    e.name_len = static_cast<uint16_t>(name_len);
+    for (size_t i = 0; i < 32; ++i) e.seed[i] = seed[i];
+    for (size_t i = 0; i < name_len; ++i) e.name[i] = name[i];
+    e.lat_e7 = lat; e.lon_e7 = lon;
+    return e;
+}
+bool w0_all_zero(const IdBlob& b) {
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(&b);
+    for (size_t i = 0; i < sizeof b; ++i) if (p[i] != 0) return false;
+    return true;
+}
+}  // namespace
+
+TEST_CASE("device_nv/W0: id_blob_from_live copies EVERY field, stamps the record and zeroes the unused name bytes") {
+    uint8_t seed[32]; for (size_t i = 0; i < 32; ++i) seed[i] = uint8_t(0xC0 + i);
+    char name[32]; for (size_t i = 0; i < 32; ++i) name[i] = char('A' + i % 26);
+    for (size_t len : { size_t(0), size_t(1), size_t(31), size_t(32) }) {
+        IdBlob out;
+        std::memset(&out, 0xA5, sizeof out);                  // ★ garbage first: the helper must write ALL 80 bytes
+        CHECK(id_blob_from_live(out, seed, name, len, 521234567, -211234567));
+        const IdBlob want = w0_expected(seed, name, len, 521234567, -211234567);
+        CHECK(std::memcmp(&out, &want, sizeof out) == 0);
+        CHECK(out.magic == kIdMagic);
+        CHECK(out.version == kIdVersion);
+        CHECK(out.name_len == len);
+        for (size_t i = len; i < sizeof out.name; ++i) CHECK(int(uint8_t(out.name[i])) == 0);
+    }
+    // The coordinate extremes are carried verbatim (no clamp, no sign loss).
+    IdBlob out;
+    CHECK(id_blob_from_live(out, seed, name, 5, INT32_MIN, INT32_MAX));
+    CHECK(out.lat_e7 == INT32_MIN);
+    CHECK(out.lon_e7 == INT32_MAX);
+    CHECK(std::memcmp(out.seed, seed, sizeof seed) == 0);
+}
+
+TEST_CASE("device_nv/W0: an empty live name is a valid candidate — the unnamed node's record keeps seed and position") {
+    uint8_t seed[32]; for (size_t i = 0; i < 32; ++i) seed[i] = uint8_t(i * 7);
+    IdBlob out;
+    std::memset(&out, 0x5A, sizeof out);
+    CHECK(id_blob_from_live(out, seed, nullptr, 0, 1, 2));    // ★ no name bytes: a null pointer is fine at length 0
+    const IdBlob want = w0_expected(seed, "", 0, 1, 2);
+    CHECK(std::memcmp(&out, &want, sizeof out) == 0);
+    CHECK(out.name_len == 0u);
+}
+
+TEST_CASE("device_nv/W0: arbitrary HIGH bytes are copied as bytes — no terminator, no repertoire, no truncation") {
+    uint8_t seed[32]; for (size_t i = 0; i < 32; ++i) seed[i] = uint8_t(255 - i);
+    char name[32]; for (size_t i = 0; i < 32; ++i) name[i] = char(0x80 + i * 3);   // every byte ≥ 0x80
+    name[7] = '\0';                                        // ★ an embedded NUL is a BYTE of a counted name, not an end
+    IdBlob out;
+    CHECK(id_blob_from_live(out, seed, name, 32, -1, -1));
+    CHECK(out.name_len == 32u);
+    CHECK(std::memcmp(out.name, name, 32) == 0);
+    const IdBlob want = w0_expected(seed, name, 32, -1, -1);
+    CHECK(std::memcmp(&out, &want, sizeof out) == 0);
+}
+
+TEST_CASE("device_nv/W0: a name over 32 bytes is REFUSED on its size_t length — before any narrowing, nothing usable left") {
+    uint8_t seed[32]; for (size_t i = 0; i < 32; ++i) seed[i] = uint8_t(i + 1);
+    std::string big(65537, 'N');
+    // 33 is one past the field; 256 would wrap to 0 through a uint8_t, 65537 to 1 through a uint16_t — each must
+    // refuse, and the refused candidate must be wholly zero (no magic ⇒ never a record a caller could save).
+    for (size_t len : { size_t(33), size_t(256), size_t(65537) }) {
+        IdBlob out;
+        std::memset(&out, 0xA5, sizeof out);
+        CHECK_FALSE(id_blob_from_live(out, seed, big.data(), len, 3, 4));
+        CHECK(w0_all_zero(out));
+        CHECK(out.magic != kIdMagic);
+    }
+    // ...and a non-empty length with no bytes behind it is refused the same way.
+    IdBlob out;
+    std::memset(&out, 0xA5, sizeof out);
+    CHECK_FALSE(id_blob_from_live(out, seed, nullptr, 4, 3, 4));
+    CHECK(w0_all_zero(out));
 }

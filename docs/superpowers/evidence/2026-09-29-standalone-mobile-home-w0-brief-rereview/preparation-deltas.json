@@ -1,0 +1,16 @@
+[
+  {
+    "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "reconstructed_previous_sha256": "d8db66a8378f84333e76def6cb54d1302224ae1e0b8be3ab4d8f626da8d4054d",
+    "expected_previous_sha256": "d8db66a8378f84333e76def6cb54d1302224ae1e0b8be3ab4d8f626da8d4054d",
+    "match": true,
+    "current_sha256": "3727f88ef3c56692691ffe88282079ab5be864cfb8d94f8ff3dd1947b0ac54f3"
+  },
+  {
+    "path": "docs/2026-07-30-open-bug-register.md",
+    "reconstructed_previous_sha256": "b9e4ae5642c120f28028bbbadf9bdaec33735707442aaeafe62dfd2946997698",
+    "expected_previous_sha256": "b9e4ae5642c120f28028bbbadf9bdaec33735707442aaeafe62dfd2946997698",
+    "match": true,
+    "current_sha256": "6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94"
+  }
+]

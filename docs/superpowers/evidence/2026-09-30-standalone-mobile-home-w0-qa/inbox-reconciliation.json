@@ -1,0 +1,569 @@
+[
+  {
+    "arm": "accept",
+    "checks": 1400,
+    "failures": 0,
+    "controls": 63,
+    "unusable": 0,
+    "red_records": 62,
+    "classifier_controls": 1,
+    "control_labels": [
+      "C1  the `clear_inbox` DISPATCH ARM is deleted (the verb is unreachable)",
+      "C2  the dispatch arm off-by-one (`line[11]` -> `line[10]`, `+ 11` -> `+ 10`)",
+      "C3  the confirmation check is BYPASSED (`!parse_confirm_token(...)` -> `false`)",
+      "C4  the refusal early `return` is REMOVED (it refuses AND clears)",
+      "C5  the verdict is forced TRUE into `inbox_clear_result()` (failure prints `cleared`)",
+      "C22 the \u00a7RADMIN target-store DISPATCH ARM is deleted (both families unreachable)",
+      "C23 \u2605 the seed binding STOPS DRAWING from the platform (answers true, fills nothing)",
+      "C24 the admin-identity store binding stops reading the record it was bound to",
+      "C25 the target-store Print adapter writes to `mrcon` instead of the SUPPLIED sink ([[B279]] shape)",
+      "C27 \u2605 `load_acl` stops asking the primitive for SlotIo \u2014 a DEAD store reads as a fresh device",
+      "C28 \u2605\u2605 `save_acl` WRITES THE WRONG SLOT \u2014 an ACL update lands on the administration root",
+      "C29 \u2605\u2605 `load_admin_id` READS THE WRONG SLOT \u2014 the ACL bytes are classified as an administration root",
+      "C26 the READ-ONLY boot report starts WRITING (an auto-seed on a fresh device)",
+      "C6  `ib.clear()` is replaced by an unconditional success (the ack claims a clear that never ran)",
+      "C7  the dispatch arm routes `clear_inbox` to `handle_del_msg` instead",
+      "C8  the dispatch arm hands `do_regen` the GLOBAL console instead of its supplied `out` ([[B279]] restored)",
+      "C9  `do_regen`'s own success/error writes are routed back to `mrcon`",
+      "C10 `print_identity`'s body is routed back to `mrcon` (the identity tail leaks, the prefix does not)",
+      "C11 the production `LineSink` never ships (neither on newline nor on flush)",
+      "C12 the NV fake RETAINS the record while reporting the write FAILED (dishonest storage)",
+      "C13 the NV fake reports a SUCCESSFUL write while retaining nothing (dishonest storage)",
+      "C14 the seam renders each transport in the OTHER format (`fmt == json` -> `fmt == text`)",
+      "C15 `peerkey` is executed as a bare Node command instead of through handle_peerkey",
+      "C16 an accepted `reqpubkey` loses its reqpubkey_sent event (falls back to write_ack)",
+      "C17 the TEXT arm drops print_reqpubkey_hint (a refusal names the wall but not the way round it)",
+      "C18 the TEXT arm writes to the global `mrcon` instead of the sink it was handed ([[B279]] shape)",
+      "C19 the `empty` completion is collapsed into `unmatched` (a bare Enter would answer an error)",
+      "C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush)",
+      "C21 the TEXT arm executes the Node command TWICE (two ctrs burned, one answer printed)",
+      "S6-C1 seam validator bypassed",
+      "S6-C2 remote policy bypassed",
+      "S6-C3 local contexts consult the remote table",
+      "S6-C4 remote admission inverted",
+      "S6-C5 remote refusal emits local bytes",
+      "S6-C6 real panel validator bypassed",
+      "S6-C7 parser success loses its typed completed outcome",
+      "S6-C8 JSON bad_line envelope changes its reason domain",
+      "S6-C9 remote byte-validation refusal emits a local envelope",
+      "R7-C1 B372 eight-byte truncation restored in medium (positive contents must fail)",
+      "R7-C2 private DM filter bypassed",
+      "R7-C3 blanket DM-kind filter wrongly hides both diagnostics",
+      "R7-C4 remote mark_read changes shared DM cursor",
+      "R7-C5 remote del_msg deletes private DM",
+      "R7-C6 seam stops publishing authenticated context",
+      "R7-C7 transcript Print adapter leaks to local console",
+      "R7-C8 firmware binding never services executor",
+      "R7-C9 authenticated actor slot lost before real ACL handler",
+      "A7-C1 config loader floor lowered, same-size v25 loads",
+      "A7-C2 config loader floor raised, current v26 refuses",
+      "A10-C1 config loader reads the administration identity slot",
+      "W1c-C1 whoami restores a made-up default name when the node is unnamed",
+      "W1c-C2 whoami omits the name field when the node is unnamed",
+      "R72-C1 control binding bypassed",
+      "R72-C2 open admission binding bypassed",
+      "R72-C3 open sender binding bypassed",
+      "R72-C4 open sink binding bypassed",
+      "R72-C5 open terminal binding changes outcome",
+      "R72-C6 status inbound_refusal loses its measured value",
+      "R72-C6 status open_rate_refusal loses its measured value",
+      "R72-C6 status transcript_exhaustion loses its measured value",
+      "R72-C6 status response_enqueue_failure loses its measured value",
+      "R72-C6 status response_seal_failure loses its measured value"
+    ]
+  },
+  {
+    "arm": "client",
+    "checks": 483,
+    "failures": 0,
+    "controls": 71,
+    "unusable": 0,
+    "red_records": 70,
+    "classifier_controls": 1,
+    "control_labels": [
+      "C1  the `clear_inbox` DISPATCH ARM is deleted (the verb is unreachable)",
+      "C2  the dispatch arm off-by-one (`line[11]` -> `line[10]`, `+ 11` -> `+ 10`)",
+      "C3  the confirmation check is BYPASSED (`!parse_confirm_token(...)` -> `false`)",
+      "C4  the refusal early `return` is REMOVED (it refuses AND clears)",
+      "C5  the verdict is forced TRUE into `inbox_clear_result()` (failure prints `cleared`)",
+      "C30 the \u00a7RADMIN controller DISPATCH ARM is deleted (both families unreachable)",
+      "C31 \u2605 the controller seed binding STOPS DRAWING from the platform (answers true, fills nothing)",
+      "C32 the keyring store binding stops reading the record it was bound to (every list reads a fresh device)",
+      "C33 the controller Print adapter writes to `mrcon` instead of the SUPPLIED sink ([[B279]] shape)",
+      "C34 the READ-ONLY controller boot report starts WRITING (an auto-generate on a fresh controller)",
+      "C35 \u2605\u2605 do_regen REWRITES the keyring \u2014 the ruled `keys and targets preserved` warning becomes a LIE",
+      "C36 the CLIENT regen WARNING is emitted on the FAILURE path too (a rotation that did not happen is warned about)",
+      "C37 \u2605 `load_mgmt_keys` stops asking the primitive for SlotIo \u2014 a DEAD store reads as a fresh device",
+      "C38 \u2605\u2605 `save_targets` WRITES THE WRONG SLOT \u2014 a book update lands on the management keyring",
+      "C39 \u2605\u2605\u2605 `load_mgmt_keys` READS THE TARGET-SIDE `/mradmid` SLOT \u2014 design \u00a76.4's two seeds CROSS",
+      "C40 \u2605\u2605 [[B321]]: the shared decoder's SECRET-SCRATCH guard is DELETED \u2014 the key material is left on the stack",
+      "C6  `ib.clear()` is replaced by an unconditional success (the ack claims a clear that never ran)",
+      "C7  the dispatch arm routes `clear_inbox` to `handle_del_msg` instead",
+      "C8  the dispatch arm hands `do_regen` the GLOBAL console instead of its supplied `out` ([[B279]] restored)",
+      "C9  `do_regen`'s own success/error writes are routed back to `mrcon`",
+      "C10 `print_identity`'s body is routed back to `mrcon` (the identity tail leaks, the prefix does not)",
+      "C11 the production `LineSink` never ships (neither on newline nor on flush)",
+      "C12 the NV fake RETAINS the record while reporting the write FAILED (dishonest storage)",
+      "C13 the NV fake reports a SUCCESSFUL write while retaining nothing (dishonest storage)",
+      "C14 the seam renders each transport in the OTHER format (`fmt == json` -> `fmt == text`)",
+      "C15 `peerkey` is executed as a bare Node command instead of through handle_peerkey",
+      "C16 an accepted `reqpubkey` loses its reqpubkey_sent event (falls back to write_ack)",
+      "C17 the TEXT arm drops print_reqpubkey_hint (a refusal names the wall but not the way round it)",
+      "C18 the TEXT arm writes to the global `mrcon` instead of the sink it was handed ([[B279]] shape)",
+      "C19 the `empty` completion is collapsed into `unmatched` (a bare Enter would answer an error)",
+      "C20 a router response is reported as `buffered` instead of `streamed` (the caller would not flush)",
+      "C21 the TEXT arm executes the Node command TWICE (two ctrs burned, one answer printed)",
+      "S6-C1 seam validator bypassed",
+      "S6-C2 remote policy bypassed",
+      "S6-C3 local contexts consult the remote table",
+      "S6-C4 remote admission inverted",
+      "S6-C5 remote refusal emits local bytes",
+      "S6-C6 real panel validator bypassed",
+      "S6-C7 parser success loses its typed completed outcome",
+      "S6-C8 JSON bad_line envelope changes its reason domain",
+      "S6-C9 remote byte-validation refusal emits a local envelope",
+      "R7-C1 B372 eight-byte truncation restored in medium (positive contents must fail)",
+      "A7-C1 config loader floor lowered, same-size v25 loads",
+      "A7-C2 config loader floor raised, current v26 refuses",
+      "A10-C1 config loader reads the administration identity slot",
+      "W1c-C1 whoami restores a made-up default name when the node is unnamed",
+      "W1c-C2 whoami omits the name field when the node is unnamed",
+      "C8-C1 short Print writes count as success",
+      "C8-C2 console stage drops count as success",
+      "C8-C3 JSON local sequences repeat zero",
+      "C8-C4 selected identity switches to self",
+      "C8-C5 expanded identity is not wiped",
+      "C8-C6 exported seed is not wiped",
+      "C8-C7 scheduled delay is omitted",
+      "C8-C8 UTF8 carry is discarded",
+      "C8-C9 real router loses supplied transport",
+      "C8-C10 actual regen binding ignores live rows",
+      "C8-C11 main-loop binding does not service controller",
+      "C8-C12 real key use binding ignores captured rows",
+      "C8-C13 real target use binding ignores captured rows",
+      "C8-C14 status request_table_pressure value lost",
+      "C8-C15 status assembly_failure value lost",
+      "C8-C16 status unmatched_response value lost",
+      "C8-C17 status auth_failure value lost",
+      "C8-C18 status local_result_pressure value lost",
+      "C8-C19 status radio_enqueue_failure value lost",
+      "C8-C22 real Node lookup ignores binding",
+      "C8-C20 dormant ACK debt status omitted",
+      "C8-C21 observer bytes never reach delivery",
+      "C8-C22 disconnected BLE receives observations"
+    ]
+  },
+  {
+    "arm": "oled",
+    "checks": 27,
+    "failures": 0,
+    "controls": 7,
+    "unusable": 0,
+    "red_records": 6,
+    "classifier_controls": 1,
+    "control_labels": [
+      "W6-C1 the reply line bound is the retired 160 B (every 163-byte record must disappear)",
+      "W6-C2 `list` answers all seventeen records unpaged (the non-draining stage must drop lines)",
+      "W6-C3 the /mrui store binding reports success without writing (a success line is not the stored bytes)",
+      "W6-C4 the NV fake reports the full length for a write it did not store ([[B477]] restored)",
+      "W6-C5 the old v1 recognition is removed (a 372-B v1 record reads as invalid)",
+      "W6-C6 the preset emergency gate stops asking the seam (a mutation lands during an alarm)"
+    ]
+  },
+  {
+    "arm": "identity_accept",
+    "checks": 175,
+    "failures": 0,
+    "controls": 13,
+    "unusable": 0,
+    "red_records": 12,
+    "classifier_controls": 1,
+    "control_labels": [
+      "W0-C1 the lat/lon candidate is rebuilt from load_id (fields from failed/rejected NV bytes)",
+      "W0-C2 the regen candidate is rebuilt from an unchecked load_id (the name and position come from NV bytes)",
+      "W0-C3 the rename service loses its overlength early return",
+      "W0-C4 the console arm clamps the name to 32 bytes before admission (B448 restored)",
+      "W0-C5 the requested name is published before its save",
+      "W0-C6 the coordinate is published before its save (B482 restored)",
+      "W0-C7 a saved latitude is published to the global only (the NodeConfig mirror is left stale)",
+      "W0-C8 the byte-identical no-op writes anyway (coalescing dropped)",
+      "W0-C9 the no-op test compares the live name instead of the durable record (repair skipped)",
+      "W0-C10 the already-durable branch returns before making the requested name live",
+      "W0-C11 the snapshot adapter reads the live name with a reserved terminator byte (31 of 32)",
+      "W0-C12 the snapshot adapter reads the seed and position from load_id instead of the live authorities"
+    ],
+    "w0_controls": [
+      {
+        "id": "W0-C1",
+        "failed_checks": 15,
+        "assertions": [
+          "M.lat.healthy_diff.rec",
+          "M.lat.absent.rec",
+          "M.lat.unreadable.rec",
+          "M.lat.short.rec",
+          "M.lat.bad_magic.rec",
+          "M.lat.bad_version.rec",
+          "M.lat.oversize.rec",
+          "M.lon.healthy_diff.rec",
+          "M.lon.absent.rec",
+          "M.lon.unreadable.rec",
+          "M.lon.short.rec",
+          "M.lon.bad_magic.rec",
+          "M.lon.bad_version.rec",
+          "M.lon.oversize.rec",
+          "N6"
+        ]
+      },
+      {
+        "id": "W0-C2",
+        "failed_checks": 14,
+        "assertions": [
+          "M.regen.healthy_diff.out",
+          "M.regen.healthy_diff.rec",
+          "M.regen.absent.out",
+          "M.regen.absent.rec",
+          "M.regen.unreadable.out",
+          "M.regen.unreadable.rec",
+          "M.regen.short.out",
+          "M.regen.short.rec",
+          "M.regen.bad_magic.out",
+          "M.regen.bad_magic.rec",
+          "M.regen.bad_version.out",
+          "M.regen.bad_version.rec",
+          "M.regen.oversize.out",
+          "M.regen.oversize.rec"
+        ]
+      },
+      {
+        "id": "W0-C3",
+        "failed_checks": 8,
+        "assertions": [
+          "G8",
+          "G8b",
+          "G10",
+          "G10b",
+          "G11",
+          "G11b",
+          "G13",
+          "G13b"
+        ]
+      },
+      {
+        "id": "W0-C4",
+        "failed_checks": 8,
+        "assertions": [
+          "G8",
+          "G8b",
+          "G10",
+          "G10b",
+          "G11",
+          "G11b",
+          "G13",
+          "G13b"
+        ]
+      },
+      {
+        "id": "W0-C5",
+        "failed_checks": 1,
+        "assertions": [
+          "N5b"
+        ]
+      },
+      {
+        "id": "W0-C6",
+        "failed_checks": 2,
+        "assertions": [
+          "C.lat.live",
+          "C.lon.live"
+        ]
+      },
+      {
+        "id": "W0-C7",
+        "failed_checks": 7,
+        "assertions": [
+          "M.lat.healthy_diff.live",
+          "M.lat.absent.live",
+          "M.lat.unreadable.live",
+          "M.lat.short.live",
+          "M.lat.bad_magic.live",
+          "M.lat.bad_version.live",
+          "M.lat.oversize.live"
+        ]
+      },
+      {
+        "id": "W0-C8",
+        "failed_checks": 2,
+        "assertions": [
+          "N1",
+          "N2"
+        ]
+      },
+      {
+        "id": "W0-C9",
+        "failed_checks": 7,
+        "assertions": [
+          "N2",
+          "N3a",
+          "N3b",
+          "N3c",
+          "N3d",
+          "N3e",
+          "N4"
+        ]
+      },
+      {
+        "id": "W0-C10",
+        "failed_checks": 1,
+        "assertions": [
+          "N2b"
+        ]
+      },
+      {
+        "id": "W0-C11",
+        "failed_checks": 1,
+        "assertions": [
+          "N6"
+        ]
+      },
+      {
+        "id": "W0-C12",
+        "failed_checks": 35,
+        "assertions": [
+          "M.name.healthy_diff.rec",
+          "M.name.absent.rec",
+          "M.name.unreadable.rec",
+          "M.name.short.rec",
+          "M.name.bad_magic.rec",
+          "M.name.bad_version.rec",
+          "M.name.oversize.rec",
+          "M.lat.healthy_diff.rec",
+          "M.lat.absent.rec",
+          "M.lat.unreadable.rec",
+          "M.lat.short.rec",
+          "M.lat.bad_magic.rec",
+          "M.lat.bad_version.rec",
+          "M.lat.oversize.rec",
+          "M.lon.healthy_diff.rec",
+          "M.lon.absent.rec",
+          "M.lon.unreadable.rec",
+          "M.lon.short.rec",
+          "M.lon.bad_magic.rec",
+          "M.lon.bad_version.rec",
+          "M.lon.oversize.rec",
+          "M.regen.healthy_diff.rec",
+          "M.regen.absent.rec",
+          "M.regen.unreadable.rec",
+          "M.regen.short.rec",
+          "M.regen.bad_magic.rec",
+          "M.regen.bad_version.rec",
+          "M.regen.oversize.rec",
+          "N3a",
+          "N3b",
+          "N3c",
+          "N3d",
+          "N3e",
+          "N4",
+          "N6"
+        ]
+      }
+    ]
+  },
+  {
+    "arm": "identity_client",
+    "checks": 176,
+    "failures": 0,
+    "controls": 13,
+    "unusable": 0,
+    "red_records": 12,
+    "classifier_controls": 1,
+    "control_labels": [
+      "W0-C1 the lat/lon candidate is rebuilt from load_id (fields from failed/rejected NV bytes)",
+      "W0-C2 the regen candidate is rebuilt from an unchecked load_id (the name and position come from NV bytes)",
+      "W0-C3 the rename service loses its overlength early return",
+      "W0-C4 the console arm clamps the name to 32 bytes before admission (B448 restored)",
+      "W0-C5 the requested name is published before its save",
+      "W0-C6 the coordinate is published before its save (B482 restored)",
+      "W0-C7 a saved latitude is published to the global only (the NodeConfig mirror is left stale)",
+      "W0-C8 the byte-identical no-op writes anyway (coalescing dropped)",
+      "W0-C9 the no-op test compares the live name instead of the durable record (repair skipped)",
+      "W0-C10 the already-durable branch returns before making the requested name live",
+      "W0-C11 the snapshot adapter reads the live name with a reserved terminator byte (31 of 32)",
+      "W0-C12 the snapshot adapter reads the seed and position from load_id instead of the live authorities"
+    ],
+    "w0_controls": [
+      {
+        "id": "W0-C1",
+        "failed_checks": 15,
+        "assertions": [
+          "M.lat.healthy_diff.rec",
+          "M.lat.absent.rec",
+          "M.lat.unreadable.rec",
+          "M.lat.short.rec",
+          "M.lat.bad_magic.rec",
+          "M.lat.bad_version.rec",
+          "M.lat.oversize.rec",
+          "M.lon.healthy_diff.rec",
+          "M.lon.absent.rec",
+          "M.lon.unreadable.rec",
+          "M.lon.short.rec",
+          "M.lon.bad_magic.rec",
+          "M.lon.bad_version.rec",
+          "M.lon.oversize.rec",
+          "N6"
+        ]
+      },
+      {
+        "id": "W0-C2",
+        "failed_checks": 14,
+        "assertions": [
+          "M.regen.healthy_diff.out",
+          "M.regen.healthy_diff.rec",
+          "M.regen.absent.out",
+          "M.regen.absent.rec",
+          "M.regen.unreadable.out",
+          "M.regen.unreadable.rec",
+          "M.regen.short.out",
+          "M.regen.short.rec",
+          "M.regen.bad_magic.out",
+          "M.regen.bad_magic.rec",
+          "M.regen.bad_version.out",
+          "M.regen.bad_version.rec",
+          "M.regen.oversize.out",
+          "M.regen.oversize.rec"
+        ]
+      },
+      {
+        "id": "W0-C3",
+        "failed_checks": 8,
+        "assertions": [
+          "G8",
+          "G8b",
+          "G10",
+          "G10b",
+          "G11",
+          "G11b",
+          "G13",
+          "G13b"
+        ]
+      },
+      {
+        "id": "W0-C4",
+        "failed_checks": 8,
+        "assertions": [
+          "G8",
+          "G8b",
+          "G10",
+          "G10b",
+          "G11",
+          "G11b",
+          "G13",
+          "G13b"
+        ]
+      },
+      {
+        "id": "W0-C5",
+        "failed_checks": 1,
+        "assertions": [
+          "N5b"
+        ]
+      },
+      {
+        "id": "W0-C6",
+        "failed_checks": 2,
+        "assertions": [
+          "C.lat.live",
+          "C.lon.live"
+        ]
+      },
+      {
+        "id": "W0-C7",
+        "failed_checks": 7,
+        "assertions": [
+          "M.lat.healthy_diff.live",
+          "M.lat.absent.live",
+          "M.lat.unreadable.live",
+          "M.lat.short.live",
+          "M.lat.bad_magic.live",
+          "M.lat.bad_version.live",
+          "M.lat.oversize.live"
+        ]
+      },
+      {
+        "id": "W0-C8",
+        "failed_checks": 2,
+        "assertions": [
+          "N1",
+          "N2"
+        ]
+      },
+      {
+        "id": "W0-C9",
+        "failed_checks": 7,
+        "assertions": [
+          "N2",
+          "N3a",
+          "N3b",
+          "N3c",
+          "N3d",
+          "N3e",
+          "N4"
+        ]
+      },
+      {
+        "id": "W0-C10",
+        "failed_checks": 1,
+        "assertions": [
+          "N2b"
+        ]
+      },
+      {
+        "id": "W0-C11",
+        "failed_checks": 1,
+        "assertions": [
+          "N6"
+        ]
+      },
+      {
+        "id": "W0-C12",
+        "failed_checks": 35,
+        "assertions": [
+          "M.name.healthy_diff.rec",
+          "M.name.absent.rec",
+          "M.name.unreadable.rec",
+          "M.name.short.rec",
+          "M.name.bad_magic.rec",
+          "M.name.bad_version.rec",
+          "M.name.oversize.rec",
+          "M.lat.healthy_diff.rec",
+          "M.lat.absent.rec",
+          "M.lat.unreadable.rec",
+          "M.lat.short.rec",
+          "M.lat.bad_magic.rec",
+          "M.lat.bad_version.rec",
+          "M.lat.oversize.rec",
+          "M.lon.healthy_diff.rec",
+          "M.lon.absent.rec",
+          "M.lon.unreadable.rec",
+          "M.lon.short.rec",
+          "M.lon.bad_magic.rec",
+          "M.lon.bad_version.rec",
+          "M.lon.oversize.rec",
+          "M.regen.healthy_diff.rec",
+          "M.regen.absent.rec",
+          "M.regen.unreadable.rec",
+          "M.regen.short.rec",
+          "M.regen.bad_magic.rec",
+          "M.regen.bad_version.rec",
+          "M.regen.oversize.rec",
+          "N3a",
+          "N3b",
+          "N3c",
+          "N3d",
+          "N3e",
+          "N4",
+          "N6"
+        ]
+      }
+    ]
+  }
+]

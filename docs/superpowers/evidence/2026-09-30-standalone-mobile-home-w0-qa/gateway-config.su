@@ -1,0 +1,20 @@
+/home/staszek/MeshRoute/src/firmware_config.cpp:173:15:virtual mrfw::CfgValues mrfw::{anonymous}::DeviceCfgLive::effective() const	8	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:192:10:virtual void mrfw::{anonymous}::DeviceCfgLive::apply_live(const mrfw::CfgLiveFields&)	0	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:172:8:constexpr mrfw::{anonymous}::DeviceCfgLive::~DeviceCfgLive()	0	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:163:8:constexpr mrfw::{anonymous}::DeviceCfgStore::~DeviceCfgStore()	0	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:163:8:virtual constexpr mrfw::{anonymous}::DeviceCfgStore::~DeviceCfgStore()	8	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:172:8:virtual constexpr mrfw::{anonymous}::DeviceCfgLive::~DeviceCfgLive()	8	static
+/home/staszek/MeshRoute/src/firmware_config_parse.h:524:13:bool mrfw::parse_seq_arg(const char*, uint32_t&)	24	static
+/home/staszek/MeshRoute/src/firmware_remote_activation.h:15:27:mrfw::ActivationResolved mrfw::remote_activation_resolve(uint32_t, const meshroute::ActivationBudgetInputs&)	64	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:94:6:void mrfw::nv_load_stamped(mrnv::Blob&)	120	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:164:10:virtual bool mrfw::{anonymous}::DeviceCfgStore::load(mrnv::Blob&)	8	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:210:12:mrfw::ICfgStore& mrfw::device_cfg_store()	8	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:211:12:mrfw::ICfgLive& mrfw::device_cfg_live()	8	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:248:6:bool mrfw::id_candidate_from_live(mrnv::IdBlob&, const char*, size_t)	64	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:165:10:virtual bool mrfw::{anonymous}::DeviceCfgStore::save(const mrnv::Blob&)	128	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:260:14:0(const char*, size_t)	288	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:260:14:mrfw::RenameResult mrfw::rename_node(const char*, size_t)	0	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:729:6:void mrfw::handle_gateway(const char*, Print&)	472	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:59:13:void mrfw::apply_radio_live(const mrnv::Blob&, bool)	32	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:282:6:void mrfw::handle_cfg_set(const char*, Print&)	448	static
+/home/staszek/MeshRoute/src/firmware_config.cpp:2459:6:void mrfw::handle_leave(Print&)	376	static

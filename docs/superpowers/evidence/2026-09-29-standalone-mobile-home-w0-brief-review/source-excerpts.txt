@@ -1,0 +1,260 @@
+FILE src/device_nv.h sha256=5c0e4352ce99460146074a70151f94dde58a26e67ecc98142bbe004d4c9ce79c
+146: struct IdBlob {
+147:     uint32_t magic;            // kIdMagic — real record vs erased flash
+148:     uint16_t version;          // kIdVersion
+149:     uint16_t name_len;         // bytes of `name` in use (0..sizeof(name))
+150:     uint8_t  seed[32];         // master identity secret (the ONLY persisted key material)
+151:     char     name[32];         // human label (app-level, §1.3); not necessarily null-terminated — name_len bounds it
+152:     // Node location (deployment metadata), degrees × 1e7; (0,0) = unset. APPENDED to /mrid (set once via
+153:     // `cfg set lat`/`lon` or the app). The strict size check below means a legacy /mrid (no lat/lon) is
+154:     // rejected on the first boot after reflashing -> the node re-mints a fresh identity. Fine: dev system.
+155:     int32_t  lat_e7;
+156:     int32_t  lon_e7;
+157: };
+158: constexpr uint32_t kIdMagic   = 0x4D524944u; // 'MRID'
+159: constexpr uint16_t kIdVersion = 1;
+160: 
+1470: inline bool load_id(IdBlob& out) {
+1471:     const int n = read_slot(kSlotId, &out, sizeof out);
+1472:     return blob_valid_exact(out, n, kIdMagic, kIdVersion);           // EQUALITY — a mismatch re-mints the identity
+1473: }
+1474: inline bool save_id(const IdBlob& b) { return write_slot(kSlotId, &b, sizeof b); }
+
+FILE src/firmware_config.cpp sha256=a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a
+249: void handle_cfg_set(const char* args, Print& out) {
+250:     constexpr size_t kCfgKeyMaxBytes = sizeof("remote_action_activation_ms");
+251:     char key[kCfgKeyMaxBytes]; size_t k = 0;
+252:     while (args[k] && args[k] != ' ' && k < sizeof(key) - 1) { key[k] = args[k]; ++k; }
+253:     key[k] = '\0';
+254:     // A longer token must not turn its suffix into the new key's numeric value.
+255:     if (args[k] && args[k] != ' ') { out.println(F("> cfg err bad_args")); return; }
+256:     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
+257:     if (!*val) { out.println(F("> cfg err bad_args")); return; }
+258: 
+259:     // `lat`/`lon` live in the IDENTITY record (/mrid) alongside `name`, NOT the config blob — handle early.
+260:     // Input is decimal degrees (e.g. `cfg set lat 52.2297`); stored as int32 degrees×1e7. atof is fine on
+261:     // newlib-nano (only float *printf* is broken). load_id preserves the seed + name + the other coord.
+262:     if (!strcmp(key, "lat") || !strcmp(key, "lon")) {
+263:         mrnv::IdBlob idb{};
+264:         if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);   // no /mrid yet -> running seed
+265:         const int32_t e7 = (int32_t)(atof(val) * 1e7);
+266:         if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }   // "lat" (also LIVE)
+267:         else               { idb.lon_e7 = e7; g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; }   // "lon" (also LIVE)
+268:         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+269:         out.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
+270:         return;
+271:     }
+272: 
+273:     // `name` lives in the IDENTITY record (/mrid), NOT the config blob — handle it separately + early.
+274:     if (!strcmp(key, "name")) {
+275:         mrnv::IdBlob idb{};
+276:         if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);  // keep the RUNNING seed
+277:         size_t l = strlen(val); if (l > sizeof idb.name) l = sizeof idb.name;
+278:         memcpy(idb.name, val, l); idb.name_len = (uint16_t)l;
+279:         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+280:         if (mrnv::save_id(idb)) { g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len)); out.println(F("> cfg ok name (saved to /mrid)")); }   // §1.3: live-update the core name (pubkey exchange + display)
+281:         else out.println(F("> cfg err nv_save_failed"));
+282:         return;
+283:     }
+284: 
+
+FILE src/firmware_commands.cpp sha256=ce1113baa75ecc991a9c8219862334fc6354155b99fa06f65d10f961a72fe128
+1062: // self binding. Keeps `name` + `node_id` (the short address is independent of the keypair). The new
+1063: // key_hash32 propagates on the next beacon; peers re-bind by it (the old one ages out of their id_bind).
+1064: // §0b/[[B279]]: it answers on the sink `dispatch()` HANDED it — USB `mrcon`, or the BLE `LineSink` — never the
+1065: // global console. ⛔ The operation ORDER below is untouched and load-bearing: identity + crypto identity are
+1066: // installed only AFTER a successful `save_id`, so a refused write leaves the running node exactly as it was.
+1067: static void do_regen(Print& out) {
+1068: #if MR_FEAT_RADMIN_CLIENT
+1069:     // ★★★ §RADMIN slice 4 — THE CONTROLLER ADMISSION, EVALUATED BEFORE ANY DRAW, WRITE OR IDENTITY CHANGE.
+1070:     //     `regen` rotates the node's MESSAGING identity, which is the `self` key every managed target's ACL was
+1071:     //     granted against, so doing it while a source-bound request/assembly/retained result/response ACK is
+1072:     //     outstanding would strand work that can never be answered under the new key.
+1073:     // ⛔ THE PRODUCTION BINDING ANSWERS "NO DEBT" because Slice 4 has NO PRODUCER (Slice 8a is the first). The
+1074:     //    predicate is bound now so the rule lands in ONE place rather than beside a future request handler.
+1075:     {
+1076:         DeviceClientRemoteDebt debt;
+1077:         if (!mrfw::client_regen_admitted(debt)) {
+1078:             AdminClientPrintLines lines(out);
+1079:             mrfw::client_regen_emit_busy(lines);
+1080:             return;                                              // ⛔ zero draws, zero writes, no identity change
+1081:         }
+1082:     }
+1083: #endif   // MR_FEAT_RADMIN_CLIENT
+1084:     mrnv::IdBlob idb{};
+1085:     mrnv::load_id(idb);                                          // preserve the existing name (if any)
+1086:     mrrng::fill(idb.seed, sizeof idb.seed);
+1087:     idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+1088:     if (!mrnv::save_id(idb)) { out.println(F("> regen err nv_save_failed")); return; }
+1089:     meshroute::identity_from_seed(g_identity, idb.seed);
+1090:     g_node.set_identity(g_node.node_id(), g_identity.key_hash32);
+1091:     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: re-install the E2E crypto identity
+1092:     out.print(F("> regen ok"));
+1093:     print_identity(idb, out);
+1094: #if MR_FEAT_RADMIN_CLIENT
+1095:     // ★ THE ONE CLIENT WARNING, AFTER the complete success line and on the SAME sink — ⛔ never on a refusal and
+1096:     //   ⛔ never on a save failure (both returned above). ⓘ `preserved` is a claim this slice PROVES: the path
+1097:     //   above writes `/mrid` and nothing else, and neither controller store is loaded, drawn from or rewritten.
+1098:     {
+1099:         AdminClientPrintLines lines(out);
+1100:         mrfw::client_regen_emit_note(lines);
+1101:     }
+1102: #endif   // MR_FEAT_RADMIN_CLIENT
+1103: }
+1104: 
+1105: // `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
+1106: // + empty inbox). The literal `confirm` token guards against an accidental paste (irreversible).
+1107: ActionOutcome action_factory_reset_apply(ActionBackend backend, Print& out, Print& reboot_out,
+
+FILE lib/core/node.h sha256=647ad11fda25d38504616ca86c70c474a8be1fc24541103a32827d735707a3fe
+574:     void              set_name(const char* name, uint8_t len) { _name_len = len > sizeof _name ? (uint8_t)sizeof _name : len; for (uint8_t i = 0; i < _name_len; ++i) _name[i] = name[i]; }   // §1.3: load the /mrid name into the core (for the pubkey exchange + display)
+575:     uint8_t           name_len()       const { return _name_len; }
+576:     uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3 / W1c D10: the STORED name only, possibly empty (an unnamed node advertises NO name). A counted copy of min(name_len, cap) bytes; never terminates (callers write counted fields).
+577:     bool              crypto_ready()   const { return _crypto_ready; }   // DP1: a crypto identity is installed
+
+FILE tools/probe_inbox_verbs/run.sh sha256=098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61
+339: # build_variant <router.cpp> <handler.cpp> <shadow-include-dir-or-empty> <out-binary>
+340: # ⛔ The two production TUs are passed as PATHS so a control can hand in a MUTATED COPY of either without the probe
+341: #   ever writing to the repository. A mutated HEADER is handed in as an include DIR that shadows the real one —
+342: #   same principle, applied to a header, and §0b generalised the parameter from "the ack dir" to "the shadow dir"
+343: #   because there are now THREE headers a control shadows: `console_json.h` (C5), `dispatch_sink.h` (C11) and the
+344: #   probe's own `fakes/Preferences.h` (C12/C13). The dir is placed FIRST on the include path, ahead of both
+345: #   `$HERE/fakes` and `$ROOT/src`, so the copy wins for every consumer in the build.
+346: build_variant() {
+347:   local router=$1 handler=$2 shadowdir=$3 bin=$4 probe=${5:-"$HERE/probe_main.cpp"}
+348:   local actions=${6:-"$ROOT/src/firmware_remote_actions.cpp"}
+349:   local client=${7:-"$ROOT/src/firmware_remote_client.cpp"}
+350:   local pre=()
+351:   [ -n "$shadowdir" ] && pre=(-I"$shadowdir")
+352:   : > "$OUT/build.log"
+353:   "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$router" -o "$OUT/v_cmds.o" 2>>"$OUT/build.log" \
+354:     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$handler" -o "$OUT/v_inbox.o" 2>>"$OUT/build.log" \
+355:     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$actions" -o "$OUT/v_actions.o" 2>>"$OUT/build.log" \
+356:     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$client" -o "$OUT/v_client.o" 2>>"$OUT/build.log" \
+357:     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$probe" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
+358:     && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT/v_actions.o" "$OUT/v_client.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
+359: }
+360: 
+361: rc=0
+362: if ! build_support; then echo "FAIL — the support half did not build"; exit 1; fi
+363: if ! build_variant "$FW_CMDS" "$FW_INBOX" "" "$OUT/probe"; then
+
+FILE tools/probe_inbox_verbs/probe_main.cpp sha256=263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1
+264: // THE OTHER HANDLERS — stubs, and each one RECORDS THAT IT RAN. ⛔ That is not padding: it is how the probe proves
+265: // the router sent `clear_inbox` to `handle_clear_inbox` and to NOTHING ELSE. A dispatch arm that fell through to a
+266: // neighbouring verb would show up here as a foreign call, not merely as a missing ack.
+267: // ================================================================================================================
+268: static char g_routed[64] = {};
+269: static void routed(const char* who) { std::snprintf(g_routed, sizeof g_routed, "%s", who); }
+270: namespace mrfw {
+271: void handle_cfg_set(const char*, Print&)      { routed("cfg_set"); }
+272: void handle_create(const char*, Print&)       { routed("create"); }
+273: void handle_gateway(const char*, Print&)      { routed("gateway"); }
+274: void handle_join(const char*, Print&)         { routed("join"); }
+275: void handle_joinprofile(const char*, Print&)  { routed("joinprofile"); }
+276: void handle_leave(Print&)                     { routed("leave"); }
+277: void handle_mobile(const char*, Print&)       { routed("mobile"); }
+278: void handle_team(const char*, Print&)         { routed("team"); }
+279: }  // namespace mrfw
+280: #ifndef MR_PROBE_ACTION_EFFECTS
+362: static mrnv::IdBlob seed_id(const char* name, uint16_t name_len, uint8_t seed_byte) {
+363:     MrProbeNv& nv = mrprobe_nv();
+364:     nv.reset();
+365:     nv.ns_present = true; nv.rw_ok = true;                    // a written namespace on a healthy medium
+366:     mrnv::IdBlob idb{};
+367:     idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+368:     idb.name_len = name_len;
+369:     for (uint16_t i = 0; i < name_len && i < sizeof idb.name; ++i) idb.name[i] = name[i];
+370:     for (size_t i = 0; i < sizeof idb.seed; ++i) idb.seed[i] = uint8_t(seed_byte + i);
+371:     (void)mrnv::save_id(idb);
+372:     nv.writes = 0; nv.reads = 0;                              // the seeding write is the fixture's, not the verb's
+373:     return idb;
+374: }
+375: 
+376: // "`key_hash32= 0x` + EXACTLY 8 UPPERCASE hex digits" — pinned WITHOUT reusing the `%08lX` that builds the golden
+377: // line, so the format specifier and the assertion cannot agree with each other while both being wrong.
+378: static bool hash_field_is_8_upper_hex(const char* s) {
+379:     const char* p = std::strstr(s, "key_hash32= 0x");
+380:     if (!p) return false;
+
+FILE tools/probe_inbox_verbs/transcript.py sha256=ffb23ad6cecb3d74859136ce06b237027739ddc8dfcdad5599a9180649b9b000
+332:     objs = []
+333:     sources = ([os.path.join(ROOT, "lib/core", f) for f in sorted(os.listdir(os.path.join(ROOT, "lib/core")))
+334:                 if f.endswith(".cpp")]
+335:                + [os.path.join(ROOT, p) for p in ("lib/hal/device_hal.cpp", "lib/hal/timer_wheel.cpp",
+336:                                                   "lib/hal/airtime_ledger.cpp", "lib/console/console_json.cpp",
+337:                                                   "lib/console/console_parse.cpp", "src/firmware_commands.cpp",
+338:                                                   "src/firmware_inbox.cpp")])
+339:     for s in sources:
+340:         o = os.path.join(out_dir, "o_" + os.path.basename(s).replace(".cpp", ".o"))
+341:         r = subprocess.run([cxx, *flags, "-Wall", "-Wextra", "-c", s, "-o", o],
+342:                            capture_output=True, text=True, env=build_env())
+343:         if r.returncode:
+344:             raise ExtractError("support build failed for %s:\n%s" % (s, r.stderr[:2000]))
+345:         objs.append(o)
+346:     o_mono = os.path.join(out_dir, "o_monocypher.o")
+347:     r = subprocess.run([cc, "-std=gnu17", "-O0", f"-I{ROOT}/lib/monocypher/src", "-c",
+348:                         os.path.join(ROOT, "lib/monocypher/src/monocypher.c"), "-o", o_mono],
+349:                        capture_output=True, text=True, env=build_env())
+350:     if r.returncode:
+351:         raise ExtractError("monocypher build failed:\n" + r.stderr[:2000])
+352:     objs.append(o_mono)
+353:     # ⓘ `-Wno-unused-function`: this driver reuses `probe_main.cpp` wholesale (U1) and does not call every fixture
+354:     #   the 71-check `main()` uses. The probe's OWN default build keeps -Werror with no such suppression.
+355:     o_main = os.path.join(out_dir, "o_transcript.o")
+356:     r = subprocess.run([cxx, *flags, "-Wall", "-Wextra", "-Werror", "-Wno-volatile",
+357:                         "-Wno-deprecated-declarations", "-Wno-unused-function",
+358:                         f'-DMR0C_ADAPTERS_HEADER="mr0c_adapters.h"',
+359:                         "-c", os.path.join(HERE, "transcript_main.cpp"), "-o", o_main],
+360:                        capture_output=True, text=True, env=build_env())
+361:     if r.returncode:
+362:         raise ExtractError("transcript driver build failed:\n" + r.stderr[:4000])
+363:     binary = os.path.join(out_dir, "transcript.bin")
+364:     r = subprocess.run([cxx, o_main, *objs, "-o", binary], capture_output=True, text=True, env=build_env())
+365:     if r.returncode:
+
+FILE tools/probe_deferred_actions/run.py sha256=694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f
+139:     generated=text.replace('// @ACTION_OWNERS@',owners(source,baseline))
+140:     runner=(ROOT/'tools/probe_inbox_verbs/run.sh').read_text();boundary='rc=0\nif ! build_support;';assert runner.count(boundary)==1
+141:     prefix=runner[:runner.index(boundary)]
+142:     # Reuse the standing builder and its exact dependencies/defines; no forked build recipe.
+143:     commands=['LDWRAP+=(-Wl,--wrap=_ZN9meshroute4Node19clear_learned_stateEv)', 'build_support || exit 2']
+144:     results=[]
+145:     for backend,power in ([(args.backend,1)] if args.backend is not None else [(0,1),(1,1),(2,1),(2,0)]):
+146:         name=f'b{backend}-p{power}';cpp=output/(name+'.cpp')
+147:         cpp.write_text(f'#define ACTION_BACKEND {backend}\n#define ACTION_POWERSAVE {power}\n'+('#define ACTION_BASELINE 1\n' if baseline else '')+generated)
+148:         cmd=f'build_variant {shlex.quote(str(source/"src/firmware_commands.cpp"))} "$FW_INBOX" "" "$OUT/{name}" {shlex.quote(str(cpp))}'
+149:         commands += [cmd+f' || {{ cat "$OUT/build.log"; exit 2; }}',f'cp "$OUT/build.log" {shlex.quote(str(output/(name+"-compile.log")))}',f'"$OUT/{name}" > {shlex.quote(str(output/(name+".log")))} 2>&1 || {{ cat {shlex.quote(str(output/(name+".log")))}; exit 1; }}',f'cat {shlex.quote(str(output/(name+".log")))}']
+
+FILE tools/probe_deferred_actions/probe.cpp sha256=57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587
+1: // The real command TU is linked by the existing inbox builder. Reuse its one fixture authority.
+2: #define MR0C_NO_MAIN
+3: #define MR_PROBE_ACTION_EFFECTS
+4: #include "../probe_inbox_verbs/probe_main.cpp"
+5: #include <vector>
+6: #include <string>
+7: #include <csignal>
+8: #include <csetjmp>
+9: #include <unistd.h>
+
+FILE tools/probe_console_sink/structural.py sha256=753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19
+621: 
+622:         # ---- regen / leave write sets are UNCHANGED -----------------------------------------------------------
+623:         regen = _body(cmds, 'static void do_regen(Print& out)')
+624:         add('S37', 'do_regen()\'s write set is still exactly {/mrid} — it touches neither target store',
+625:             'save_id' in regen
+626:             and not re.search(r'\bsave_(admin_id|acl|team_keys|ui_presets|peers)\s*\(', regen)
+627:             and 'kSlotAdmid' not in regen and 'kSlotAcl' not in regen, '')
+628:         leave = _body(cfg_cpp, 'void handle_leave(')
+629:         add('S38', 'handle_leave()\'s write set is still exactly {/mrcfg} — it touches neither target store',
+630:             not re.search(r'\bsave_(admin_id|acl|id|team_keys|ui_presets|peers)\s*\(', leave)
+703:         add('S48', 'do_regen()\'s write set is STILL exactly {/mrid} — the CLIENT arms add no store write, so the '
+704:                    '`keys and targets preserved` warning is a proven claim',
+705:             'save_id' in regen
+706:             and not re.search(r'\bsave_(mgmt_keys|targets)\s*\(', regen)
+707:             and 'kSlotMgmtKeys' not in regen and 'kSlotTargets' not in regen
+708:             and 'load_mgmt_keys' not in regen and 'load_targets' not in regen, '')
+709:         add('S49', 'handle_leave()\'s write set is STILL exactly {/mrcfg} — it touches neither controller store',
+710:             not re.search(r'\bsave_(mgmt_keys|targets)\s*\(', leave)
+711:             and 'kSlotMgmtKeys' not in leave and 'kSlotTargets' not in leave, '')
+

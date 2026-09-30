@@ -1,0 +1,125 @@
+[
+  {
+    "name": "native-build",
+    "cmd": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "rc": 0,
+    "seconds": 2.0054826736450195
+  },
+  {
+    "name": "native",
+    "cmd": [
+      "./.pio/build/native/program"
+    ],
+    "rc": 0,
+    "seconds": 0.7496874332427979
+  },
+  {
+    "name": "sim-config",
+    "cmd": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-w0-precheck-soo4d_x_/sim",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "rc": 0,
+    "seconds": 0.4965190887451172
+  },
+  {
+    "name": "sim-build",
+    "cmd": [
+      "cmake",
+      "--build",
+      "/tmp/mr-w0-precheck-soo4d_x_/sim",
+      "--target",
+      "lus",
+      "-j4"
+    ],
+    "rc": 0,
+    "seconds": 32.46937274932861
+  },
+  {
+    "name": "corpus",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w0-precheck/corpus",
+      "--lus",
+      "/tmp/mr-w0-precheck-soo4d_x_/sim/lus",
+      "--jobs",
+      "4",
+      "--require-anchors"
+    ],
+    "rc": 2,
+    "seconds": 0.05073833465576172
+  },
+  {
+    "name": "corpus",
+    "cmd": [
+      "python3",
+      "tools/run_corpus.py",
+      "--out",
+      "/home/staszek/MeshRoute/artifacts/2026-09-29-standalone-mobile-home-w0-precheck/corpus",
+      "--lus",
+      "/tmp/mr-w0-precheck-soo4d_x_/sim/orchestrator/lus",
+      "--jobs",
+      "4",
+      "--require-anchors"
+    ],
+    "rc": 0,
+    "seconds": 52.69738960266113
+  },
+  {
+    "name": "abi",
+    "cmd": [
+      "python3",
+      "tools/probe_board_abi.py"
+    ],
+    "rc": 0,
+    "seconds": 19.263992309570312
+  },
+  {
+    "name": "board-ui",
+    "cmd": [
+      "bash",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "rc": 0,
+    "seconds": 25.176658391952515
+  },
+  {
+    "name": "console-sink",
+    "cmd": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "rc": 0,
+    "seconds": 68.1221854686737
+  },
+  {
+    "name": "inbox-verbs",
+    "cmd": [
+      "bash",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "rc": 0,
+    "seconds": 748.2577440738678
+  },
+  {
+    "name": "inventory",
+    "cmd": [
+      "python3",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "rc": 0,
+    "seconds": 2.2250773906707764
+  }
+]

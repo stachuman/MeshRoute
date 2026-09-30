@@ -1,0 +1,120 @@
+{
+  "base-1/gateway": {
+    "measurements": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 769540,
+        "filename": "firmware.elf",
+        "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"
+      },
+      "payload": {
+        "bytes": 1608800,
+        "filename": "firmware.hex",
+        "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+      }
+    }
+  },
+  "base-1/heltec_mobile": {
+    "measurements": {
+      "flash_bytes": 1400276,
+      "loadable_sections": {
+        ".dram0.data": 25436,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218436,
+        ".flash.text": 1077534,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 219540,
+      "symbol_count": 13336,
+      "symbol_size_total": 1509129,
+      "symbols_sha256": "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 21659708,
+        "filename": "firmware.elf",
+        "sha256": "b2ccef33d8ba7f77403e7b034d8aee19517e2cf103768326e401e0946f69734d"
+      },
+      "payload": {
+        "bytes": 1400912,
+        "filename": "firmware.bin",
+        "sha256": "6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998"
+      }
+    }
+  },
+  "base-2/gateway": {
+    "measurements": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 769540,
+        "filename": "firmware.elf",
+        "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"
+      },
+      "payload": {
+        "bytes": 1608800,
+        "filename": "firmware.hex",
+        "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"
+      }
+    }
+  },
+  "base-2/heltec_mobile": {
+    "measurements": {
+      "flash_bytes": 1400276,
+      "loadable_sections": {
+        ".dram0.data": 25436,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218436,
+        ".flash.text": 1077534,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 219540,
+      "symbol_count": 13336,
+      "symbol_size_total": 1509129,
+      "symbols_sha256": "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e"
+    },
+    "artifacts": {
+      "elf": {
+        "bytes": 21659708,
+        "filename": "firmware.elf",
+        "sha256": "b2ccef33d8ba7f77403e7b034d8aee19517e2cf103768326e401e0946f69734d"
+      },
+      "payload": {
+        "bytes": 1400912,
+        "filename": "firmware.bin",
+        "sha256": "6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998"
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "meshroute": {
+    "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+    "entry_count": 2169,
+    "changed": [
+      "docs/2026-07-30-open-bug-register.md"
+    ],
+    "missing": [],
+    "added": [
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview.md",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/capacity.cpp",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/delta-reconstruction.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/design-delta.patch",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/preparation-deltas.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/qa-register-additions.patch",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/raw-logs.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/register-delta.patch",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/reproduce-transcript-drift.py",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/review-inputs.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/revision-1-reconstructed.md",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/revision-delta.patch",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-link-failure.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-measurement.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-stock-failure.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/verification.json"
+    ],
+    "diff_check_exit": 0,
+    "staged": false
+  },
+  "simulator": {
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "entry_count": 285,
+    "changed": [],
+    "missing": [],
+    "added": [],
+    "diff_check_exit": 0,
+    "staged": false
+  },
+  "register_change": {
+    "before": "6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94",
+    "after": "d4913862c0b828e09d42026b63c26cd70fc815b410e3d86413fb26e35c53a5e8",
+    "purpose": "M1 B487/B488 findings and next-free B489 only; author must refresh this pin"
+  },
+  "seal_note": "This preservation file and SHA256SUMS are created at sealing after the recorded added-path census."
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "device-radio",
+    "cmd": [
+      "bash",
+      "tools/probe_device_radio/run.sh"
+    ],
+    "rc": 0,
+    "seconds": 48.424816608428955
+  },
+  {
+    "name": "prov-tx",
+    "cmd": [
+      "bash",
+      "tools/probe_prov_tx/run.sh"
+    ],
+    "rc": 0,
+    "seconds": 1.7628116607666016
+  },
+  {
+    "name": "ownership",
+    "cmd": [
+      "python3",
+      "tools/probe_features/ownership.py"
+    ],
+    "rc": 0,
+    "seconds": 1.753920555114746
+  },
+  {
+    "name": "firmware-ui",
+    "cmd": [
+      "bash",
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "rc": 0,
+    "seconds": 390.7482464313507
+  }
+]

@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com>; r1 draft: OpenAI Codex (2026-09-06/07); r2/r2.1: Claude, specification author (2026-09-22/23) -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**Revision 2.23 · 2026-09-29 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W1, W3, W4a, W4b and W6 scoped by their QA pre-checks; the W4b and W6 allocations owner-ruled (§11.1); one W4b transition settled at its coder STOP; W6's reply shape owner-ruled (D14, §7.7) (§16).** Every decision in
+**Revision 2.24 · 2026-09-29 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W0, W1, W3, W4a, W4b and W6 scoped by their QA pre-checks; the W4b and W6 allocations owner-ruled (§11.1); one W4b transition settled at its coder STOP; W6's reply shape owner-ruled (D14, §7.7) (§16).** Every decision in
 §12 is ruled by the owner (2026-09-23/24): navigation (D1), Home rows and lists (D2, D2a–D2c), the boot splash (D3),
 the editor alphabet (D4), review before every send or save (D5), written-message size and location (D6), phrase
 size (D7), the phrase-record reset (D8), default phrases (D9), names (D10), setup from Home (D11), the Home card of
@@ -222,7 +222,11 @@ transliterated or dropped. The old name stays until an explicit `SAVE`.
 **Identity-record contract** (a firmware service, not a copy of the console arm — B440):
 1. Build the candidate `/mrid` record through **one** live→record conversion carrying the running seed, the new
    name and the running position (U2). A record unreadable at save time does not reset position or seed.
-2. Exactly one `save_id`; the live name changes (`Node::set_name`) only after it succeeds (the console's order).
+2. At most one `save_id`. The live name changes (`Node::set_name`) only once the requested record is durable: after
+   a successful `save_id`, or when a successful load shows that the identical record is already stored — which
+   costs no write but still publishes the requested name if the live one differs. A failed save publishes nothing.
+   The console's position setters follow the same rule: `cfg set lat` and `cfg set lon` publish the new
+   coordinate only after a successful save (B482, owner-ruled into W0 on 2026-09-29).
 3. Failure: live identity unchanged, result `NAME NOT SAVED` + `NV WRITE FAILED`, draft retained. Identical bytes:
    `NAME SAVED` with zero writes (coalescing, measured by a counter).
 4. Team membership, keys and routing are untouched. A peer whose cache row is not pinned learns the new name at its
@@ -230,6 +234,13 @@ transliterated or dropped. The old name stays until an explicit `SAVE`.
    relabels it with `peername` (`peer_key_set` returns early for a pinned row). The UI never claims a teammate
    already sees it.
 5. Emergency: the save is a short bounded call; an alarm fired meanwhile pre-empts the panel afterwards.
+
+W0 builds this contract as a firmware service with a typed result — saved, unchanged, too long, bad input, save
+failed — and the console's `cfg set name` is its first caller; W7's panel is the second. The one live→record
+conversion is a pure helper beside `IdBlob`; every candidate comes from the live seed, name and position, never
+from a record that failed to load. The durable record is read only to recognise a byte-identical save, which
+then costs no write but still makes the requested name live; an absent, invalid or different record is repaired
+even when the requested name is unchanged ([W0 pre-check](../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md) §4).
 
 ### 4.4 Name prompt before setup [AGREED D10]
 
@@ -1088,7 +1099,7 @@ prediction is re-checked at each gate, never assumed.
 
 | # | Kind | Content | Depends | Gate obligation |
 | --- | --- | --- | --- | --- |
-| W0 | fix, `src` | B440: one live→`/mrid` conversion for `cfg set name/lat/lon` (and `regen`); B448: a name over 32 bytes is refused (`too_long`), never shortened | — | native (the conversion as a pure helper; 32 accepted, 33 refused), corpus, 2 boards, touched batteries; QA names the probe that drives `cfg set` |
+| W0 | fix, `src` | B440: one live→`/mrid` conversion for `cfg set name/lat/lon` (and `regen`); B448: a name over 32 bytes is refused (`too_long`), never shortened; the §4.3 rename service (the console its first caller); B482: the coordinate setters publish only after a successful save (owner-ruled 2026-09-29) | — | native (the conversion as a pure helper; 32 accepted, 33 refused), corpus, 2 boards, touched batteries; a real-config inbox-verbs arm drives `cfg set` and `regen` against a failing slot. **Status 2026-09-30: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `0f23aee`; [QA receipt](../evidence/2026-09-30-standalone-mobile-home-w0-qa.md). **B440/B448/B482 closed.** The revision-3 §4.2 gate independently reproduces the freeze, corpus unchanged and RAM unchanged on both boards; flash +160 B gateway / +264 B mobile. The approved brief and coder evidence remain frozen. [Metal USB-BLE-03](../../2026-09-20-metal-test-plan.md#usb-ble-03) OWED. B489 is a separately registered stack-evidence extractor correction. B478, with B487/B488, is the owner-ruled tool package before W7; the transcript comparator is deferred, with no PASS or unchanged-coverage claim. Commits are not progress gates. |
 | W1 | fix, `src` | B241: `label_from_hash` terminates at the copied length (one byte reserved; the `0x%08lx` fallback and zero capacity handled); `peer_name_find` keeps its raw full-32-byte contract for the push body and `/mrpeers` persistence ([pre-check](../evidence/2026-09-24-standalone-mobile-home-w1-precheck.md)) | — | `src`-only gate (P6): native (plus an exact-capacity guard on the raw API), corpus (predicted 36/36 identical), the two board envs, the firmware-UI probe driving the real adapter with poisoned destinations and assertion-failing controls **Status 2026-09-25: INDEPENDENT QA PASS; B241 closed**, owner commit `8360802`: native 2951/195777/0; corpus 36/36 identical; firmware-UI 467/902/467 with 225 verified controls / 0 unusable; gateway unchanged, mobile RAM unchanged / flash +28 B. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w1-qa.md). Product decisions and the remaining packages are unchanged. |
 | W1b | fix, `lib/core` | B444: refuse a `-t` post while the team-local ID is 0 (or the owner rules the intended pre-DAD behaviour) | — | full gate; independent of the Home work, which hides SEND TO TEAM regardless |
 | W1c | change, `lib/core` | D10 (§4.6): unnamed devices advertise no name; `whoami` prints `name=""`; the default-name test and comments rewritten | — | full gate: native from a fresh peer cache (exact INTRO, key-answer and key-request bytes from an unnamed node — 26, 26 and 27 bytes shorter; a cached name survives an empty one), corpus keystone per `simulation/BASELINE.md` (predicted unchanged), boards; every `effective_name` user grepped (P7). **Status 2026-09-25:** **INDEPENDENT SOFTWARE QA PASS**, owner commit `c8e36d8`. [Receipt](../evidence/2026-09-25-standalone-mobile-home-w1c-qa.md): native 2962/195904/0; 36/36 corpus identical; ABI/RAM unchanged; flash −304/−140 B; 34/34 mutations RED. B447 unnamed half closed; named-peer precedence and B450 remain open. |
@@ -1343,4 +1354,13 @@ without clearing it (§6.4), and with no phrases the Send list's `PRESET CHANGED
 **Erratum within r2.23 (W6 brief review, W6R-2):** `reset all`'s maximum reply is 1517 B, with a ten-digit
 generation; the 1508 B first recorded here is the one-digit case. The page figures come from the same review.
 
+Documentation only.
+
+**r2.24, 2026-09-29 — W0 scoped by its pre-check; two owner rulings.** §4.3 now records where its contract lives:
+W0 builds the identity-record service with a typed result, the console its first caller, and one pure live→record
+conversion beside `IdBlob`; every candidate is built from live values, never from a record that failed to load. The
+owner folded B482 into W0 — the console's position setters publish only after a successful save — and scheduled
+B478, the mutation tool's decoding, as its own tool package before W7. At the W0 brief review (W0R-1), §4.3's item 2
+was corrected: a byte-identical save costs no write but still publishes the requested name. On 2026-09-30 the owner
+moved the transcript comparator, broken at the base (B487/B488), out of W0's gates and into B478's tool package.
 Documentation only.

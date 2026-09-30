@@ -1,0 +1,7 @@
+TRANSCRIPT REFUSED: transcript driver build failed:
+In file included from /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp:36:
+/tmp/mr-w0-transcript-rereview-proof/transcript/mr0c_adapters.h: In function 'size_t mr0c_ble_tail(const char*, size_t, char*, size_t)':
+/tmp/mr-w0-transcript-rereview-proof/transcript/mr0c_adapters.h:111:46: error: 'mrble' has not been declared
+  111 |                                    false, 0, mrble::kLineStorageBytes - 1};
+      |                                              ^~~~~
+

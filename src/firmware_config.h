@@ -215,6 +215,26 @@ KeyringForget team_keyring_forget(uint32_t team_id);
 meshroute::Node::TeamKeyGrantTx device_team_grant(uint32_t key_hash32, meshroute::Plane plane, uint16_t* out_ctr, uint8_t* out_dst);
 #endif
 
+// ★★★ W0 (design §4.3; B440/B448/B482) — THE `/mrid` IDENTITY RECORD, FIRMWARE SIDE.
+// `id_candidate_from_live` — THE SNAPSHOT ADAPTER: the ONE gatherer of the three live authorities — the running seed
+//   (`g_identity.seed`), the COUNTED live name (`g_node.effective_name(…, 32)`) and the position (`g_lat_e7` /
+//   `g_lon_e7`) — converted by the pure `mrnv::id_blob_from_live`. A non-null `name` REPLACES the live name (the rename
+//   service's request, admitted on its `size_t` length); it returns false, with `out` zeroed, only for such a name over
+//   32 bytes. Each writer then replaces its one other field (a coordinate, `regen`'s seed). ⛔ Never a `load_id` result.
+bool id_candidate_from_live(mrnv::IdBlob& out, const char* name = nullptr, size_t name_len = 0);
+
+// `rename_node` — THE RENAME SERVICE, design §4.3's transaction; stateless (no retained object, no allocation).
+//   `bad_args`      — no name bytes (empty, or a null pointer): zero writes, nothing published.
+//   `too_long`      — over 32 bytes, refused on the `size_t` length BEFORE any narrowing: zero writes, nothing published.
+//   `unchanged`     — a SUCCESSFUL `load_id` holds the byte-identical candidate: zero writes, and the requested name is
+//                     then made live if the live one differs (the durable record already holds it).
+//   `saved`         — otherwise exactly one `save_id`; only after it succeeds is the requested name published.
+//   `nv_save_failed`— that save failed: nothing published, the live identity unchanged.
+// ⛔ Live-name equality alone is never a no-op: an absent, invalid, partial or different record is repaired.
+// The console's `cfg set name` is the first caller; W7's panel rename is the second.
+enum class RenameResult : uint8_t { saved, unchanged, too_long, bad_args, nv_save_failed };
+RenameResult rename_node(const char* name, size_t name_len);
+
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).
 void handle_cfg_set(const char* args, Print& out);
 

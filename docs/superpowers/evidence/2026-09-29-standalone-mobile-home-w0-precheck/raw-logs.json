@@ -1,0 +1,150 @@
+{
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/scratch-path.txt": {
+    "bytes": 29,
+    "sha256": "1e58ee1d44349baa9129e3eb2339c8846a980fa919caa895006ffb7d95134749"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/target-map.json": {
+    "bytes": 4810,
+    "sha256": "a9c93c22fc32266bdf94b24311c49a4f117502302f009f46147e02b64d34930f"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/prov-tx.log": {
+    "bytes": 12026,
+    "sha256": "6b6397c0f4e334ca7416e810cc93fd351b580920020f0c1f12834b9e1b3bc783"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproduction.json": {
+    "bytes": 288,
+    "sha256": "25f7dc9da961d13836257adcc3876f822abcdccbf9ba518984d55f10f0aab3d1"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/base-2.log": {
+    "bytes": 949,
+    "sha256": "fb240c9af3b31d2c644bf7bbdf00f9f1945beaaa1b981f34956084450bca5a69"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/battery-counts.json": {
+    "bytes": 2631,
+    "sha256": "85d4970ee067331f87dbbcbf1dfdb1f694bb9fc2a7f37356d6a5525665fb8165"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/corpus.log": {
+    "bytes": 3403,
+    "sha256": "c1deae6ea9ae1f660bd95b1a2260de9114c5cfa8d2ec77b28889c4043e289865"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/sim-config.log": {
+    "bytes": 995,
+    "sha256": "94556ad9531149fc31739084dae3ec92b47391d1dce98f0f637684ee16c74563"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/oversize-result.txt": {
+    "bytes": 70,
+    "sha256": "be3bec1fd26894396542e116c4d71a99832252294fdd98e4ee641775f27607a8"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-build-3.log": {
+    "bytes": 8511,
+    "sha256": "e30c41136e481adb32c77ae7a82430b6885e99684b17f9db366c1d4d6d652418"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-build.log": {
+    "bytes": 1520,
+    "sha256": "6217f27b2d6f86f09022b24d09acd9f51c6bec7494c9cecc2c97ab0c1b071805"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/abi.log": {
+    "bytes": 5488,
+    "sha256": "c6d499ec5bf5817a69f2ba13acd7001a2e28506c2220aecae1f598165fcb0fa7"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/inbox-verbs.log": {
+    "bytes": 163637,
+    "sha256": "39d658140a89bc4682fd4211d55ddb385dafb190957ce875c3c498089895b4ca"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/supplement-runs.json": {
+    "bytes": 623,
+    "sha256": "7d6f668b5912d7d605cace698145127be06f81cd64586c0f8028534f27f6b74c"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/native-build.log": {
+    "bytes": 414,
+    "sha256": "1904e74bb535efc8083550fa5396e2ab9e58f28023f609039f4b5aadaa32ce6d"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-build-5.log": {
+    "bytes": 8918,
+    "sha256": "7b72157d07ea0b4400005258222c3a7397dfba48297e3b542b9d43f2ae89608d"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/board-ui.log": {
+    "bytes": 18816,
+    "sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/board-runs.json": {
+    "bytes": 1018,
+    "sha256": "3e1291305174711742103613e498895c4207ee18480fd82c32aca92506f70b88"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/firmware-ui.log": {
+    "bytes": 43315,
+    "sha256": "83bc4d5df6a1505cbc0572c82c958a755c45c3e711bfccd02f2cff3ca91a74b5"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-build-4.log": {
+    "bytes": 7636,
+    "sha256": "73c0475f2de2389a458508e46aec96a64f37dcc76490a495c3f68b692a1e12d6"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/device-radio.log": {
+    "bytes": 5200,
+    "sha256": "d9ed446fb439834ff894ed7799e8ecabe8a8a3bec95965a303ff6e5d7c3cf49c"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/readers.txt": {
+    "bytes": 1693,
+    "sha256": "d1026d7b0efc7dc1ad957072a5d192155fd9ad7bd9adb908bd19b7983069ca01"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/native.log": {
+    "bytes": 409,
+    "sha256": "8eac3b1a27c62cf0c546285de198cd32b4cb74ae847b2acbf049a08fd69a4404"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/ownership.log": {
+    "bytes": 2717,
+    "sha256": "9d3b36422d8f1521223fbe47482c5ba30aeeb7fe1d2786babe929e2305cced7a"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/sim-build.log": {
+    "bytes": 8312,
+    "sha256": "84f45f1582dfea33b245d8e58bcf7463c3b10b50361e03c0778770da2483d7c6"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-build-2.log": {
+    "bytes": 24692,
+    "sha256": "58fa083f00cfe7c67a155dfbde4fbde555fc7c24a0ce20a48b879966aace7ef5"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/heltec_mobile-repeat.log": {
+    "bytes": 231,
+    "sha256": "959b6e3c0273af5dd34fa672e50735c41f6794d0752a758316322e93900a7325"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/base-1.log": {
+    "bytes": 949,
+    "sha256": "ef683c70591954b06afd94f185b11eb0b7b8f59c26969adcb8cf9b4e8b7e2a68"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-results.json": {
+    "bytes": 14855,
+    "sha256": "048324d1acb28c437a98a6b5262884d2f5da9b7a6f73d9fc0c757688b4d486c6"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-extended-1.log": {
+    "bytes": 11646,
+    "sha256": "ca7a5a5ead364d258eec50255c877952d7451570583bc0e3a48571f37f12edbe"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-repro-final.log": {
+    "bytes": 11758,
+    "sha256": "4f6ffb6fab240e36b2432633941733d8c605a61b36f793d442612fd9d0651013"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.log": {
+    "bytes": 5589,
+    "sha256": "48c0dea63ae1aa38ce1181407bf017edf70371b291f8a934a388d874a535b3a0"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/console-sink.log": {
+    "bytes": 36714,
+    "sha256": "e4d545229ed49ad10833a61c19e3c47357f2918d2ab19b2af238d473e2283c94"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/gateway-repeat.log": {
+    "bytes": 224,
+    "sha256": "e61693f9a8d63eff5ea1d30c1598e386cd13e84ceb434aabe4a67187002f1978"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/runs.json": {
+    "bytes": 2322,
+    "sha256": "2c124ec7893dbe84cbe5bfba5afb45c5d58fec415d81ede683d9c7e13099be10"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/reusable-proof.log": {
+    "bytes": 11758,
+    "sha256": "4f6ffb6fab240e36b2432633941733d8c605a61b36f793d442612fd9d0651013"
+  },
+  "artifacts/2026-09-29-standalone-mobile-home-w0-precheck/inventory.log": {
+    "bytes": 176,
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  }
+}

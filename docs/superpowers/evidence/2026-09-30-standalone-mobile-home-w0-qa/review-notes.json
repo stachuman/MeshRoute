@@ -1,0 +1,34 @@
+{
+  "findings": [
+    {
+      "id_proposed": "B489",
+      "kind": "Evidence stack-frame extractor drops a compiler clone; not a production defect or new resident allocation.",
+      "input_line": "/home/staszek/MeshRoute/src/firmware_config.cpp:260:14:0(const char*, size_t)\t288\tstatic",
+      "coder_regex_recognizes_clone": false,
+      "fresh_compile_exit": 0,
+      "clone_frame_bytes": 288,
+      "prologue": "Six saved registers (24 bytes) plus sub sp,#264 = 288.",
+      "caller_evidence": "handle_cfg_set has a direct R_ARM_THM_CALL relocation to rename_node [clone .part.0]. The public wrapper tail-branches to it.",
+      "qualification": "id_candidate_from_live is inlined in this clone; do not add its separate 64-byte frame to the rename path. The clone is not inlined into handle_cfg_set. Compiler-frame evidence, not a runtime high-water mark.",
+      "disposition": "Correct the optional gateway statement in QA evidence. Register the extractor separately with clone-aware regression close-by; do not modify the frozen coder receipt/helper or silently add it to the B478 package. Required heltec_mobile stack evidence is unaffected."
+    }
+  ],
+  "known_summary_wording": {
+    "existing_finding": "B479",
+    "evidence": [
+      "tools/probe_inbox_verbs/run.sh:87 loop runs accept/client/oled/identity_accept/identity_client",
+      "tools/probe_inbox_verbs/run.sh:95 still prints BOTH ARMS PASS",
+      "tools/probe_inbox_verbs/run.sh:1030 shared summary names handle_clear_inbox even for identity arms"
+    ],
+    "disposition": "Keep instrument semantics unchanged; extend B479 at documentation landing with new five-arm and identity-summary observations. No duplicate finding."
+  },
+  "interpretation": {
+    "R23_fixture": "Same live-name/position initialization needed as R12; existing asserted output unchanged. No crypto install added to seed_id.",
+    "control_arm_selection": "New identity-only controls do not replace legacy ACCEPT/CLIENT controls; all five arms are independently built by the default runner.",
+    "negative_space": "The new typed service return enum is source-reviewed; routed checks primarily observe output, storage and live state. No claim that every return enumerator has an independently reddened direct-call test."
+  },
+  "coder_comparison_attempts": {
+    "facts": "The raw coder recipe additionally invoked stock measure_board.py compare on base-1 versus final-1 for each board. Both returned exit 2, correctly rejecting different source/firmware manifests. These are not the required within-baseline/within-final repeatability comparisons.",
+    "disposition": "Do not count these calls as PASS. Independently reproduce final images and compare fields against the coder final-1, and attribute against the preserved base. Record the two rejected extra calls explicitly in the QA receipt. No production/tool defect is indicated by the correct rejection."
+  }
+}

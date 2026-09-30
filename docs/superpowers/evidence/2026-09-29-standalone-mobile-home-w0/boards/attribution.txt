@@ -1,0 +1,59 @@
+# W0 board attribution — base-1 (the unmodified tree) vs final-1 (the frozen tree), stock measure_board manifests
+
+## gateway
+  measurements.flash_bytes: 571936 -> 572096
+  measurements.loadable_sections: {".ARM.exidx": 8, ".data": 980, ".text": 570948} -> {".ARM.exidx": 8, ".data": 980, ".text": 571108}
+  measurements.symbol_count: 6593 -> 6599
+  measurements.symbol_size_total: 752316 -> 752460
+  measurements.symbols_sha256: "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed" -> "024d9893fb49caec1cd0f5827303732a210f27823e92cb6369d69b2a85120227"
+  artifacts.elf: {"bytes": 769540, "filename": "firmware.elf", "sha256": "4d43961533ad941b09439b9f8fe91c63e0e09c75861c2ca7ccf3376adbe26dba"} -> {"bytes": 769668, "filename": "firmware.elf", "sha256": "d0ed0291d37facffd9e4fe946b1accc96eca0321be14cff0403030bba760f95b"}
+  artifacts.payload: {"bytes": 1608800, "filename": "firmware.hex", "sha256": "97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886"} -> {"bytes": 1609250, "filename": "firmware.hex", "sha256": "7fa27c2b884cf4b4b9869b3c9937ef264e40cd9369c5926c006aaf64f3fb837d"}
+  source.file_count: 2196 -> 2200
+  source.git_status_sha256: "59aa48c0d36eac6c48d07d1e1ba10ce7c6c10bcd24b10baebee32697760128d7" -> "508357654cca7dcf46f9bbfd1f9882ef8ce2c08066f51405f91ce0fe4c0c6fe3"
+  source.tree_sha256: "a73b9a3ec62ffa63aded77121897eacbc96157b4475c8c4e328fdef1a3f91939" -> "1a52c653e303520013f4c62b83bd32867f11101b1dea303308e154a2c32ce5a1"
+  normal_pio_metadata.sha256: "3cf7dfdcd48d0df1e488eb6b19cbf0316343443c68f7eb43cc4d8e9fc9a2cf8f" -> "0b95b504277eb0248ed4c23548aaad567670cf1e4453a352d9dd0b62a101794f"
+  ram_bytes 203740 -> 203740 (+0); flash_bytes 571936 -> 572096 (+160)
+    section .text: 570948 -> 571108 (+160)
+  RAM OBJECT symbols changed: 0 (net +0)
+  FUNC text: 6 symbols changed, net +144 (symbol sizes; sections also carry literal pools/alignment)
+      +396  mrfw::rename_node(char const*, unsigned int) [clone .part.0]
+      -284  mrfw::handle_cfg_set(char const*, Print&)
+      +144  mrfw::id_candidate_from_live(mrnv::IdBlob&, char const*, unsigned int)
+       -92  mrfw::acl_emit_err(mrfw::IAdminLines&, mrfw::AclErr)
+       -68  mrfw::dispatch(char const*, unsigned int, Print&, mrfw::CommandTransport)
+       +48  mrfw::acl_verb(mrfw::AclService&, mrfw::AdminIdService&, char const*, unsigned int, mrfw::IAdminLines&)
+  OBJECT rodata: 0 symbols changed, net +0 (symbol sizes; sections also carry literal pools/alignment)
+
+## heltec_mobile
+  measurements.flash_bytes: 1400276 -> 1400540
+  measurements.loadable_sections: {".dram0.data": 25436, ".flash.appdesc": 256, ".flash.rodata": 218436, ".flash.text": 1077534, ".iram0.text": 77843, ".iram0.vectors": 1027, ".rtc.force_fast": 8, ".rtc.text": 256} -> {".dram0.data": 25436, ".flash.appdesc": 256, ".flash.rodata": 218452, ".flash.text": 1077782, ".iram0.text": 77843, ".iram0.vectors": 1027, ".rtc.force_fast": 8, ".rtc.text": 256}
+  measurements.symbol_count: 13336 -> 13337
+  measurements.symbol_size_total: 1509129 -> 1509363
+  measurements.symbols_sha256: "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e" -> "1cd06c99be63d92ea4db05f8a3b764c45ea4f4b251a86fb70b82b454f47214c0"
+  artifacts.elf: {"bytes": 21659708, "filename": "firmware.elf", "sha256": "b2ccef33d8ba7f77403e7b034d8aee19517e2cf103768326e401e0946f69734d"} -> {"bytes": 21662008, "filename": "firmware.elf", "sha256": "944bea3f15413e70cb39234ef3aed4bc835359aa9968e7ac7300c9c4fdb94a6f"}
+  artifacts.payload: {"bytes": 1400912, "filename": "firmware.bin", "sha256": "6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998"} -> {"bytes": 1401184, "filename": "firmware.bin", "sha256": "045d4e144a60c950ea0895fa136a000e63dbf7bbd17c9e193b2d4460a452b98e"}
+  source.file_count: 2196 -> 2200
+  source.git_status_sha256: "59aa48c0d36eac6c48d07d1e1ba10ce7c6c10bcd24b10baebee32697760128d7" -> "508357654cca7dcf46f9bbfd1f9882ef8ce2c08066f51405f91ce0fe4c0c6fe3"
+  source.tree_sha256: "a73b9a3ec62ffa63aded77121897eacbc96157b4475c8c4e328fdef1a3f91939" -> "1a52c653e303520013f4c62b83bd32867f11101b1dea303308e154a2c32ce5a1"
+  normal_pio_metadata.sha256: "3cf7dfdcd48d0df1e488eb6b19cbf0316343443c68f7eb43cc4d8e9fc9a2cf8f" -> "0b95b504277eb0248ed4c23548aaad567670cf1e4453a352d9dd0b62a101794f"
+  ram_bytes 219540 -> 219540 (+0); flash_bytes 1400276 -> 1400540 (+264)
+    section .flash.rodata: 218436 -> 218452 (+16)
+    section .flash.text: 1077534 -> 1077782 (+248)
+  RAM OBJECT symbols changed: 0 (net +0)
+  FUNC text: 14 symbols changed, net +234 (symbol sizes; sections also carry literal pools/alignment)
+      +282  mrfw::rename_node(char const*, unsigned int)
+      +140  mrfw::id_candidate_from_live(mrnv::IdBlob&, char const*, unsigned int)
+      -110  mrfw::handle_cfg_set(char const*, Print&)
+       -50  mrnv::load_id(mrnv::IdBlob&)
+       -28  mrfw::do_regen(Print&)
+        +8  mrfw::handle_team(char const*, Print&)
+        -7  mrfw::handle_mobile(char const*, Print&)
+        -7  mrfw::JoinProfileService::set(long, mrfw::JoinRequest const&, char const*, unsigned char)
+        +4  mrfw::ProvisioningService::apply_team(mrfw::TeamRequest&, meshroute::NodeConfig const&, mrfw::ProvSnapshot const&)
+        +3  mrfw::arg_tail_empty(char const*)
+        -2  mrfw::TeamKeyringService::forget(unsigned long, mrfw::ITeamKeyBinding&)
+        +1  mrfw::stage_team_candidate(mrfw::TeamRequest const&, mrfw::TeamProjection const&, mrfw::ProvSnapshot const&, mrfw::IEntropy&, mrfw::TeamPlan
+        -1  mrfw::team_key_find(mrnv::TeamKeyBlob const&, unsigned long)
+        +1  mrfw::TeamKeyringService::use_saved(unsigned long, mrfw::ITeamKeyLive&, mrfw::ITeamKeyBinding&)
+  OBJECT rodata: 0 symbols changed, net +0 (symbol sizes; sections also carry literal pools/alignment)
+

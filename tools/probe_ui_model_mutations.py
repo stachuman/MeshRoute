@@ -739,7 +739,10 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #   wrap/race/union cases + 1 reorder branch; the direct-double fixtures now confirm through the review), presets 28/976->
 #   32/1356 (+4 w6-v1/bounds; T=163 re-expressions), verbs 10/559->11/689 (+1 w6-bad_page; pages), send 117/977->120/1051
 #   (+3 w6-line/w6-gate/F2-review), chrome 41/1996->41/2000 (+4 review asserts in chrome-nav), device_nv 27/471 unchanged.
-PIN_CASES, PIN_ASSERTS = 3055, 199532
+# W0 (identity record, brief rev 3): +4 cases/+106 = 3059/199638; measured by the full native binary with --source-file:
+#   test_device_nv 27/471 -> 31/577 (the four `device_nv/W0:` cases through the real `mrnv::id_blob_from_live`); every
+#   other file unchanged (no other test file is in W0's fence).
+PIN_CASES, PIN_ASSERTS = 3059, 199638
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -5335,6 +5338,40 @@ MUTS_DEVICENV = [
  ("W6-N4 ★★ the v1 test is asked BEFORE the backend — a dead store holding v1's bytes reads as a readable old record",
   '    if (io.backend_failed) return UiPresetRead::io_failed;',
   '    if (n == kUiPresetV1Bytes && b.magic == kUiPresetMagic && b.version == kUiPresetV1Version) return UiPresetRead::old_v1;\n    if (io.backend_failed) return UiPresetRead::io_failed;'),
+ # ================================================================ W0 — THE ONE LIVE → RECORD CONVERSION (design §4.3; brief §2.8)
+ # ★★ `mrnv::id_blob_from_live`: every `/mrid` writer's candidate. Native cover: `device_nv/W0:` (the real helper, every
+ #    field against an independently built record, 0/31/32/33/256/65537-byte names). Executed cover on the REAL config
+ #    and command TUs: the inbox-verbs identity arms (their W0-C1..C12 controls perturb the adapter and its callers).
+ ('W0-N1 ★★★ THE SEED IS DROPPED — every writer would save a record whose identity is not the running one',
+  '    memcpy(out.seed, seed, sizeof out.seed);',
+  '    ;'),
+ ('W0-N2 ★★ THE NAME BYTES ARE DROPPED — the record claims a name length over zero bytes',
+  '    if (name_len != 0) memcpy(out.name, name, name_len);',
+  '    ;'),
+ ('W0-N3 ★★ THE LATITUDE IS DROPPED — a rename or a longitude write zeroes the stored latitude (B440 restored)',
+  '    out.lat_e7 = lat_e7; out.lon_e7 = lon_e7;',
+  '    out.lon_e7 = lon_e7;'),
+ ('W0-N4 ★★ THE LONGITUDE IS DROPPED — a rename or a latitude write zeroes the stored longitude (B440 restored)',
+  '    out.lat_e7 = lat_e7; out.lon_e7 = lon_e7;',
+  '    out.lat_e7 = lat_e7;'),
+ ('W0-N5 ★★ THE MAGIC IS NOT STAMPED — the saved record never loads again (the next boot re-mints the identity)',
+  '    out.magic = kIdMagic; out.version = kIdVersion;',
+  '    out.version = kIdVersion;'),
+ ('W0-N6 the VERSION is not stamped — the saved record fails the exact version check at the next load',
+  '    out.magic = kIdMagic; out.version = kIdVersion;',
+  '    out.magic = kIdMagic;'),
+ ('W0-N7 ★★★ AN OVERLENGTH NAME IS ACCEPTED — 33 bytes pass admission (B448 restored one byte later)',
+  '    if (name_len > sizeof out.name || (name_len != 0 && name == nullptr)) return false;',
+  '    if (name_len > sizeof out.name + 1 || (name_len != 0 && name == nullptr)) return false;'),
+ ('W0-N8 ★★★ NARROWING BEFORE ADMISSION — the length is narrowed to a uint8_t first, so 256 bytes wrap to an empty name',
+  '    if (name_len > sizeof out.name || (name_len != 0 && name == nullptr)) return false;',
+  '    name_len = static_cast<uint8_t>(name_len); if (name_len > sizeof out.name || (name_len != 0 && name == nullptr)) return false;'),
+ ('W0-N9 ★★ NARROWING BEFORE ADMISSION — the length is narrowed to the stored uint16_t first, so 65537 bytes pass as one',
+  '    if (name_len > sizeof out.name || (name_len != 0 && name == nullptr)) return false;',
+  '    name_len = static_cast<uint16_t>(name_len); if (name_len > sizeof out.name || (name_len != 0 && name == nullptr)) return false;'),
+ ('W0-N10 ★★ THE CANDIDATE IS NOT ZEROED FIRST — stale bytes survive past the name and in a refused candidate',
+  '    memset(&out, 0, sizeof out);',
+  '    ;'),
 ]
 
 # ===== §UI-16 K1 — src/firmware_team_keyring.h =====================================================================

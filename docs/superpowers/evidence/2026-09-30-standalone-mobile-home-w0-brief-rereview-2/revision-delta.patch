@@ -1,0 +1,199 @@
+--- revision-2
++++ revision-3
+@@ -1,8 +1,8 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # Standalone Home W0 — the identity record: one live conversion, the rename service and loud refusals (`src` fix)
+ 
+-**Revision 2 — 2026-09-29 — for QA's scoped re-review.** The [brief review](../evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md)
+-held revision 1 (`638f11d6…1235`) on W0R-1–W0R-3; this revision folds them in (§8).
++**Revision 3 — 2026-09-30 — for QA's scoped re-review.** The [scoped re-review](../evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview.md)
++closed W0R-1–W0R-3 and held revision 2 (`393af1fc…31ca`) on W0R-4; this revision settles it by the owner's ruling (§8).
+ 
+ - **Base:** owner commit **`0f23aee`** (`0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec`, "W6"), with no uncommitted candidate. The
+   pre-check's `inputs.json` is the authority for the whole tree (§1). The simulator is at **`6585649`**
+@@ -40,8 +40,11 @@
+ - **Loud refusals:** a name over 32 bytes answers `too_long`, with zero writes.
+ - **Publish after save:** a coordinate is published live only after its save succeeds (B482).
+ 
+-**Owner rulings, 2026-09-29:** B482 folds into W0. B478 — the mutation tool's decoding — is its own tool package
+-after W0 and before W7; W0's tests therefore print bytes in hex, never raw high bytes.
++**Owner rulings:**
++- **2026-09-29:** B482 folds into W0. B478 — the mutation tool's decoding — is its own tool package after W0 and
++  before W7, so W0's tests print bytes in hex, never raw high bytes.
++- **2026-09-30:** the inbox-verbs transcript comparator is broken at the base (B487, B488), so it is not one of W0's
++  gates. B487 and B488 join B478's tool package. §4.2 names the proofs that cover W0 instead.
+ 
+ **Not in W0:**
+ - the boot load and re-mint policy;
+@@ -78,7 +81,6 @@
+ | `test/test_device_nv.cpp` | `93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212` | 930 |
+ | `tools/probe_inbox_verbs/run.sh` | `098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61` | 933 |
+ | `tools/probe_inbox_verbs/probe_main.cpp` | `263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1` | 2432 |
+-| `tools/probe_inbox_verbs/transcript_main.cpp` | `3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163` | 148 |
+ | `tools/probe_inbox_verbs/identity_main.cpp` | **new file** — the real-config identity arm's driver | — |
+ | `tools/probe_inbox_verbs/identity_platform.h` | **new file** — that arm's local platform shim | — |
+ | `tools/probe_ui_model_mutations.py` | `8dfc782a8e81acea1c52bf70299747665f15bea20643dbf272aa87a95edad5f1` | 12894 |
+@@ -86,11 +88,12 @@
+ 
+ The two new paths are absent at authoring.
+ 
+-**Read-only, rerun by the gates:**
++**Read-only — unchanged; the gates rerun each of these except `transcript_main.cpp`, which is not run (§4.2):**
+ 
+ | File | SHA-256 | Lines |
+ | --- | --- | ---: |
+ | `tools/probe_deferred_actions/run.py` | `694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f` | 190 |
++| `tools/probe_inbox_verbs/transcript_main.cpp` | `3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163` | 148 |
+ | `tools/probe_deferred_actions/probe.cpp` | `57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587` | 222 |
+ | `tools/probe_console_sink/structural.py` | `753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19` | 908 |
+ | `tools/probe_board_ui/run.sh` | `366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf` | 1665 |
+@@ -105,15 +108,16 @@
+ 
+ | Path | Kind | SHA-256 |
+ | --- | --- | --- |
+-| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.24) | `3727f88ef3c56692691ffe88282079ab5be864cfb8d94f8ff3dd1947b0ac54f3` |
+-| `docs/2026-07-30-open-bug-register.md` | authority (B440, B448, B478, B482–B486; §0) | `6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94` |
++| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.24) | `da85f228c03d246cc50473caa1853a05bac778ab733d428da6e86f4838f166f0` |
++| `docs/2026-07-30-open-bug-register.md` | authority (B440, B448, B478, B482–B488; §0) | `88fe7cea2aabb382dc3a50da32911957db2ab28f9400e4b243b00ab905834b86` |
+ | `docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md` | authority (pre-check) | `a10f1186cfb595ea42f05b84efeac6c0717945e1ee18c80f526f45237fa40942` |
+ | `docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS` | evidence — 36 entries, including `inputs.json` (`552fe453…f1a7`) | `88fed7716cfe8d130d339d5e0307b275ffc5b8ca0bc32b547b1f0ed690b916c1` |
+-| `tracker.md`, `MEMORY.md` | context pointers | `f524269409dc3023c20301d8f7c6e2cb2c3f868764beb2de3965d5004a577632`, `029243f44ebded632f6840806ed02433be536d20ea8b1abe2cabc22be9250ba4` |
+-
+-The design changes are r2.24: §4.3's service and conversion, B482's rule, W0R-1's correction of §4.3's item 2, and
+-§13 W0. The register changes are QA's
+-B482–B486 from the pre-check, the owner's B482 and B478 rulings in their rows, and a W0 entry in §0. This brief is
++| `tracker.md`, `MEMORY.md` | context pointers | `ee6ae9daee59901a29b7c17378f61bcabe3ca2aa6a38b1f08733bc8f88e59669`, `242610cc1bca53d02e73e861f15b2eb7b9774fff892979cb33dc0f2db057f229` |
++
++The design changes are r2.24: §4.3's service and conversion, B482's rule, W0R-1's correction of §4.3's item 2, §13
++W0, and the transcript note. The register changes are QA's B482–B486 from the pre-check and B487/B488 from the
++re-review, the owner's rulings in the B478, B482, B487 and B488 rows, and the W0 entry in §0. The tracker and
++`MEMORY.md` pointers carry the same rulings. This brief is
+ pinned by the hash QA issues on PASS, not listed here.
+ 
+ **Preflight:**
+@@ -252,7 +256,8 @@
+ **The legacy binding (W0R-2).** Once `do_regen` calls the snapshot adapter defined in `firmware_config.cpp`, every
+ existing build of the command TU that does not link the config TU needs a provider for that symbol:
+ - inbox-verbs' ACCEPT, CLIENT and OLED arms (`run.sh::build_variant`);
+-- the transcript profiles — `transcript.py` builds a driver that includes `probe_main.cpp`;
++- the transcript driver — `transcript_main.cpp` includes `probe_main.cpp`. Its build is broken at the base
++  (B487/B488) and W0 does not run it; once B478's package repairs it, the stand-in keeps it linkable;
+ - deferred-actions — its `probe.cpp` includes `probe_main.cpp`.
+ 
+ `probe_main.cpp` therefore gains **one labelled, signature-correct adapter stand-in, for those legacy arms only**:
+@@ -260,8 +265,8 @@
+ - it reads no NV, installs no identity or crypto, and adds no production hook;
+ - the identity arm excludes it, together with the eight config-handler stubs, and never satisfies a proof through
+   it;
+-- the legacy handler-recording behaviour, the transcript's sink contract, `transcript.py`, and the
+-  deferred-actions builder and source stay unchanged.
++- the legacy handler-recording behaviour, `transcript.py`, `transcript_main.cpp`, and the deferred-actions builder
++  and source stay unchanged.
+ 
+ **The proof matrix** (pre-check §9):
+ - **Storage × writer:** healthy, absent, unreadable, short and bad-header storage × name, lat, lon and `regen`. After
+@@ -297,8 +302,8 @@
+ - `regen`'s R12, R21, R22, R25 and R26 seed only NV. Correct them to install the matching live name and position,
+   while keeping every expected output and persisted field. **Do not** make `seed_id` install crypto globally —
+   R1–R17 deliberately observe crypto becoming ready.
+-- The transcript driver (`transcript_main.cpp`) also seeds only NV. Audit its live-name precondition and correct it,
+-  preserving its sink-fidelity meaning.
++- The transcript driver's own live-name precondition goes with B487/B488 to B478's tool package; W0 leaves that
++  file unchanged.
+ 
+ **The builder contract stays.** `tools/probe_deferred_actions/run.py` reuses the inbox runner's prefix up to its one
+ `rc=0` / `if ! build_support;` boundary, and `probe.cpp` includes the inbox `probe_main.cpp`:
+@@ -311,10 +316,9 @@
+ The coder writes the ledger into the evidence, closed against the full diff, and classifies each changed assertion
+ and control on its own. Anything absent from the ledger is a STOP. Known entries:
+ - the regen fixtures' live preconditions (§2.7);
+-- the transcript driver's live-name precondition;
+ - the new identity arm's checks and controls;
+-- the legacy adapter stand-in (W0R-2), named, with the link reconciliation of the legacy arms, the transcript
+-  profiles and deferred-actions;
++- the legacy adapter stand-in (W0R-2), named, with the link reconciliation of the legacy inbox arms and
++  deferred-actions;
+ - the new native cases;
+ - the `devicenv` additions.
+ 
+@@ -365,8 +369,8 @@
+   touches them;
+ - `src/firmware_commands.cpp` — `regen`'s candidate (§2.5), and accurate comments where W0 touches them;
+ - `test/test_device_nv.cpp` — the native cases;
+-- `tools/probe_inbox_verbs/run.sh`, `probe_main.cpp` (the stub exclusion and the legacy adapter stand-in) and
+-  `transcript_main.cpp`, and the new `identity_main.cpp` and `identity_platform.h` — §2.7;
++- `tools/probe_inbox_verbs/run.sh` and `probe_main.cpp` (the stub exclusion and the legacy adapter stand-in), and the
++  new `identity_main.cpp` and `identity_platform.h` — §2.7;
+ - `tools/probe_ui_model_mutations.py` — the `devicenv` additions and the native PIN;
+ - `docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md` — a stock regeneration, line anchors only;
+ - the report and evidence (§5).
+@@ -413,7 +417,6 @@
+ 5. **Probes:**
+    - inbox-verbs default: ACCEPT, CLIENT, OLED and the new identity arm, with every check and control accounted
+      for;
+-   - the transcript profiles, built and passing with the legacy stand-in;
+    - console-sink, board-UI (exit 0, 592), deferred-actions (source unchanged), device-radio, prov-tx and the
+      ownership scanner;
+    - report the counts against the baselines, and reconcile the ledger.
+@@ -450,8 +453,15 @@
+ - **Boards** — its own `pair --jobs=1` into a fresh `.pio-measure/` directory, read field by field against the coder's
+   `final-1`;
+ - **Selector (a)** — `devicenv` with W0's additions;
+-- **The affected probes:** inbox-verbs — its identity arm, its legacy arms and the transcript profiles — console-sink,
+-  board-UI, deferred-actions, device-radio, prov-tx and the ownership scanner; the stock ABI plus the overlay.
++- **The affected probes:** inbox-verbs — its identity arm and its legacy arms — console-sink, board-UI,
++  deferred-actions, device-radio, prov-tx and the ownership scanner; the stock ABI plus the overlay.
++
++**The transcript comparator is not run, by either side** (owner ruling 2026-09-30). It fails at the base (B487), and
++its USB wrapper admits only seven bytes (B488); nothing claims it passed or that its coverage is unchanged. W0's
++coverage comes instead from:
++- the identity arm — the real `firmware_config.cpp` and `firmware_commands.cpp`, with `cfg set name|lat|lon` and
++  `regen` outputs checked byte for byte through the real router, and `regen` through a supplied `LineSink`;
++- the legacy inbox arms — the R-series `regen` outputs, byte for byte, on USB and on the supplied sink.
+ 
+ The union's selector (b), full discovery and the warning census stay in the coder's chain.
+ 
+@@ -467,8 +477,9 @@
+ - **`regen`:** its save moved out of `do_regen`; a changed admission, entropy or install order; a lost CLIENT
+   refusal.
+ - **Fence:** an edit outside §3; a `fw_main.cpp` change; a moved board-UI anchor or a manifest delta; a changed
+-  inbox builder contract, `transcript.py` change or any deferred-actions source change; `seed_id` made to install
+-  crypto globally; a proof satisfied through the legacy stand-in.
++  inbox builder contract; a `transcript.py` or `transcript_main.cpp` change; any deferred-actions source change;
++  `seed_id` made to install crypto globally; a proof satisfied through the legacy stand-in; a claim that the
++  transcript ran or passed.
+ - **Ledger:** any changed, retired or added expectation, control or mutation absent from the §2.8 ledger, or any
+   weakened.
+ - **Inventory:** a semantic inventory change.
+@@ -522,6 +533,7 @@
+ 
+ - **B482** folds into W0: the coordinate setters publish only after a successful save (2026-09-29).
+ - **B478** is its own tool package after W0 and before W7 (2026-09-29). W0's diagnostics avoid raw high bytes.
++- **The transcript comparator** leaves W0's gates, and B487/B488 join B478's package (2026-09-30).
+ - **Nothing else is requested.** The service and the conversion are design §4.3's reviewed contract. B483–B486 stay
+   separate.
+ - **A contradictory interpretation** returns to the owner.
+@@ -535,7 +547,7 @@
+ - **Metal plan (M2):** QA decides whether a console check belongs there. For example: `cfg set name` of 33 bytes on a
+   real board answers `> cfg err too_long` and changes nothing, and a normal rename survives a reboot. The physical
+   flash-failure residue stays with the existing NV procedures.
+-- **Next:** B478 (the tool package), then W7 — or W5, W9, W4c or W1b, in the owner's order.
++- **Next:** the tool package — B478, B487 and B488 — then W7; or W5, W9, W4c or W1b, in the owner's order.
+ 
+ ## 8. Revision history
+ 
+@@ -560,3 +572,14 @@
+ - **Pins:** the design and the register.
+ 
+ Nothing else changes.
++
++**Revision 3 (2026-09-30)** settles W0R-4 from the scoped re-review (W0R-1–W0R-3 closed). The transcript
++comparator that revision 2 added to the gates is broken at the base (B487, B488), and the owner ruled it out of W0's
++gates, with B487/B488 joining B478's tool package:
++- `transcript_main.cpp` leaves the fence and is pinned read-only;
++- the transcript's live-name precondition moves with it;
++- §4.2 names the proofs that cover W0 instead, and states that the transcript is not run or claimed;
++- the STOP list forbids any transcript file change, or a claim that it passed;
++- the pins cover the design, the register (B487/B488 and the rulings), `tracker.md` and `MEMORY.md`.
++
++Nothing else changes.

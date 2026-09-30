@@ -1,0 +1,86 @@
+# final chain step 5 — probes (raw logs: artifacts/2026-09-29-standalone-mobile-home-w0/final-*.log)
+## inbox-verbs default (five arms)
+== ARM: accept  (independently compiled; own defines, own objects, own outputs)
+executor symbol ownership: accept PASS
+tree unchanged: the real sources' md5 is identical before and after (b67237c9e6178443f3691dcfb1faefb8)
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+== ARM: client  (independently compiled; own defines, own objects, own outputs)
+executor symbol ownership: client PASS
+tree unchanged: the real sources' md5 is identical before and after (b67237c9e6178443f3691dcfb1faefb8)
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+== ARM: oled  (independently compiled; own defines, own objects, own outputs)
+executor symbol ownership: oled PASS
+tree unchanged: the real sources' md5 is identical before and after (b67237c9e6178443f3691dcfb1faefb8)
+probe: 27 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 27)
+controls: 7 verified / 0 unusable (pin 7)
+== ARM: identity_accept  (independently compiled; own defines, own objects, own outputs)
+executor symbol ownership: identity_accept PASS
+tree unchanged: the real sources' md5 is identical before and after (b67237c9e6178443f3691dcfb1faefb8)
+probe: 175 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 175)
+controls: 13 verified / 0 unusable (pin 13)
+== ARM: identity_client  (independently compiled; own defines, own objects, own outputs)
+executor symbol ownership: identity_client PASS
+tree unchanged: the real sources' md5 is identical before and after (b67237c9e6178443f3691dcfb1faefb8)
+probe: 176 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 176)
+controls: 13 verified / 0 unusable (pin 13)
+BOTH ARMS PASS
+
+## the identity arms' W0 controls
+== ARM: identity_accept  (independently compiled; own defines, own objects, own outputs)
+  ok   W0-C1 the lat/lon candidate is rebuilt from load_id (fields from failed/rejected NV bytes) -> RED (15 check(s) failed: M.lat.healthy_diff.rec M.lat.absent.rec M.lat.unreadable.rec M.lat.short.rec M.lat.bad_magic.rec M.lat.bad_version.rec M.lat.oversize.rec M.lon.healthy_diff.rec M.lon.absent.rec M.lon.unreadable.rec M.lon.short.rec M.lon.bad_magic.rec M.lon.bad_version.rec M.lon.oversize.rec N6 )
+  ok   W0-C2 the regen candidate is rebuilt from an unchecked load_id (the name and position come from NV bytes) -> RED (14 check(s) failed: M.regen.healthy_diff.out M.regen.healthy_diff.rec M.regen.absent.out M.regen.absent.rec M.regen.unreadable.out M.regen.unreadable.rec M.regen.short.out M.regen.short.rec M.regen.bad_magic.out M.regen.bad_magic.rec M.regen.bad_version.out M.regen.bad_version.rec M.regen.oversize.out M.regen.oversize.rec )
+  ok   W0-C3 the rename service loses its overlength early return -> RED (8 check(s) failed: G8 G8b G10 G10b G11 G11b G13 G13b )
+  ok   W0-C4 the console arm clamps the name to 32 bytes before admission (B448 restored) -> RED (8 check(s) failed: G8 G8b G10 G10b G11 G11b G13 G13b )
+  ok   W0-C5 the requested name is published before its save -> RED (1 check(s) failed: N5b )
+  ok   W0-C6 the coordinate is published before its save (B482 restored) -> RED (2 check(s) failed: C.lat.live C.lon.live )
+  ok   W0-C7 a saved latitude is published to the global only (the NodeConfig mirror is left stale) -> RED (7 check(s) failed: M.lat.healthy_diff.live M.lat.absent.live M.lat.unreadable.live M.lat.short.live M.lat.bad_magic.live M.lat.bad_version.live M.lat.oversize.live )
+  ok   W0-C8 the byte-identical no-op writes anyway (coalescing dropped) -> RED (2 check(s) failed: N1 N2 )
+  ok   W0-C9 the no-op test compares the live name instead of the durable record (repair skipped) -> RED (7 check(s) failed: N2 N3a N3b N3c N3d N3e N4 )
+  ok   W0-C10 the already-durable branch returns before making the requested name live -> RED (1 check(s) failed: N2b )
+  ok   W0-C11 the snapshot adapter reads the live name with a reserved terminator byte (31 of 32) -> RED (1 check(s) failed: N6 )
+  ok   W0-C12 the snapshot adapter reads the seed and position from load_id instead of the live authorities -> RED (35 check(s) failed: M.name.healthy_diff.rec M.name.absent.rec M.name.unreadable.rec M.name.short.rec M.name.bad_magic.rec M.name.bad_version.rec M.name.oversize.rec M.lat.healthy_diff.rec M.lat.absent.rec M.lat.unreadable.rec M.lat.short.rec M.lat.bad_magic.rec M.lat.bad_version.rec M.lat.oversize.rec M.lon.healthy_diff.rec M.lon.absent.rec M.lon.unreadable.rec M.lon.short.rec M.lon.bad_magic.rec M.lon.bad_version.rec M.lon.oversize.rec M.regen.healthy_diff.rec M.regen.absent.rec M.regen.unreadable.rec M.regen.short.rec M.regen.bad_magic.rec M.regen.bad_version.rec M.regen.oversize.rec N3a N3b N3c N3d N3e N4 N6 )
+== ARM: identity_client  (independently compiled; own defines, own objects, own outputs)
+  ok   W0-C1 the lat/lon candidate is rebuilt from load_id (fields from failed/rejected NV bytes) -> RED (15 check(s) failed: M.lat.healthy_diff.rec M.lat.absent.rec M.lat.unreadable.rec M.lat.short.rec M.lat.bad_magic.rec M.lat.bad_version.rec M.lat.oversize.rec M.lon.healthy_diff.rec M.lon.absent.rec M.lon.unreadable.rec M.lon.short.rec M.lon.bad_magic.rec M.lon.bad_version.rec M.lon.oversize.rec N6 )
+  ok   W0-C2 the regen candidate is rebuilt from an unchecked load_id (the name and position come from NV bytes) -> RED (14 check(s) failed: M.regen.healthy_diff.out M.regen.healthy_diff.rec M.regen.absent.out M.regen.absent.rec M.regen.unreadable.out M.regen.unreadable.rec M.regen.short.out M.regen.short.rec M.regen.bad_magic.out M.regen.bad_magic.rec M.regen.bad_version.out M.regen.bad_version.rec M.regen.oversize.out M.regen.oversize.rec )
+  ok   W0-C3 the rename service loses its overlength early return -> RED (8 check(s) failed: G8 G8b G10 G10b G11 G11b G13 G13b )
+  ok   W0-C4 the console arm clamps the name to 32 bytes before admission (B448 restored) -> RED (8 check(s) failed: G8 G8b G10 G10b G11 G11b G13 G13b )
+  ok   W0-C5 the requested name is published before its save -> RED (1 check(s) failed: N5b )
+  ok   W0-C6 the coordinate is published before its save (B482 restored) -> RED (2 check(s) failed: C.lat.live C.lon.live )
+  ok   W0-C7 a saved latitude is published to the global only (the NodeConfig mirror is left stale) -> RED (7 check(s) failed: M.lat.healthy_diff.live M.lat.absent.live M.lat.unreadable.live M.lat.short.live M.lat.bad_magic.live M.lat.bad_version.live M.lat.oversize.live )
+  ok   W0-C8 the byte-identical no-op writes anyway (coalescing dropped) -> RED (2 check(s) failed: N1 N2 )
+  ok   W0-C9 the no-op test compares the live name instead of the durable record (repair skipped) -> RED (7 check(s) failed: N2 N3a N3b N3c N3d N3e N4 )
+  ok   W0-C10 the already-durable branch returns before making the requested name live -> RED (1 check(s) failed: N2b )
+  ok   W0-C11 the snapshot adapter reads the live name with a reserved terminator byte (31 of 32) -> RED (1 check(s) failed: N6 )
+  ok   W0-C12 the snapshot adapter reads the seed and position from load_id instead of the live authorities -> RED (35 check(s) failed: M.name.healthy_diff.rec M.name.absent.rec M.name.unreadable.rec M.name.short.rec M.name.bad_magic.rec M.name.bad_version.rec M.name.oversize.rec M.lat.healthy_diff.rec M.lat.absent.rec M.lat.unreadable.rec M.lat.short.rec M.lat.bad_magic.rec M.lat.bad_version.rec M.lat.oversize.rec M.lon.healthy_diff.rec M.lon.absent.rec M.lon.unreadable.rec M.lon.short.rec M.lon.bad_magic.rec M.lon.bad_version.rec M.lon.oversize.rec M.regen.healthy_diff.rec M.regen.absent.rec M.regen.unreadable.rec M.regen.short.rec M.regen.bad_magic.rec M.regen.bad_version.rec M.regen.oversize.rec N3a N3b N3c N3d N3e N4 N6 )
+
+## console-sink
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+PASS: probe + structural + controls all green
+## board-UI
+declarations census: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+identities accounted: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+negctl v3 assert_red: 60
+negctl v4 assert_red: 3
+PASS
+## deferred-actions (source unchanged: inputs-*.json readonly)
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+40 controls compile/assertion RED
+ACTION PROBE PASS; output=/tmp/mr-action-probe-82pr3qya
+## device-radio
+96 passed, 0 failed
+41 passed, 0 failed
+25 structural checks passed, 0 failed
+72 controls checked, 0 unusable
+source hash unchanged: 687ba675a9b8455b12b4c6ca8116a7c00ea7900ee65bb7d8225b6a188d3b7faf
+## prov-tx
+== OK
+## ownership
+  ok   O13 source integrity: 218 scanned files, sha256(tree) 6bde93a0d5bbe3bc… before and after
+ownership controls: 43 verified / 0 unusable
+prov-tx structural 20 {'PASS': 20}; controls 47 {'RED': 47}

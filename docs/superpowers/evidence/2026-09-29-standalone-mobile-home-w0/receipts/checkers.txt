@@ -1,0 +1,11 @@
+# final chain step 8 — checkers
+## inventory
+gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)
+## authority
+PASS: command authority — ruled table / production header / generated inventory agree
+## authority-selftest
+RED: surface mark dropped -> authority/surface mark disagreement at src/firmware_help.h:161
+PASS: command authority — ruled table / production header / generated inventory agree; 6/6 selftests RED
+## literals
+       (roots: lib, src, test · comments and strings stripped, so historical notes are allowed)
+       semantic set = 21 current allocated value(s) | the 19 pre-transition ordinals

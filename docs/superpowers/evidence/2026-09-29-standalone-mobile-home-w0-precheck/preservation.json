@@ -1,0 +1,55 @@
+{
+  "meshroute": {
+    "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+    "status": " M docs/2026-07-30-open-bug-register.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/\n",
+    "changed": [
+      "docs/2026-07-30-open-bug-register.md"
+    ],
+    "missing": [],
+    "added": [
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproducer.py",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproduction.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-gateway.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-heltec_mobile.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-gateway.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-heltec_mobile.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-output.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-summary.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/battery-counts.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/ble-source-fragments.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-runs.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-summary.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-comparison.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-manifest.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/gateway-repeat.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/heltec_mobile-repeat.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-cases.inc",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-output.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-platform-shim.h",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-results.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/inputs.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-query.cpp",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-result.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/readers.txt",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/register.diff",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/reproduce-identity.py",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/runs.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/supplement-runs.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/symbol-readers.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/target-map.json",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/verify-characterization.py"
+    ],
+    "staged": ""
+  },
+  "simulator": {
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "status": "",
+    "changed": [],
+    "missing": [],
+    "added": [],
+    "staged": ""
+  },
+  "register_final_sha256": "9ad72bded75f00ea6ba89d06c601c8848a9a01f51e1a9d322c861f882ea95c25"
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "name": "base-1",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w0-precheck/base-1"
+    ],
+    "rc": 0,
+    "seconds": 48.33916974067688
+  },
+  {
+    "name": "base-2",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w0-precheck/base-2"
+    ],
+    "rc": 0,
+    "seconds": 48.552907943725586
+  },
+  {
+    "name": "gateway-repeat",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "compare",
+      ".pio-measure/w0-precheck/base-1/gateway/manifest.json",
+      ".pio-measure/w0-precheck/base-2/gateway/manifest.json"
+    ],
+    "rc": 0
+  },
+  {
+    "name": "heltec_mobile-repeat",
+    "cmd": [
+      "python3",
+      "tools/measure_board.py",
+      "compare",
+      ".pio-measure/w0-precheck/base-1/heltec_mobile/manifest.json",
+      ".pio-measure/w0-precheck/base-2/heltec_mobile/manifest.json"
+    ],
+    "rc": 0
+  }
+]

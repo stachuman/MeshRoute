@@ -1,0 +1,85 @@
+{
+  "expected_revision1_sha256": "638f11d693568adbe8eb62d0ca04e623b5cd3ff463860cc12aa44c4f71161235",
+  "actual_revision1_sha256": "638f11d693568adbe8eb62d0ca04e623b5cd3ff463860cc12aa44c4f71161235",
+  "matches": true,
+  "revision1_lines": 508,
+  "revision2_lines": 562,
+  "replacements": [
+    {
+      "revision2": "**Revision 2 \u2014 2026-09-29 \u2014 for QA's scoped re-review.** The [brief review](../evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md)\nheld revision 1 (`638f11d6\u20261235`) on W0R-1\u2013W0R-3; this revision folds them in (\u00a78).",
+      "revision1": "**Revision 1 \u2014 2026-09-29 \u2014 draft for QA review.**"
+    },
+    {
+      "revision2": "3727f88ef3c56692691ffe88282079ab5be864cfb8d94f8ff3dd1947b0ac54f3",
+      "revision1": "d8db66a8378f84333e76def6cb54d1302224ae1e0b8be3ab4d8f626da8d4054d"
+    },
+    {
+      "revision2": "6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94",
+      "revision1": "b9e4ae5642c120f28028bbbadf9bdaec33735707442aaeafe62dfd2946997698"
+    },
+    {
+      "revision2": "The design changes are r2.24: \u00a74.3's service and conversion, B482's rule, W0R-1's correction of \u00a74.3's item 2, and\n\u00a713 W0. The register changes are QA's",
+      "revision1": "The design changes are r2.24: \u00a74.3's service and conversion, B482's rule, and \u00a713 W0. The register changes are QA's"
+    },
+    {
+      "revision2": "   candidate over its complete bytes. An equal one is `unchanged`: zero writes, **and then the requested name is\n   made live** through `Node::set_name` if the live name differs \u2014 the durable record already holds it (W0R-1).",
+      "revision1": "   candidate over its complete bytes. An equal one is `unchanged`, with zero writes."
+    },
+    {
+      "revision2": "4. Otherwise, exactly one `save_id`. Only after it succeeds is the requested name published through\n   `Node::set_name`.\n5. A failed save is `nv_save_failed`: nothing is published, and the live identity is unchanged.\n\nBoth success paths \u2014 already durable (`unchanged`) and newly saved (`saved`) \u2014 end with the requested counted name\nlive. `unchanged` describes the write decision, not the previous live name.",
+      "revision1": "4. Otherwise, exactly one `save_id`. Only after it succeeds is the live name published through `Node::set_name`.\n5. A failed save is `nv_save_failed`, with the live identity unchanged."
+    },
+    {
+      "revision2": "today's success bytes; `unchanged` costs no write; both leave the requested name live",
+      "revision1": "today's success bytes; `unchanged` costs no write"
+    },
+    {
+      "revision2": "- **Stub exclusion:** `probe_main.cpp` gains only a narrow exclusion of its config-handler stubs, and of the legacy\n  stand-in below, for this arm. The existing stub-based dispatch-ownership cases stay exactly as they are.\n- **Real code only:** the arm links the real adapter and service from `firmware_config.cpp`, and its controls\n  perturb the real production adapter and callers \u2014 never the stand-in.",
+      "revision1": "- **Stub exclusion:** `probe_main.cpp` gains only a narrow exclusion of its config-handler stubs, for this arm. The\n  existing stub-based dispatch-ownership cases stay exactly as they are."
+    },
+    {
+      "revision2": "**The legacy binding (W0R-2).** Once `do_regen` calls the snapshot adapter defined in `firmware_config.cpp`, every\nexisting build of the command TU that does not link the config TU needs a provider for that symbol:\n- inbox-verbs' ACCEPT, CLIENT and OLED arms (`run.sh::build_variant`);\n- the transcript profiles \u2014 `transcript.py` builds a driver that includes `probe_main.cpp`;\n- deferred-actions \u2014 its `probe.cpp` includes `probe_main.cpp`.\n\n`probe_main.cpp` therefore gains **one labelled, signature-correct adapter stand-in, for those legacy arms only**:\n- it builds the candidate from the fixture's live fields through the real `id_blob_from_live`;\n- it reads no NV, installs no identity or crypto, and adds no production hook;\n- the identity arm excludes it, together with the eight config-handler stubs, and never satisfies a proof through\n  it;\n- the legacy handler-recording behaviour, the transcript's sink contract, `transcript.py`, and the\n  deferred-actions builder and source stay unchanged.\n\n",
+      "revision1": ""
+    },
+    {
+      "revision2": "  NV fake's counter) and repair.\n- **Already durable, not yet live (W0R-1):** live `Live Name`, a durable record holding `Saved Name` with the same\n  seed and position, requested `Saved Name` \u2014 the result is `unchanged`, with zero writes, and `Saved Name` is live\n  afterwards. The existing repair cases, with the live name equal to the request but the record missing, bad or\n  different, stay.\n- **B448 through the real router:** empty; spaces and literal quotes; 31, 32 and 33 ASCII bytes; a multi-byte\n  character within 32; a 2- or 3-byte character crossing byte 32; 32 high bytes; more than 255 bytes.",
+      "revision1": "  NV fake's counter) and repair; the B448 cases of \u00a72.2."
+    },
+    {
+      "revision2": "- a coalescing that skips the repair of a bad record;\n- an equal-record branch that returns before making the requested name live.\n\nA control counts only when it fails its intended assertion; a crash, a build failure or a vacuous control is\nrejected, never counted RED.",
+      "revision1": "- a coalescing that skips the repair of a bad record."
+    },
+    {
+      "revision2": "- the legacy adapter stand-in (W0R-2), named, with the link reconciliation of the legacy arms, the transcript\n  profiles and deferred-actions;\n",
+      "revision1": ""
+    },
+    {
+      "revision2": "- **Selector (b):** `config` 32, `w1cname` 4, `consoleline` 12 and `radmin4verbs` 30 \u2014 **78**. With (a), the union is\n  **124** entries before W0's additions (W0R-3).",
+      "revision1": "- **Selector (b):** `config` 32, `w1cname` 4, `consoleline` 12 and `radmin4verbs` 30 \u2014 124."
+    },
+    {
+      "revision2": "- `tools/probe_inbox_verbs/run.sh`, `probe_main.cpp` (the stub exclusion and the legacy adapter stand-in) and\n  `transcript_main.cpp`, and the new `identity_main.cpp` and `identity_platform.h` \u2014 \u00a72.7;",
+      "revision1": "- `tools/probe_inbox_verbs/run.sh`, `probe_main.cpp` and `transcript_main.cpp`, and the new `identity_main.cpp` and\n  `identity_platform.h` \u2014 \u00a72.7;"
+    },
+    {
+      "revision2": "   - the transcript profiles, built and passing with the legacy stand-in;\n",
+      "revision1": ""
+    },
+    {
+      "revision2": "- **The affected probes:** inbox-verbs \u2014 its identity arm, its legacy arms and the transcript profiles \u2014 console-sink,\n  board-UI, deferred-actions, device-radio, prov-tx and the ownership scanner; the stock ABI plus the overlay.",
+      "revision1": "- **The affected probes:** inbox-verbs with the identity arm, console-sink, board-UI, deferred-actions, device-radio,\n  prov-tx and the ownership scanner; the stock ABI plus the overlay."
+    },
+    {
+      "revision2": "- **Ordering:** a live name or coordinate published before the requested record is durable; anything published\n  after a failed save; an `unchanged` success that leaves the previous live name.",
+      "revision1": "- **Ordering:** a live name or coordinate published before its save succeeds."
+    },
+    {
+      "revision2": "  inbox builder contract, `transcript.py` change or any deferred-actions source change; `seed_id` made to install\n  crypto globally; a proof satisfied through the legacy stand-in.",
+      "revision1": "  inbox builder contract, or any deferred-actions source change; `seed_id` made to install crypto globally."
+    },
+    {
+      "revision2": "\n**Revision 2 (2026-09-29)** folds in the brief review (HOLD, W0R-1\u2013W0R-3):\n- **W0R-1:** an `unchanged` rename \u2014 the identical record already durable \u2014 costs no write but still makes the\n  requested name live. Both success paths end with the requested name live, and a failed save publishes nothing.\n  Added: the divergent-name case, its control, and the STOP wording. Design r2.24's \u00a74.3 item 2 is corrected to\n  match.\n- **W0R-2:** the legacy command-TU builds get one labelled adapter stand-in in `probe_main.cpp`, built on the real\n  pure conversion. The identity arm excludes it and exercises only the real adapter and service. The transcript\n  profiles join the gates.\n- **W0R-3:** selector (b) is 78 entries; 124 is the union with (a).\n- **Also, from the review's notes:** B448's boundary and over-255 cases through the real router, and control\n  classification that rejects crashes, build failures and vacuous controls.\n- **Pins:** the design and the register.\n\nNothing else changes.\n",
+      "revision1": ""
+    }
+  ]
+}

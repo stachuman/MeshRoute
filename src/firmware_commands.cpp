@@ -1081,10 +1081,12 @@ static void do_regen(Print& out) {
         }
     }
 #endif   // MR_FEAT_RADMIN_CLIENT
-    mrnv::IdBlob idb{};
-    mrnv::load_id(idb);                                          // preserve the existing name (if any)
+    // ★ W0 (B440): the candidate is the LIVE snapshot — the running name and position — with ONLY the seed replaced by
+    //   the fresh draw; ⛔ never an unchecked `load_id` (a failed read would have emptied the name and position). The
+    //   raw `save_id` stays unconditional: `regen` must always write its new seed.
+    mrnv::IdBlob idb;
+    (void)id_candidate_from_live(idb);                           // no override: the live name cannot be refused
     mrrng::fill(idb.seed, sizeof idb.seed);
-    idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
     if (!mrnv::save_id(idb)) { out.println(F("> regen err nv_save_failed")); return; }
     meshroute::identity_from_seed(g_identity, idb.seed);
     g_node.set_identity(g_node.node_id(), g_identity.key_hash32);

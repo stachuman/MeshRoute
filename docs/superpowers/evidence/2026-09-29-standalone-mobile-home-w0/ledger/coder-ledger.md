@@ -1,0 +1,27 @@
+# W0 coder ledger — brief docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md (rev 3, SHA-256 2197165149e58a25b3eeccfc88906e652e69641734d8a532a123ecc42e56a6d8, 585 lines)
+
+## PREFLIGHT (2026-09-30) — scope.py preflight -> evidence/preflight.json: PASS
+HEAD 0f23aee; simulator 6585649 clean; 0 staged; git diff --check 0; brief hash OK; fence 9/9 at base (sha+lines); new paths identity_main.cpp / identity_platform.h ABSENT; read-only 7/7; preparation 6/6; pre-check SHA256SUMS 36/36 OK; inventory 2123 MeshRoute paths: changed 4 (design, register, tracker, MEMORY = the preparation set), missing 0; new 72 all explained (pre-check folder+report, the brief, the three review receipts+folders, this package's evidence dir). Simulator 285 paths unchanged.
+Source check vs brief §1 (by symbol): IdBlob 80 B (magic 0, version 4, name_len 6, seed 8, name 40, lat 72, lon 76), kIdMagic 'MRID', kIdVersion 1; load_id/save_id at 1470–1474 (exact predicate, save_id = raw write_slot, no coalescing); handle_cfg_set lat/lon arm publishes BEFORE save and builds from `load_id` + running seed; name arm clamps strlen to 32 and publishes after a successful save; do_regen: CLIENT debt admission, `IdBlob idb{}; load_id(idb)` unchecked, mrrng::fill seed, stamp, checked save_id, then identity_from_seed/set_identity/set_crypto_identity, print_identity(idb,out), CLIENT note; probe_main.cpp stubs handle_cfg_set + 7 siblings (8 in one namespace block) recording `routed`; run.sh `rc=0\nif ! build_support;` once; deferred run.py reuses the prefix, links firmware_commands.cpp WITHOUT firmware_config.cpp. Live authorities: g_identity.seed, Node::effective_name(out, cap) counted (min(name_len, cap), no terminator), g_lat_e7/g_lon_e7 + NodeConfig mirrors. All §1 facts hold.
+
+## BASELINES (unmodified tree, run-baselines.sh, sequential, every step exit 0)
+- native 3055 cases / 199532 assertions / 0 failed / 0 skipped
+- inbox-verbs: accept 1400 checks / 63 controls; client 483 / 71; oled 27 / 7 (pins match)
+- console-sink PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6/3 controls=152 unusable=0
+- board-UI: 592 identities accounted; wiring live 60 / mutant 186; negctl v3 60, v4 3
+- deferred-actions: b0-p1 150, b1-p1 151, b2-p1 158, b2-p0 158 (39 transcripts); 40 controls RED
+- device-radio: 96 + 41 passed; 25 structural; 72 controls, 0 unusable
+- prov-tx: 20 structural PASS; 47 controls RED
+- ownership scanner PASS (218 files); --controls 43 verified / 0 unusable
+- ABI stock 290 checks 9/9 RED; + IdBlob overlay (pre-check identity-abi.json) 299 checks 9/9 RED; IdBlob 80/4 T on native/heltec_mobile/gateway
+- boards .pio-measure/w0/base-1, base-2 back to back, nothing between: compare PASS both; gateway RAM 203740 flash 571936 payload 97deca60…2886; heltec_mobile RAM 219540 flash 1400276 payload 6af09c96…5998
+
+## RULINGS (implementation)
+- Ruling: the snapshot adapter is `bool mrfw::id_candidate_from_live(mrnv::IdBlob&, const char* name = nullptr, size_t name_len = 0)` — ONE gatherer of the three live authorities; a non-null `name` overrides the live name (the rename service's request, admitted on its size_t length). lat/lon and regen call it without an override and replace their one field afterwards; `(void)` on those calls because the live name is ≤ 32 by construction (`effective_name(…, 32)`), documented at each site. — why: U1/U2 one conversion path; the pre-check allowed the explicit name override. — cost if wrong: QA wants two entry points (a split, no behaviour change).
+- Ruling: the rename service's `bad_args` = a null pointer or an EMPTY requested name (zero writes, nothing published). The console's `cfg set name` never reaches it (its empty-value refusal runs first, unchanged), but W7's panel inherits the rule. — why: design §4.3 lists "bad input"; the console has always refused an empty name. — cost if wrong: an empty rename would become a legal "clear the name" (a new product rule, owner's call).
+- Ruling: the `unchanged` branch calls `Node::set_name` only when the live name differs (design §4.3 "publishes the requested name if the live one differs"); the observable result (requested name live, zero writes) is the same either way.
+- Measured (dev, scratch copy with the install calls stripped): WITHOUT the live precondition R12, R21, R22, R23, R25, R26 fail (live name "node", the probe's constructor default) — the brief named R12/R21/R22/R25/R26; R23 (the USB repeat of R12's line, same fixture shape) needs the same correction and gets it. With it: accept 1400/1400. Log: dev-r-fixture-necessity.log.
+- Dev: native 3059/199638/0/0; inbox-verbs all five arms PASS (accept 1400/63, client 483/71, oled 27/7, identity_accept 175/13, identity_client 176/13); every W0-C1..C12 RED on its intended row on both identity arms; devicenv 56/56 RED (W0-N1..N10 new), baselines 3059/199638/0.
+- Ruling: the identity arms run under both role defines; the shared R7/A7/A10 controls are gated to arms 1/2 (as they already were away from OLED) because the identity arms run none of their rows.
+- Dev: deferred-actions PASS (40 RED, source unchanged); console-sink 720/152; board-UI 592 (live 60/mutant 186); device-radio 72/0; prov-tx OK; ownership 43/0; discovery Ran 406 OK; union (b) config 32, w1cname 4, consoleline 12, radmin4verbs 30 all RED; inventory regenerated (--write): 197 rows, anchor-normalised identical to base, 138 anchor lines moved.
+- FINAL CHAIN attempt 1 starts (run-final.sh), fresh scratch dir final/.

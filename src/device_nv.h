@@ -158,6 +158,25 @@ struct IdBlob {
 constexpr uint32_t kIdMagic   = 0x4D524944u; // 'MRID'
 constexpr uint16_t kIdVersion = 1;
 
+// ★★★ W0 (design §4.3; B440/B448) — THE ONE LIVE → RECORD CONVERSION for `/mrid`. Every writer (`cfg set name|lat|lon`,
+//     `regen`) builds its candidate HERE, from the LIVE seed, the counted live name and the live position, and then
+//     replaces only its own field. ⛔ No candidate field ever comes from a failed or rejected `load_id`: a failed read
+//     does not even promise a zeroed record (a short read leaves a prefix, a bad header the old payload).
+// ★ ADMISSION FIRST, ON THE WIDE TYPE: `name_len` is checked as a `size_t` before any narrowing, so 256 cannot wrap to
+//   0 and 33 cannot be clamped to 32. On refusal `out` is wholly zero — no magic, so never a record a caller could save.
+// Pure: no NV, no globals, no Node, no Arduino. The firmware's live snapshot adapter is `mrfw::id_candidate_from_live`.
+inline bool id_blob_from_live(IdBlob& out, const uint8_t (&seed)[32], const char* name, size_t name_len,
+                              int32_t lat_e7, int32_t lon_e7) {
+    memset(&out, 0, sizeof out);
+    if (name_len > sizeof out.name || (name_len != 0 && name == nullptr)) return false;
+    out.magic = kIdMagic; out.version = kIdVersion;
+    out.name_len = static_cast<uint16_t>(name_len);
+    memcpy(out.seed, seed, sizeof out.seed);
+    if (name_len != 0) memcpy(out.name, name, name_len);
+    out.lat_e7 = lat_e7; out.lon_e7 = lon_e7;
+    return true;
+}
+
 // ---- Peer ADDRESS BOOK (`/mrpeers`) — E2E §2 + spec 2026-07-29 §2.4 (slice AB1). Whole-blob R/W like /mrid; a
 // `peerkey` install or an on-air key-learn rewrites it. Dev hardware: a format change just bumps kPeersVersion
 // (no migration). Holds the peers whose identity we can NAME and SEAL to:

@@ -1,0 +1,199 @@
+1: 00000000 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]>:
+2:    0:	e92d 41f0 	stmdb	sp!, {r4, r5, r6, r7, r8, lr}
+3:    4:	b0c2      	sub	sp, #264	@ 0x108
+4:    6:	2800      	cmp	r0, #0
+5:    8:	f000 80a2 	beq.w	150 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x150>
+6:    c:	460d      	mov	r5, r1
+7:    e:	4606      	mov	r6, r0
+8:   10:	4a57      	ldr	r2, [pc, #348]	@ (170 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x170>)
+9:   12:	4b58      	ldr	r3, [pc, #352]	@ (174 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x174>)
+10:   14:	f8d2 8000 	ldr.w	r8, [r2]
+11:   18:	681f      	ldr	r7, [r3, #0]
+12:   1a:	2250      	movs	r2, #80	@ 0x50
+13:   1c:	2100      	movs	r1, #0
+14:   1e:	a801      	add	r0, sp, #4
+15:   20:	f7ff fffe 	bl	0 <memset>
+16: 			20: R_ARM_THM_CALL	memset
+17:   24:	2d20      	cmp	r5, #32
+18:   26:	d862      	bhi.n	ee <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xee>
+19:   28:	4b53      	ldr	r3, [pc, #332]	@ (178 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x178>)
+20:   2a:	4c54      	ldr	r4, [pc, #336]	@ (17c <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x17c>)
+21:   2c:	9301      	str	r3, [sp, #4]
+22:   2e:	2301      	movs	r3, #1
+23:   30:	f8ad 3008 	strh.w	r3, [sp, #8]
+24:   34:	cc0f      	ldmia	r4!, {r0, r1, r2, r3}
+25:   36:	f10d 0c0c 	add.w	ip, sp, #12
+26:   3a:	e8ac 000f 	stmia.w	ip!, {r0, r1, r2, r3}
+27:   3e:	e894 000f 	ldmia.w	r4, {r0, r1, r2, r3}
+28:   42:	f8ad 500a 	strh.w	r5, [sp, #10]
+29:   46:	e88c 000f 	stmia.w	ip, {r0, r1, r2, r3}
+30:   4a:	2d00      	cmp	r5, #0
+31:   4c:	d153      	bne.n	f6 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xf6>
+32:   4e:	2250      	movs	r2, #80	@ 0x50
+33:   50:	2100      	movs	r1, #0
+34:   52:	a815      	add	r0, sp, #84	@ 0x54
+35:   54:	e9cd 8713 	strd	r8, r7, [sp, #76]	@ 0x4c
+36:   58:	f7ff fffe 	bl	0 <memset>
+37: 			58: R_ARM_THM_CALL	memset
+38:   5c:	4948      	ldr	r1, [pc, #288]	@ (180 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x180>)
+39:   5e:	a829      	add	r0, sp, #164	@ 0xa4
+40:   60:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::File(Adafruit_LittleFS&)>
+41: 			60: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::File(Adafruit_LittleFS&)
+42:   64:	4846      	ldr	r0, [pc, #280]	@ (180 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x180>)
+43:   66:	f7ff fffe 	bl	0 <InternalFileSystem::begin()>
+44: 			66: R_ARM_THM_CALL	InternalFileSystem::begin()
+45:   6a:	b180      	cbz	r0, 8e <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x8e>
+46:   6c:	4945      	ldr	r1, [pc, #276]	@ (184 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x184>)
+47:   6e:	2200      	movs	r2, #0
+48:   70:	a829      	add	r0, sp, #164	@ 0xa4
+49:   72:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::open(char const*, unsigned char)>
+50: 			72: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::open(char const*, unsigned char)
+51:   76:	b150      	cbz	r0, 8e <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x8e>
+52:   78:	2250      	movs	r2, #80	@ 0x50
+53:   7a:	a915      	add	r1, sp, #84	@ 0x54
+54:   7c:	a829      	add	r0, sp, #164	@ 0xa4
+55:   7e:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::read(void*, unsigned short)>
+56: 			7e: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::read(void*, unsigned short)
+57:   82:	4604      	mov	r4, r0
+58:   84:	a829      	add	r0, sp, #164	@ 0xa4
+59:   86:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::close()>
+60: 			86: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::close()
+61:   8a:	2c50      	cmp	r4, #80	@ 0x50
+62:   8c:	d039      	beq.n	102 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x102>
+63:   8e:	483c      	ldr	r0, [pc, #240]	@ (180 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x180>)
+64:   90:	f7ff fffe 	bl	0 <InternalFileSystem::begin()>
+65: 			90: R_ARM_THM_CALL	InternalFileSystem::begin()
+66:   94:	493b      	ldr	r1, [pc, #236]	@ (184 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x184>)
+67:   96:	483a      	ldr	r0, [pc, #232]	@ (180 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x180>)
+68:   98:	f7ff fffe 	bl	0 <Adafruit_LittleFS::remove(char const*)>
+69: 			98: R_ARM_THM_CALL	Adafruit_LittleFS::remove(char const*)
+70:   9c:	4938      	ldr	r1, [pc, #224]	@ (180 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x180>)
+71:   9e:	a829      	add	r0, sp, #164	@ 0xa4
+72:   a0:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::File(Adafruit_LittleFS&)>
+73: 			a0: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::File(Adafruit_LittleFS&)
+74:   a4:	4937      	ldr	r1, [pc, #220]	@ (184 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x184>)
+75:   a6:	2201      	movs	r2, #1
+76:   a8:	a829      	add	r0, sp, #164	@ 0xa4
+77:   aa:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::open(char const*, unsigned char)>
+78: 			aa: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::open(char const*, unsigned char)
+79:   ae:	b908      	cbnz	r0, b4 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xb4>
+80:   b0:	2004      	movs	r0, #4
+81:   b2:	e019      	b.n	e8 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xe8>
+82:   b4:	2250      	movs	r2, #80	@ 0x50
+83:   b6:	a901      	add	r1, sp, #4
+84:   b8:	a829      	add	r0, sp, #164	@ 0xa4
+85:   ba:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::write(unsigned char const*, unsigned int)>
+86: 			ba: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::write(unsigned char const*, unsigned int)
+87:   be:	4604      	mov	r4, r0
+88:   c0:	a829      	add	r0, sp, #164	@ 0xa4
+89:   c2:	f7ff fffe 	bl	0 <Adafruit_LittleFS_Namespace::File::close()>
+90: 			c2: R_ARM_THM_CALL	Adafruit_LittleFS_Namespace::File::close()
+91:   c6:	2c50      	cmp	r4, #80	@ 0x50
+92:   c8:	d1f2      	bne.n	b0 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xb0>
+93:   ca:	f89d 300a 	ldrb.w	r3, [sp, #10]
+94:   ce:	482e      	ldr	r0, [pc, #184]	@ (188 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x188>)
+95:   d0:	2b20      	cmp	r3, #32
+96:   d2:	461a      	mov	r2, r3
+97:   d4:	bf28      	it	cs
+98:   d6:	2220      	movcs	r2, #32
+99:   d8:	f880 2030 	strb.w	r2, [r0, #48]	@ 0x30
+100:   dc:	b11b      	cbz	r3, e6 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xe6>
+101:   de:	a90b      	add	r1, sp, #44	@ 0x2c
+102:   e0:	3010      	adds	r0, #16
+103:   e2:	f7ff fffe 	bl	0 <memcpy>
+104: 			e2: R_ARM_THM_CALL	memcpy
+105:   e6:	2000      	movs	r0, #0
+106:   e8:	b042      	add	sp, #264	@ 0x108
+107:   ea:	e8bd 81f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, pc}
+108:   ee:	2002      	movs	r0, #2
+113:   fa:	a80b      	add	r0, sp, #44	@ 0x2c
+114:   fc:	f7ff fffe 	bl	0 <memcpy>
+115: 			fc: R_ARM_THM_CALL	memcpy
+116:  100:	e7a5      	b.n	4e <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x4e>
+117:  102:	4b1d      	ldr	r3, [pc, #116]	@ (178 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x178>)
+118:  104:	9a15      	ldr	r2, [sp, #84]	@ 0x54
+119:  106:	429a      	cmp	r2, r3
+120:  108:	d1c1      	bne.n	8e <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x8e>
+121:  10a:	f8bd 3058 	ldrh.w	r3, [sp, #88]	@ 0x58
+122:  10e:	2b01      	cmp	r3, #1
+123:  110:	d1bd      	bne.n	8e <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x8e>
+124:  112:	4622      	mov	r2, r4
+125:  114:	a901      	add	r1, sp, #4
+126:  116:	a815      	add	r0, sp, #84	@ 0x54
+127:  118:	f7ff fffe 	bl	0 <memcmp>
+128: 			118: R_ARM_THM_CALL	memcmp
+129:  11c:	2800      	cmp	r0, #0
+130:  11e:	d1b6      	bne.n	8e <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x8e>
+131:  120:	4819      	ldr	r0, [pc, #100]	@ (188 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x188>)
+132:  122:	2220      	movs	r2, #32
+133:  124:	a929      	add	r1, sp, #164	@ 0xa4
+134:  126:	f7ff fffe 	bl	0 <meshroute::Node::effective_name(char*, unsigned char) const>
+135: 			126: R_ARM_THM_CALL	meshroute::Node::effective_name(char*, unsigned char) const
+136:  12a:	f8bd 400a 	ldrh.w	r4, [sp, #10]
+137:  12e:	42a0      	cmp	r0, r4
+138:  130:	d016      	beq.n	160 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x160>
+139:  132:	b2e4      	uxtb	r4, r4
+140:  134:	4814      	ldr	r0, [pc, #80]	@ (188 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x188>)
+141:  136:	2c20      	cmp	r4, #32
+142:  138:	4622      	mov	r2, r4
+143:  13a:	bf28      	it	cs
+144:  13c:	2220      	movcs	r2, #32
+145:  13e:	f880 2030 	strb.w	r2, [r0, #48]	@ 0x30
+146:  142:	b11c      	cbz	r4, 14c <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x14c>
+147:  144:	a90b      	add	r1, sp, #44	@ 0x2c
+148:  146:	3010      	adds	r0, #16
+149:  148:	f7ff fffe 	bl	0 <memcpy>
+150: 			148: R_ARM_THM_CALL	memcpy
+151:  14c:	2001      	movs	r0, #1
+152:  14e:	e7cb      	b.n	e8 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0xe8>
+153:  150:	480d      	ldr	r0, [pc, #52]	@ (188 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x188>)
+154:  152:	2220      	movs	r2, #32
+155:  154:	a929      	add	r1, sp, #164	@ 0xa4
+156:  156:	f7ff fffe 	bl	0 <meshroute::Node::effective_name(char*, unsigned char) const>
+157: 			156: R_ARM_THM_CALL	meshroute::Node::effective_name(char*, unsigned char) const
+158:  15a:	ae29      	add	r6, sp, #164	@ 0xa4
+159:  15c:	4605      	mov	r5, r0
+160:  15e:	e757      	b.n	10 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x10>
+161:  160:	4622      	mov	r2, r4
+162:  162:	a90b      	add	r1, sp, #44	@ 0x2c
+163:  164:	a829      	add	r0, sp, #164	@ 0xa4
+164:  166:	f7ff fffe 	bl	0 <memcmp>
+165: 			166: R_ARM_THM_CALL	memcmp
+166:  16a:	2800      	cmp	r0, #0
+167:  16c:	d0ee      	beq.n	14c <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x14c>
+168:  16e:	e7e0      	b.n	132 <mrfw::rename_node(char const*, unsigned int) [clone .part.0]+0x132>
+169: 	...
+170: 			170: R_ARM_ABS32	g_lat_e7
+171: 			174: R_ARM_ABS32	g_lon_e7
+172:  178:	4d524944 	.word	0x4d524944
+173: 	...
+174: 			17c: R_ARM_ABS32	g_identity
+175: 			180: R_ARM_ABS32	InternalFS
+176: 			184: R_ARM_ABS32	.rodata._ZN4mrfw11rename_nodeEPKcj.part.0.str1.4
+177: 			188: R_ARM_ABS32	g_node
+178: 
+179: 00000000 <mrfw::rename_node(char const*, unsigned int)>:
+180:    0:	b110      	cbz	r0, 8 <mrfw::rename_node(char const*, unsigned int)+0x8>
+181:    2:	b109      	cbz	r1, 8 <mrfw::rename_node(char const*, unsigned int)+0x8>
+182:    4:	f7ff bffe 	b.w	0 <mrfw::rename_node(char const*, unsigned int)>
+183: 			4: R_ARM_THM_JUMP24	mrfw::rename_node(char const*, unsigned int) [clone .part.0]
+184:    8:	2003      	movs	r0, #3
+185:    a:	4770      	bx	lr
+186: 
+187: 00000000 <mrfw::handle_cfg_set(char const*, Print&)>:
+188:        0:	e92d 4ff0 	stmdb	sp!, {r4, r5, r6, r7, r8, r9, sl, fp, lr}
+189:        4:	7803      	ldrb	r3, [r0, #0]
+190:        6:	b0e7      	sub	sp, #412	@ 0x19c
+191:        8:	460c      	mov	r4, r1
+237:       76:	d06c      	beq.n	152 <mrfw::handle_cfg_set(char const*, Print&)+0x152>
+238:       78:	4650      	mov	r0, sl
+239:       7a:	f7ff fffe 	bl	0 <mrfw::handle_cfg_set(char const*, Print&)>
+240: 			7a: R_ARM_THM_CALL	mrfw::rename_node(char const*, unsigned int) [clone .part.0]
+241:       7e:	2804      	cmp	r0, #4
+242:       80:	d862      	bhi.n	148 <mrfw::handle_cfg_set(char const*, Print&)+0x148>
+243:       82:	e8df f010 	tbh	[pc, r0, lsl #1]
+244:       86:	014b      	.short	0x014b
+245:       88:	01a1014b 	.word	0x01a1014b
+246:       8c:	005d0066 	.word	0x005d0066
+247:       90:	4650      	mov	r0, sl
+248:       92:	f7ff fffe 	bl	0 <atof>

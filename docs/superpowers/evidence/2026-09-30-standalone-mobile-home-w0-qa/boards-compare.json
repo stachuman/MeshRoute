@@ -1,0 +1,331 @@
+{
+  "gateway": {
+    "final_equal_top_level_fields": [
+      "artifacts",
+      "concurrency",
+      "environment",
+      "fixed_identity",
+      "host",
+      "measurements",
+      "paths",
+      "schema",
+      "toolchain"
+    ],
+    "expected_metadata_differences": {
+      "normal_pio_metadata": {
+        "coder": {
+          "entry_count": 10653,
+          "exists": true,
+          "sha256": "0b95b504277eb0248ed4c23548aaad567670cf1e4453a352d9dd0b62a101794f"
+        },
+        "qa": {
+          "entry_count": 10653,
+          "exists": true,
+          "sha256": "bed4396deaf71a8d97f3d4acc45cf00f51a01208109540220d9e17191166922f"
+        }
+      },
+      "source": {
+        "coder": {
+          "deleted_files": [],
+          "file_count": 2200,
+          "git_head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+          "git_status_sha256": "508357654cca7dcf46f9bbfd1f9882ef8ce2c08066f51405f91ce0fe4c0c6fe3",
+          "tree_sha256": "1a52c653e303520013f4c62b83bd32867f11101b1dea303308e154a2c32ce5a1"
+        },
+        "qa": {
+          "deleted_files": [],
+          "file_count": 2239,
+          "git_head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+          "git_status_sha256": "b60c53d8f993bbdabfc3b6f96466158e55b3452257cd6f80423291f256e4e748",
+          "tree_sha256": "facc852fe6fd4c84328922d688a09c27220ee961cb1171535b259cccc480d43c"
+        }
+      }
+    },
+    "measurements_base": {
+      "flash_bytes": 571936,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 570948
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6593,
+      "symbol_size_total": 752316,
+      "symbols_sha256": "17b0adb177cb2aa40d985311348846a24f4b4c6f50c96de9816865b0be5563ed"
+    },
+    "measurements_qa": {
+      "flash_bytes": 572096,
+      "loadable_sections": {
+        ".ARM.exidx": 8,
+        ".data": 980,
+        ".text": 571108
+      },
+      "object_count": 285,
+      "ram_bytes": 203740,
+      "symbol_count": 6599,
+      "symbol_size_total": 752460,
+      "symbols_sha256": "024d9893fb49caec1cd0f5827303732a210f27823e92cb6369d69b2a85120227"
+    },
+    "ram_delta": 0,
+    "flash_delta": 160,
+    "artifacts_qa": {
+      "elf": {
+        "bytes": 769668,
+        "filename": "firmware.elf",
+        "sha256": "d0ed0291d37facffd9e4fe946b1accc96eca0321be14cff0403030bba760f95b"
+      },
+      "payload": {
+        "bytes": 1609250,
+        "filename": "firmware.hex",
+        "sha256": "7fa27c2b884cf4b4b9869b3c9937ef264e40cd9369c5926c006aaf64f3fb837d"
+      }
+    },
+    "sections_text_identical_to_coder": true,
+    "symbols_text_identical_to_coder": true,
+    "ram_object_multiset_unchanged": true,
+    "writable_sections": [
+      ".bss",
+      ".data",
+      ".heap",
+      ".noinit"
+    ],
+    "ram_objects": 235,
+    "function_deltas": [
+      {
+        "symbol": "_ZN4mrfw11rename_nodeEPKcj.part.0",
+        "base": 0,
+        "qa": 396,
+        "delta": 396
+      },
+      {
+        "symbol": "_ZN4mrfw12acl_emit_errERNS_11IAdminLinesENS_6AclErrE",
+        "base": 92,
+        "qa": 0,
+        "delta": -92
+      },
+      {
+        "symbol": "_ZN4mrfw14handle_cfg_setEPKcR5Print",
+        "base": 4996,
+        "qa": 4712,
+        "delta": -284
+      },
+      {
+        "symbol": "_ZN4mrfw22id_candidate_from_liveERN4mrnv6IdBlobEPKcj",
+        "base": 0,
+        "qa": 144,
+        "delta": 144
+      },
+      {
+        "symbol": "_ZN4mrfw8acl_verbERNS_10AclServiceERNS_14AdminIdServiceEPKcjRNS_11IAdminLinesE",
+        "base": 8384,
+        "qa": 8432,
+        "delta": 48
+      },
+      {
+        "symbol": "_ZN4mrfw8dispatchEPKcjR5PrintNS_16CommandTransportE",
+        "base": 8228,
+        "qa": 8160,
+        "delta": -68
+      }
+    ],
+    "symbol_delta_total": 144
+  },
+  "heltec_mobile": {
+    "final_equal_top_level_fields": [
+      "artifacts",
+      "concurrency",
+      "environment",
+      "fixed_identity",
+      "host",
+      "measurements",
+      "paths",
+      "schema",
+      "toolchain"
+    ],
+    "expected_metadata_differences": {
+      "normal_pio_metadata": {
+        "coder": {
+          "entry_count": 10653,
+          "exists": true,
+          "sha256": "0b95b504277eb0248ed4c23548aaad567670cf1e4453a352d9dd0b62a101794f"
+        },
+        "qa": {
+          "entry_count": 10653,
+          "exists": true,
+          "sha256": "bed4396deaf71a8d97f3d4acc45cf00f51a01208109540220d9e17191166922f"
+        }
+      },
+      "source": {
+        "coder": {
+          "deleted_files": [],
+          "file_count": 2200,
+          "git_head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+          "git_status_sha256": "508357654cca7dcf46f9bbfd1f9882ef8ce2c08066f51405f91ce0fe4c0c6fe3",
+          "tree_sha256": "1a52c653e303520013f4c62b83bd32867f11101b1dea303308e154a2c32ce5a1"
+        },
+        "qa": {
+          "deleted_files": [],
+          "file_count": 2239,
+          "git_head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+          "git_status_sha256": "b60c53d8f993bbdabfc3b6f96466158e55b3452257cd6f80423291f256e4e748",
+          "tree_sha256": "facc852fe6fd4c84328922d688a09c27220ee961cb1171535b259cccc480d43c"
+        }
+      }
+    },
+    "measurements_base": {
+      "flash_bytes": 1400276,
+      "loadable_sections": {
+        ".dram0.data": 25436,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218436,
+        ".flash.text": 1077534,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 219540,
+      "symbol_count": 13336,
+      "symbol_size_total": 1509129,
+      "symbols_sha256": "5efbf436479568a7e084c3491c3b11c6b7372a1fe802a2627d236cad5023226e"
+    },
+    "measurements_qa": {
+      "flash_bytes": 1400540,
+      "loadable_sections": {
+        ".dram0.data": 25436,
+        ".flash.appdesc": 256,
+        ".flash.rodata": 218452,
+        ".flash.text": 1077782,
+        ".iram0.text": 77843,
+        ".iram0.vectors": 1027,
+        ".rtc.force_fast": 8,
+        ".rtc.text": 256
+      },
+      "object_count": 329,
+      "ram_bytes": 219540,
+      "symbol_count": 13337,
+      "symbol_size_total": 1509363,
+      "symbols_sha256": "1cd06c99be63d92ea4db05f8a3b764c45ea4f4b251a86fb70b82b454f47214c0"
+    },
+    "ram_delta": 0,
+    "flash_delta": 264,
+    "artifacts_qa": {
+      "elf": {
+        "bytes": 21662008,
+        "filename": "firmware.elf",
+        "sha256": "944bea3f15413e70cb39234ef3aed4bc835359aa9968e7ac7300c9c4fdb94a6f"
+      },
+      "payload": {
+        "bytes": 1401184,
+        "filename": "firmware.bin",
+        "sha256": "045d4e144a60c950ea0895fa136a000e63dbf7bbd17c9e193b2d4460a452b98e"
+      }
+    },
+    "sections_text_identical_to_coder": true,
+    "symbols_text_identical_to_coder": true,
+    "ram_object_multiset_unchanged": true,
+    "writable_sections": [
+      ".dram0.bss",
+      ".dram0.data",
+      ".dram0.dummy",
+      ".ext_ram.dummy",
+      ".flash.rodata",
+      ".flash_rodata_dummy",
+      ".iram0.text_end",
+      ".noinit",
+      ".rtc.force_fast",
+      ".rtc_noinit",
+      ".rtc_reserved"
+    ],
+    "ram_objects": 2338,
+    "function_deltas": [
+      {
+        "symbol": "_ZN4mrfw11handle_teamEPKcR5Print",
+        "base": 2838,
+        "qa": 2846,
+        "delta": 8
+      },
+      {
+        "symbol": "_ZN4mrfw11rename_nodeEPKcj",
+        "base": 0,
+        "qa": 282,
+        "delta": 282
+      },
+      {
+        "symbol": "_ZN4mrfw13handle_mobileEPKcR5Print",
+        "base": 1250,
+        "qa": 1243,
+        "delta": -7
+      },
+      {
+        "symbol": "_ZN4mrfw13team_key_findERKN4mrnv11TeamKeyBlobEm",
+        "base": 47,
+        "qa": 46,
+        "delta": -1
+      },
+      {
+        "symbol": "_ZN4mrfw14arg_tail_emptyEPKc",
+        "base": 32,
+        "qa": 35,
+        "delta": 3
+      },
+      {
+        "symbol": "_ZN4mrfw14handle_cfg_setEPKcR5Print",
+        "base": 3796,
+        "qa": 3686,
+        "delta": -110
+      },
+      {
+        "symbol": "_ZN4mrfw18JoinProfileService3setElRKNS_11JoinRequestEPKch",
+        "base": 458,
+        "qa": 451,
+        "delta": -7
+      },
+      {
+        "symbol": "_ZN4mrfw18TeamKeyringService6forgetEmRNS_15ITeamKeyBindingE",
+        "base": 235,
+        "qa": 233,
+        "delta": -2
+      },
+      {
+        "symbol": "_ZN4mrfw18TeamKeyringService9use_savedEmRNS_12ITeamKeyLiveERNS_15ITeamKeyBindingE",
+        "base": 205,
+        "qa": 206,
+        "delta": 1
+      },
+      {
+        "symbol": "_ZN4mrfw19ProvisioningService10apply_teamERNS_11TeamRequestERKN9meshroute10NodeConfigERKNS_12ProvSnapshotE",
+        "base": 466,
+        "qa": 470,
+        "delta": 4
+      },
+      {
+        "symbol": "_ZN4mrfw20stage_team_candidateERKNS_11TeamRequestERKNS_14TeamProjectionERKNS_12ProvSnapshotERNS_8IEntropyERNS_8TeamPlanERN4mrnv4BlobE",
+        "base": 912,
+        "qa": 913,
+        "delta": 1
+      },
+      {
+        "symbol": "_ZN4mrfw22id_candidate_from_liveERN4mrnv6IdBlobEPKcj",
+        "base": 0,
+        "qa": 140,
+        "delta": 140
+      },
+      {
+        "symbol": "_ZN4mrfwL8do_regenER5Print",
+        "base": 236,
+        "qa": 208,
+        "delta": -28
+      },
+      {
+        "symbol": "_ZN4mrnv7load_idERNS_6IdBlobE",
+        "base": 50,
+        "qa": 0,
+        "delta": -50
+      }
+    ],
+    "symbol_delta_total": 234
+  }
+}

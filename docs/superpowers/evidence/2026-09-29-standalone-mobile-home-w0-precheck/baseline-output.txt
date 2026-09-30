@@ -1,0 +1,64 @@
+## native
+[doctest] test cases:   3055 |   3055 passed | 0 failed | 0 skipped
+[doctest] assertions: 199532 | 199532 passed | 0 failed |
+## abi
+negative controls:
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)
+## identity-abi
+negative controls:
+PASS: board ABI (299 checks, 9/9 controls RED, 0 unusable)
+## firmware-ui
+591 passed / 0 failed / 591 total
+       1059 passed / 0 failed / 1059 total
+       591 passed / 0 failed / 591 total
+controls: 240 verified / 0 unusable
+controls accounted: 240 declared, 240 exactly once with the accepted outcome, 0 guard failure(s)
+## board-ui
+== shared Heltec board-canvas probe: V3 traits ==
+Heltec V3 board_ui probe: 124 passed / 0 failed / 124 total
+== shared Heltec board-canvas probe: V4 traits ==
+Heltec V4 board_ui probe: 110 passed / 0 failed / 110 total
+traits:      14 passed / 0 failed / 14 controls verified RED
+missing:     12 passed / 0 failed / 12 controls failed loud
+structural: 23 passed / 0 failed / 23 total
+wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED
+  canvas/v3        124 expected,  124 observed
+  canvas/v4        110 expected,  110 observed
+  trait             14 expected,   14 observed
+  missing           12 expected,   12 observed
+  struct            23 expected,   23 observed
+  wiring            60 expected,   60 observed
+  wiring/control   186 expected,  186 observed
+  negctl/v3         60 expected,   60 observed
+  negctl/v4          3 expected,    3 observed
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+## console-sink
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+§B95 console-sink probe: 120 passed / 0 failed / 120 total
+   structural: 84 passed / 0 failed / 84 total
+   ownership: 6 passed / 0 failed / 6 total
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+## inbox-verbs
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+probe: 27 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 27)
+controls: 7 verified / 0 unusable (pin 7)
+## device-radio
+25 structural checks passed, 0 failed
+72 controls checked, 0 unusable
+## prov-tx
+measured lines: 20
+   S20    C46 the generic remedy names the `team new` FORM again RED   [case labels(sf_list,generic)=(1, 1) "cfg set sf_list 6,7" file/reporter=1/1 "set them inline" in-arm/file=0/1 "sf_list=" in-arm=0 withdrawn list code/prose=0/1 "team new" in (sf_list,generic) arms=(0, 1)]
+== OK
+## ownership
+measured lines: 25
+  ok   O12 the pair has no `#ifndef` override surface in lib/, src/ or test/ (R-RA-26)
+  ok   O13 source integrity: 218 scanned files, sha256(tree) b9ef6e95ff42be90… before and after
+## inventory
+gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)

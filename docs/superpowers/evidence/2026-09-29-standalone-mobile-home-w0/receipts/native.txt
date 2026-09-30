@@ -1,0 +1,8 @@
+# native (final chain step 2): pio test -e native (the wrapper's '0 test cases' is not the count), then the binary
+===============================================================================
+[doctest] test cases:   3059 |   3059 passed | 0 failed | 0 skipped
+[doctest] assertions: 199638 | 199638 passed | 0 failed |
+
+# per source file (dev, the same tree): test_device_nv.cpp
+[doctest] test cases:  31 |  31 passed | 0 failed | 3028 skipped
+[doctest] assertions: 577 | 577 passed | 0 failed |

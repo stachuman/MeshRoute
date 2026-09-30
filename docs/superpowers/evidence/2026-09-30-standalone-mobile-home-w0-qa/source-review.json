@@ -1,0 +1,243 @@
+{
+  "selector_a": {
+    "devicenv": "src/device_nv.h"
+  },
+  "configured": 56,
+  "match_counts": [
+    {
+      "label": "N01 \u2605\u2605\u2605 THE DEFECT ITSELF: the mount result is discarded again, so a dead FS reads as a fresh device",
+      "matches": 1
+    },
+    {
+      "label": "N02 the mount failure is recorded but the read continues (a half-fix: the fact is set, the early return dropped)",
+      "matches": 1
+    },
+    {
+      "label": "N03 \u2605\u2605 THE ESP32 CLASSIFIER IS INVERTED: a first boot is called a STORAGE FAILURE (the same lie, other way)",
+      "matches": 1
+    },
+    {
+      "label": "N04 the ESP32 classifier is dropped, so 'NVS would not open' is a fresh device again",
+      "matches": 1
+    },
+    {
+      "label": "N05 \u2605\u2605 the backend fact is consulted AFTER the absent test \u2014 the ordering that loses it entirely",
+      "matches": 1
+    },
+    {
+      "label": "N06 a storage failure is folded into `invalid` (the tempting collapse \u2014 it prints the WRONG remedy)",
+      "matches": 1
+    },
+    {
+      "label": "N13 \u2605\u2605\u2605 THE REOPENED DEFECT: ANY lookup error is absent again \u2014 a metadata error reads as a fresh device",
+      "matches": 1
+    },
+    {
+      "label": "N14 \u2605\u2605\u2605 present-but-unopenable collapses to absent \u2014 four possibly-intact profiles read as NO PROFILES",
+      "matches": 1
+    },
+    {
+      "label": "N15 \u26d4 the lookup is issued for EVERY record ('compute first, gate later') \u2014 the four bool records pay a stat each",
+      "matches": 1
+    },
+    {
+      "label": "N07 \u2605\u2605\u2605 THE OVER-LENGTH CHECK IS DROPPED, so a longer file is accepted on its valid PREFIX",
+      "matches": 1
+    },
+    {
+      "label": "N08 the size comparison is `>=`, so an EXACTLY-sized record is rejected too (the off-by-one wrong fix)",
+      "matches": 1
+    },
+    {
+      "label": "N09 the ESP32 over-length check is dropped",
+      "matches": 1
+    },
+    {
+      "label": "N10 an over-length record is accepted anyway (the fact is gathered and then ignored)",
+      "matches": 1
+    },
+    {
+      "label": "N11 \u26d4 the extra FS question is asked for EVERY record (\u26d4 /mrcfg, /mrid, /mrpeers, /mrfault must not move)",
+      "matches": 1
+    },
+    {
+      "label": "N12 \u26d4 the ESP32 nvs_open classification runs for every record, on every open failure",
+      "matches": 1
+    },
+    {
+      "label": "N17 \u2605\u2605 the keyring's backend-failure arm is ordered AFTER `absent`, so a dead flash reports NO STORED KEYS",
+      "matches": 1
+    },
+    {
+      "label": "N18 an OVER-LENGTH keyring is accepted as a valid PREFIX (the nRF52 short-read hazard, one record over)",
+      "matches": 1
+    },
+    {
+      "label": "N19 \u2605 the keyring's version policy is RELAXED from equality to a range \u2014 an unknown layout is parsed as keys",
+      "matches": 1
+    },
+    {
+      "label": "N20 the keyring seed does not STAMP the version, so a fresh record is rejected by its own read policy",
+      "matches": 1
+    },
+    {
+      "label": "N21 \u2605\u2605\u2605 THE CATALOG IS ADDRESSED AT `/mrcfg`: a phrase edit now writes the record whose version mismatch REPROVISIONS the node",
+      "matches": 1
+    },
+    {
+      "label": "N22 \u2605\u2605 the catalog carries `/mrcfg`'s MAGIC \u2014 the two records become mutually readable, which is the same collapse one layer in",
+      "matches": 1
+    },
+    {
+      "label": "N23 \u2605\u2605 the /mrui seed stamps generation ZERO \u2014 the value reserved for 'no generation', which a SendReq can never seal",
+      "matches": 1
+    },
+    {
+      "label": "N24 the /mrui version policy is RELAXED from equality to a range \u2014 an unknown layout is parsed as the wearer's phrases",
+      "matches": 1
+    },
+    {
+      "label": "N25 \u2605\u2605 the /mrui read tests `absent` FIRST, so a store that would not open announces 'no catalog configured'",
+      "matches": 1
+    },
+    {
+      "label": "N40 \u2605\u2605 /mradmid's VERSION POLICY becomes a RANGE \u2014 a record written under another layout is adopted",
+      "matches": 1
+    },
+    {
+      "label": "N41 /mracl's version policy becomes a range",
+      "matches": 1
+    },
+    {
+      "label": "N42 \u2605\u2605 /mradmid's backend fact is consulted AFTER the absent test \u2014 a dead store reads as a fresh device",
+      "matches": 1
+    },
+    {
+      "label": "N43 \u2605\u2605 /mracl's backend fact is consulted after the absent test",
+      "matches": 1
+    },
+    {
+      "label": "N44 \u2605 /mradmid's OVER-LENGTH check is dropped \u2014 a longer file is accepted on its valid PREFIX",
+      "matches": 1
+    },
+    {
+      "label": "N45 \u2605 /mracl's over-length check is dropped",
+      "matches": 1
+    },
+    {
+      "label": "N50 \u2605 `admin_id_blob_init` leaves the header UNSTAMPED, so a minted record reads back as invalid",
+      "matches": 1
+    },
+    {
+      "label": "N51 `acl_blob_init` stamps the WRONG magic (the two target records become interchangeable)",
+      "matches": 1
+    },
+    {
+      "label": "N52 `acl_blob_init` no longer value-initialises, so `reserved`/holes carry indeterminate bytes",
+      "matches": 1
+    },
+    {
+      "label": "N53 \u2605 the ACL slot table names the ADMIN record's file (both records share one file)",
+      "matches": 1
+    },
+    {
+      "label": "N54 \u2605\u2605 /mradmid moves OUT of the factory-reset namespace \u2014 a factory reset would keep the root",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-1 \u00a7RADMIN-4: `/mrmkeys` and `/mrtargets` share ONE backend key \u2014 an update to one lands on the other",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-2 \u00a7RADMIN-4: the CONTROLLER keyring lands in the fault namespace \u2014 a factory reset would spare the seeds",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-3 \u00a7RADMIN-4: `/mrmkeys` reuses the ACL magic \u2014 one record becomes readable as another",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-4 \u00a7RADMIN-4: `/mrtargets` accepts ANY version \u2014 a v2 record is adopted under a v1 layout guess",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-5 \u00a7RADMIN-4: a dead backend reads as a FRESH controller \u2014 the keyring's io_failed arm is gone",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-6 \u00a7RADMIN-4: an OVER-LENGTH target book passes on its valid prefix",
+      "matches": 1
+    },
+    {
+      "label": "N-S4-7 \u00a7RADMIN-4: `mgmt_key_blob_init` stops stamping the magic \u2014 every fresh keyring reads as invalid",
+      "matches": 1
+    },
+    {
+      "label": "W6-N1 \u2605\u2605\u2605 THE OLD v1 RECORD IS NOT RECOGNISED \u2014 it reads `invalid` and the wearer is told his phrases are corrupt",
+      "matches": 1
+    },
+    {
+      "label": "W6-N2 the v1 test forgets the VERSION \u2014 any 372-byte `MRU1` file is called an old v1 record",
+      "matches": 1
+    },
+    {
+      "label": "W6-N3 the v1 test forgets the MAGIC \u2014 another record of v1's size is called an old phrase catalog",
+      "matches": 1
+    },
+    {
+      "label": "W6-N4 \u2605\u2605 the v1 test is asked BEFORE the backend \u2014 a dead store holding v1's bytes reads as a readable old record",
+      "matches": 1
+    },
+    {
+      "label": "W0-N1 \u2605\u2605\u2605 THE SEED IS DROPPED \u2014 every writer would save a record whose identity is not the running one",
+      "matches": 1
+    },
+    {
+      "label": "W0-N2 \u2605\u2605 THE NAME BYTES ARE DROPPED \u2014 the record claims a name length over zero bytes",
+      "matches": 1
+    },
+    {
+      "label": "W0-N3 \u2605\u2605 THE LATITUDE IS DROPPED \u2014 a rename or a longitude write zeroes the stored latitude (B440 restored)",
+      "matches": 1
+    },
+    {
+      "label": "W0-N4 \u2605\u2605 THE LONGITUDE IS DROPPED \u2014 a rename or a latitude write zeroes the stored longitude (B440 restored)",
+      "matches": 1
+    },
+    {
+      "label": "W0-N5 \u2605\u2605 THE MAGIC IS NOT STAMPED \u2014 the saved record never loads again (the next boot re-mints the identity)",
+      "matches": 1
+    },
+    {
+      "label": "W0-N6 the VERSION is not stamped \u2014 the saved record fails the exact version check at the next load",
+      "matches": 1
+    },
+    {
+      "label": "W0-N7 \u2605\u2605\u2605 AN OVERLENGTH NAME IS ACCEPTED \u2014 33 bytes pass admission (B448 restored one byte later)",
+      "matches": 1
+    },
+    {
+      "label": "W0-N8 \u2605\u2605\u2605 NARROWING BEFORE ADMISSION \u2014 the length is narrowed to a uint8_t first, so 256 bytes wrap to an empty name",
+      "matches": 1
+    },
+    {
+      "label": "W0-N9 \u2605\u2605 NARROWING BEFORE ADMISSION \u2014 the length is narrowed to the stored uint16_t first, so 65537 bytes pass as one",
+      "matches": 1
+    },
+    {
+      "label": "W0-N10 \u2605\u2605 THE CANDIDATE IS NOT ZEROED FIRST \u2014 stale bytes survive past the name and in a refused candidate",
+      "matches": 1
+    }
+  ],
+  "inventory_line_only": true,
+  "readonly_verified": [
+    "tools/gen_command_inventory.py",
+    "tools/probe_board_ui/expected.tsv",
+    "tools/probe_board_ui/run.sh",
+    "tools/probe_console_sink/structural.py",
+    "tools/probe_deferred_actions/probe.cpp",
+    "tools/probe_deferred_actions/run.py",
+    "tools/probe_inbox_verbs/transcript_main.cpp"
+  ],
+  "source_review": "Four production files reviewed; no changed boot/load/save backend, no core changes, no retained state. Rename success publishes only after durability, including coalesced success; coordinate failures leave both mirrors unchanged. Regen order preserved."
+}

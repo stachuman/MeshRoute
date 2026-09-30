@@ -242,6 +242,39 @@ static bool role_refused(meshroute::RoleSetRefusal r, const __FlashStringHelper*
     return true;
 }
 
+// ★★★ W0 (design §4.3; B440) — THE SNAPSHOT ADAPTER: the ONE place the three live `/mrid` authorities are gathered.
+//     The live name is read COUNTED through `effective_name` (never `strlen`, never a reserved terminator); the core
+//     stores at most 32 bytes, so without an override the pure conversion cannot refuse.
+bool id_candidate_from_live(mrnv::IdBlob& out, const char* name, size_t name_len) {
+    char live[sizeof out.name];
+    if (name == nullptr) {
+        name_len = g_node.effective_name(live, static_cast<uint8_t>(sizeof live));
+        name = live;
+    }
+    return mrnv::id_blob_from_live(out, g_identity.seed, name, name_len, g_lat_e7, g_lon_e7);
+}
+
+// ★★★ W0 (design §4.3; B448) — THE RENAME SERVICE. The candidate carries the running seed and position with ONLY the
+//     name replaced; the durable record is read solely to recognise a byte-identical save (compared over all 80
+//     bytes, both fully initialised) — ⛔ never to supply a field, so rejected bytes are never resurrected.
+RenameResult rename_node(const char* name, size_t name_len) {
+    if (name == nullptr || name_len == 0) return RenameResult::bad_args;
+    mrnv::IdBlob cand;
+    if (!id_candidate_from_live(cand, name, name_len)) return RenameResult::too_long;   // zero writes, nothing live
+    mrnv::IdBlob durable{};
+    if (mrnv::load_id(durable) && memcmp(&durable, &cand, sizeof cand) == 0) {
+        // Already durable: no write — but the requested name must still end up LIVE (W0R-1).
+        char live[sizeof cand.name];
+        const uint8_t live_len = g_node.effective_name(live, static_cast<uint8_t>(sizeof live));
+        if (live_len != cand.name_len || memcmp(live, cand.name, live_len) != 0)
+            g_node.set_name(cand.name, static_cast<uint8_t>(cand.name_len));
+        return RenameResult::unchanged;
+    }
+    if (!mrnv::save_id(cand)) return RenameResult::nv_save_failed;                     // nothing published
+    g_node.set_name(cand.name, static_cast<uint8_t>(cand.name_len));                   // §1.3: only once durable
+    return RenameResult::saved;
+}
+
 // `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
 // applies LIVE to the running node where possible. RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) +
 // MAC knobs (sf_list/lbt/beacon_ms) take effect NOW; node_id + duty need a reboot (identity / on_init budget).
@@ -258,27 +291,33 @@ void handle_cfg_set(const char* args, Print& out) {
 
     // `lat`/`lon` live in the IDENTITY record (/mrid) alongside `name`, NOT the config blob — handle early.
     // Input is decimal degrees (e.g. `cfg set lat 52.2297`); stored as int32 degrees×1e7. atof is fine on
-    // newlib-nano (only float *printf* is broken). load_id preserves the seed + name + the other coord.
+    // newlib-nano (only float *printf* is broken).
+    // ★ W0 (B440/B482): the candidate is the LIVE snapshot with ONE coordinate replaced (never a failed `load_id`), and
+    //   BOTH mirrors of that coordinate are published only AFTER the save succeeds. No coalescing here.
     if (!strcmp(key, "lat") || !strcmp(key, "lon")) {
-        mrnv::IdBlob idb{};
-        if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);   // no /mrid yet -> running seed
         const int32_t e7 = (int32_t)(atof(val) * 1e7);
-        if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }   // "lat" (also LIVE)
-        else               { idb.lon_e7 = e7; g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; }   // "lon" (also LIVE)
-        idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        out.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        const bool is_lat = key[2] == 't';
+        mrnv::IdBlob idb;
+        (void)id_candidate_from_live(idb);        // no override: the live name is ≤ 32 bytes, so this cannot refuse
+        if (is_lat) idb.lat_e7 = e7; else idb.lon_e7 = e7;
+        if (!mrnv::save_id(idb)) { out.println(F("> cfg err nv_save_failed")); return; }   // B482: nothing published
+        if (is_lat) { g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }                   // "lat" (now LIVE)
+        else        { g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; }                   // "lon" (now LIVE)
+        out.println(F("> cfg ok (saved to /mrid)"));
         return;
     }
 
     // `name` lives in the IDENTITY record (/mrid), NOT the config blob — handle it separately + early.
+    // ★ W0 (B448): the rename service's first caller. The name is everything after the key's space, raw to the end of
+    //   the line (spaces and quotes are name bytes); its length is admitted on the `size_t` — no truncation.
     if (!strcmp(key, "name")) {
-        mrnv::IdBlob idb{};
-        if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);  // keep the RUNNING seed
-        size_t l = strlen(val); if (l > sizeof idb.name) l = sizeof idb.name;
-        memcpy(idb.name, val, l); idb.name_len = (uint16_t)l;
-        idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        if (mrnv::save_id(idb)) { g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len)); out.println(F("> cfg ok name (saved to /mrid)")); }   // §1.3: live-update the core name (pubkey exchange + display)
-        else out.println(F("> cfg err nv_save_failed"));
+        switch (rename_node(val, strlen(val))) {
+            case RenameResult::saved:
+            case RenameResult::unchanged:      out.println(F("> cfg ok name (saved to /mrid)")); break;
+            case RenameResult::too_long:       out.println(F("> cfg err too_long")); break;
+            case RenameResult::bad_args:       out.println(F("> cfg err bad_args")); break;
+            case RenameResult::nv_save_failed: out.println(F("> cfg err nv_save_failed")); break;
+        }
         return;
     }
 

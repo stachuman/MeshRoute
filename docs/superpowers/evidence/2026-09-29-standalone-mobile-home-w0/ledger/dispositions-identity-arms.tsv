@@ -1,0 +1,34 @@
+file	item	kind	disposition / must-fail
+tools/probe_inbox_verbs/identity_main.cpp	M.<writer>.<medium>.out (28 rows: name/lat/lon/regen × healthy_diff/absent/unreadable/short/bad_magic/bad_version/oversize)	new rows (B440 matrix)	the exact success bytes through the real router (regen: through the supplied LineSink). Must-fail: W0-C2 (regen prints the NV record's name)
+tools/probe_inbox_verbs/identity_main.cpp	M.<writer>.<medium>.writes (28)	new rows	exactly ONE /mrid write per command (by the NV fake's counter)
+tools/probe_inbox_verbs/identity_main.cpp	M.<writer>.<medium>.rec (28)	new rows (the invariant)	the medium holds EXACTLY the live seed/name/position with only the intended field replaced, against a record built field by field — the durable record carries a DIFFERENT seed/name/position, so any NV-sourced field shows. Must-fail: W0-C1 (lat/lon from load_id), W0-C2 (regen from load_id), W0-C12 (adapter reads NV)
+tools/probe_inbox_verbs/identity_main.cpp	M.<writer>.<medium>.live (28)	new rows	the live state is exactly the intended one (name, both mirrors, key hash; regen: the new identity installed). Must-fail: W0-C7 (NodeConfig lat mirror left stale)
+tools/probe_inbox_verbs/identity_main.cpp	M.<writer>.<medium>.others (28)	new rows	every unrelated store (/mrcfg, admid, acl, mkeys, targets, peers — seeded) byte-identical: no identity writer touches another record, regen preserves the administration/controller stores
+tools/probe_inbox_verbs/identity_main.cpp	N1	new row (coalescing)	a byte-identical durable record answers ok with ZERO writes. Must-fail: W0-C8
+tools/probe_inbox_verbs/identity_main.cpp	N2 / N2b	new rows (W0R-1)	live `Live Name`, durable `Saved Name` with the live seed/position, request `Saved Name`: ok, zero writes, and `Saved Name` LIVE afterwards. Must-fail: N2 W0-C8/W0-C9, N2b W0-C10
+tools/probe_inbox_verbs/identity_main.cpp	N3a..N3e	new rows (repair)	live name == request but the record is absent / bad-magic / short / different / unreadable: repaired from live values, one write. Must-fail: W0-C9 (live-name equality)
+tools/probe_inbox_verbs/identity_main.cpp	N4	new row (live vs durable)	a durable record with a stale POSITION is repaired from the live position. Must-fail: W0-C9
+tools/probe_inbox_verbs/identity_main.cpp	N5 / N5b	new rows (failed save)	nv_save_failed after exactly one attempt; nothing published, the medium unchanged. Must-fail: N5b W0-C5
+tools/probe_inbox_verbs/identity_main.cpp	N6	new row (counted live name)	a 32-byte LIVE name survives a coordinate write whole. Must-fail: W0-C11
+tools/probe_inbox_verbs/identity_main.cpp	G3 G4 G5 G6 G7 G9 G12	new rows (B448 accepted)	spaces, quotes, all-space, 31, 32, a 2-byte char within 32, 32 high bytes: saved whole, made live, others intact (hex diagnostics only)
+tools/probe_inbox_verbs/identity_main.cpp	G1/G1b, G8/G8b, G10/G10b, G11/G11b, G13/G13b	new rows (B448 refused)	empty -> bad_args; 33, a 2-byte char crossing byte 32, a 3-byte char crossing byte 32, 300 bytes -> too_long; b rows: ZERO writes, seed/name/both mirrors/membership/every NV slot unchanged. Must-fail: W0-C3 (early return removed), W0-C4 (clamp restored)
+tools/probe_inbox_verbs/identity_main.cpp	G2	new row	`cfg set name ` (empty value after the separator) -> bad_args, zero writes
+tools/probe_inbox_verbs/identity_main.cpp	C.lat.err / C.lon.err	new rows (B482)	a refused coordinate save prints nv_save_failed after exactly one attempt
+tools/probe_inbox_verbs/identity_main.cpp	C.lat.live / C.lon.live	new rows (B482)	...and BOTH mirrors keep the old coordinate. Must-fail: W0-C6 (published before the save)
+tools/probe_inbox_verbs/identity_main.cpp	R1	new row	a refused regen save keeps identity, name, position and the medium (the supplied sink carries the error)
+tools/probe_inbox_verbs/identity_main.cpp	R2 (identity_client only)	new row	remote debt refuses regen: `> regen err remote_busy`, zero writes, everything unchanged
+tools/probe_inbox_verbs/run.sh	W0-C1 the lat/lon candidate is rebuilt from load_id	new control (config)	RED on M.lat.*.rec (+ lon rows)
+tools/probe_inbox_verbs/run.sh	W0-C2 the regen candidate is rebuilt from an unchecked load_id	new control (router)	RED on M.regen.*.rec/.out
+tools/probe_inbox_verbs/run.sh	W0-C3 the rename service loses its overlength early return	new control (config)	RED on G8/G10/G11/G13 (+b)
+tools/probe_inbox_verbs/run.sh	W0-C4 the console arm clamps the name to 32 bytes before admission	new control (config)	RED on G8/G10/G11/G13 (+b)
+tools/probe_inbox_verbs/run.sh	W0-C5 the requested name is published before its save	new control (config)	RED on N5b
+tools/probe_inbox_verbs/run.sh	W0-C6 the coordinate is published before its save (B482)	new control (config)	RED on C.lat.live / C.lon.live
+tools/probe_inbox_verbs/run.sh	W0-C7 a saved latitude is published to the global only	new control (config)	RED on M.lat.*.live
+tools/probe_inbox_verbs/run.sh	W0-C8 the byte-identical no-op writes anyway	new control (config)	RED on N1/N2
+tools/probe_inbox_verbs/run.sh	W0-C9 the no-op test compares the live name (repair skipped)	new control (config)	RED on N3a..N3e (+N2, N4)
+tools/probe_inbox_verbs/run.sh	W0-C10 the already-durable branch returns before making the name live	new control (config)	RED on N2b
+tools/probe_inbox_verbs/run.sh	W0-C11 the adapter reserves a terminator byte	new control (config)	RED on N6
+tools/probe_inbox_verbs/run.sh	W0-C12 the adapter reads the seed and position from load_id	new control (config)	RED on M.name.*.rec (+ lat/lon/regen rec rows)
+tools/probe_inbox_verbs/run.sh	W0 control classification (w0_ctl)	new rule	exactly-one source match, stock `ctl` classification (crash/build failure/vacuous never RED), THEN counted only if the INTENDED row is among the reddened ones; else unusable
+tools/probe_inbox_verbs/run.sh	shared R7-C1 / R7-C2.. / A7-C1 / A7-C2 / A10-C1 block gate	gate widened	`[ "$MR_PROBE_ARM" != oled ]` -> `&& [ -z "$CFG_TU" ]`: they measure arm-1/2 rows only (on the identity arms each scored `passes`, measured); arms 1/2 unchanged (63/71)
+tools/probe_inbox_verbs/run.sh	legacy C8/C9/C10, C12/C13, C35/C36, CLIENT C8-C10	audited, unchanged	their anchors (`do_regen(out)`, do_regen's `out.` writes, the regen save line, `out.print(F("> regen ok"))`, the NV fake) are untouched; all RED on the legacy arms (63/71 verified)

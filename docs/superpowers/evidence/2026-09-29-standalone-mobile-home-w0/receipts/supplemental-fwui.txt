@@ -1,0 +1,10 @@
+# SUPPLEMENTAL (outside the §4.1 chain, after step 11, same frozen tree): the firmware-UI probe, which compiles device_nv.h (the one shared W0 header) but none of the W0 TUs
+591 passed / 0 failed / 591 total
+       1059 passed / 0 failed / 1059 total
+       591 passed / 0 failed / 591 total
+sources unchanged: md5 125264ded64f633136dceabc438e40f3
+coverage: 872 of 1031 checks (both arms, unioned) are reddened by at least one control
+controls: 240 verified / 0 unusable
+controls accounted: 240 declared, 240 exactly once with the accepted outcome, 0 guard failure(s)
+PASS
+(pre-check baseline: 591 / 1059 / 591, 240 controls — identical)

@@ -1,0 +1,52 @@
+{
+  "scratch": "/tmp/mr-w0-transcript-rereview-proof",
+  "logs": [
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/capacity-compile.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/capacity.log",
+      "bytes": 40,
+      "sha256": "f30bca190d1bc67dacedfc57f4381cc018eeeb683754901523c0e6fe17f6f89a"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/firmware_remote_actions.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/firmware_remote_client.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/include-only.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/missing-link-inputs.log",
+      "bytes": 1246,
+      "sha256": "17b77123eb2ef8b46adea6b18d449847f41232bb23cff6e1673eb21b27554571"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/runtime.log",
+      "bytes": 72682,
+      "sha256": "2efa1fd114063ef22b61ab158ae91804593331c548efde02297319945edf7cbd"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/stock.log",
+      "bytes": 536,
+      "sha256": "4e7776b6224984aa57f2c0165a525f6417bcd105944f3df14d6b843882bc2365"
+    },
+    {
+      "path": "artifacts/2026-09-29-standalone-mobile-home-w0-brief-rereview/supplemented-link.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "scratch_binary_sha256": "faf93bbb18ddfddea9182c1daa6890adc99be4ef27708966a981e4f1d902e9ed",
+  "source_snapshot": "review-inputs.json; all product/tool inputs unchanged from owner base 0f23aee"
+}

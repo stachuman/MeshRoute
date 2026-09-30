@@ -1,0 +1,183 @@
+{
+  "method": "Read-only source and brief-delta review; no executable gate invoked.",
+  "unchanged_contract": "Revision 2 and 3 sections 2.1 through 2.6 and the identity-arm specification are byte-identical.",
+  "transcript_execution": "Excluded by the owner ruling; inbox run.sh has no invocation of transcript.py or transcript_main.cpp.",
+  "builder_boundary_count": 1,
+  "source_anchors": [
+    {
+      "path": "src/firmware_commands.cpp",
+      "sha256": "ce1113baa75ecc991a9c8219862334fc6354155b99fa06f65d10f961a72fe128",
+      "anchors": [
+        {
+          "needle": "static void do_regen(Print& out)",
+          "lines": [
+            1067
+          ]
+        },
+        {
+          "needle": "bool dispatch(",
+          "lines": [
+            1548
+          ]
+        },
+        {
+          "needle": "{ do_regen(out); return true; }",
+          "lines": [
+            1590
+          ]
+        },
+        {
+          "needle": "{ handle_cfg_set(line + 8, out); return true; }",
+          "lines": [
+            1617
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/firmware_config.cpp",
+      "sha256": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a",
+      "anchors": [
+        {
+          "needle": "void handle_cfg_set(",
+          "lines": [
+            249
+          ]
+        },
+        {
+          "needle": "> cfg ok name (saved to /mrid)",
+          "lines": [
+            280
+          ]
+        },
+        {
+          "needle": "> cfg ok (saved to /mrid)",
+          "lines": [
+            269
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tools/probe_inbox_verbs/probe_main.cpp",
+      "sha256": "263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1",
+      "anchors": [
+        {
+          "needle": "void handle_cfg_set(const char*, Print&)",
+          "lines": [
+            271
+          ]
+        },
+        {
+          "needle": "static bool route_ble(",
+          "lines": [
+            391
+          ]
+        },
+        {
+          "needle": "R2  a REFUSED",
+          "lines": [
+            919
+          ]
+        },
+        {
+          "needle": "R9  the SAME failure",
+          "lines": [
+            942
+          ]
+        },
+        {
+          "needle": "R12 the BLE sink",
+          "lines": [
+            961
+          ]
+        },
+        {
+          "needle": "R23 the USB console",
+          "lines": [
+            1004
+          ]
+        },
+        {
+          "needle": "R25 a record",
+          "lines": [
+            1018
+          ]
+        },
+        {
+          "needle": "R26 a MAXIMUM",
+          "lines": [
+            1028
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "sha256": "098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61",
+      "anchors": [
+        {
+          "needle": "ctl 'C8  the dispatch",
+          "lines": [
+            690
+          ]
+        },
+        {
+          "needle": "ctl 'C9  `do_regen`",
+          "lines": [
+            695
+          ]
+        },
+        {
+          "needle": "ctl 'C10 `print_identity`",
+          "lines": [
+            700
+          ]
+        },
+        {
+          "needle": "ctl 'C11 the production",
+          "lines": [
+            708
+          ]
+        },
+        {
+          "needle": "build_variant() {",
+          "lines": [
+            346
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tools/probe_inbox_verbs/transcript_main.cpp",
+      "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+      "anchors": [
+        {
+          "needle": "#include \"probe_main.cpp\"",
+          "lines": [
+            35
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tools/probe_deferred_actions/run.py",
+      "sha256": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+      "anchors": [
+        {
+          "needle": "boundary='rc=0\\nif ! build_support;'",
+          "lines": [
+            140
+          ]
+        },
+        {
+          "needle": "build_variant",
+          "lines": [
+            148,
+            162
+          ]
+        }
+      ]
+    }
+  ]
+}

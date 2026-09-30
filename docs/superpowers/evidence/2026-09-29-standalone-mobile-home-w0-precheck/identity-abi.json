@@ -1,0 +1,37 @@
+{
+  "include_dirs": [
+    "src"
+  ],
+  "headers": [
+    "device_nv.h"
+  ],
+  "types": [
+    {
+      "name": "mrnv::IdBlob",
+      "included_if": "1"
+    }
+  ],
+  "pins": {
+    "native": {
+      "mrnv::IdBlob": [
+        80,
+        4,
+        true
+      ]
+    },
+    "heltec_mobile": {
+      "mrnv::IdBlob": [
+        80,
+        4,
+        true
+      ]
+    },
+    "gateway": {
+      "mrnv::IdBlob": [
+        80,
+        4,
+        true
+      ]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "scope": "manifest field comparison to committed W6 QA, not rerunning its archived streams",
+  "fields": {
+    "COMPARISON_TOP": [
+      "schema",
+      "engine",
+      "scenario_count",
+      "lus_sha256",
+      "baseline_sha256"
+    ],
+    "COMPARISON_SCENARIO": [
+      "scenario_path",
+      "scenario_sha256",
+      "exit_status",
+      "promoted",
+      "events",
+      "assertion_failures",
+      "output_bytes",
+      "output_md5",
+      "output_sha256"
+    ]
+  },
+  "scenarios": 36,
+  "mismatches": [],
+  "current_lus_sha256": "e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2"
+}

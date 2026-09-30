@@ -1,0 +1,4 @@
+# final chain step 7
+Ran 406 tests in 812.157s
+OK
+(0 skipped: the OK line carries no 'skipped=' count; the printed 'FAIL: §B278 census selftest' is that test's deliberate negative, present in every discovery log)

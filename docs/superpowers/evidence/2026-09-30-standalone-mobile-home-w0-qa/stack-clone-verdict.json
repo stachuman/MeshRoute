@@ -1,0 +1,12 @@
+{
+  "id_proposed": "B489",
+  "kind": "Evidence stack-frame extractor drops a compiler clone; not a production defect or new resident allocation.",
+  "input_line": "/home/staszek/MeshRoute/src/firmware_config.cpp:260:14:0(const char*, size_t)\t288\tstatic",
+  "coder_regex_recognizes_clone": false,
+  "fresh_compile_exit": 0,
+  "clone_frame_bytes": 288,
+  "prologue": "Six saved registers (24 bytes) plus sub sp,#264 = 288.",
+  "caller_evidence": "handle_cfg_set has a direct R_ARM_THM_CALL relocation to rename_node [clone .part.0]. The public wrapper tail-branches to it.",
+  "qualification": "id_candidate_from_live is inlined in this clone; do not add its separate 64-byte frame to the rename path. The clone is not inlined into handle_cfg_set. Compiler-frame evidence, not a runtime high-water mark.",
+  "disposition": "Correct the optional gateway statement in QA evidence. Register the extractor separately with clone-aware regression close-by; do not modify the frozen coder receipt/helper or silently add it to the B478 package. Required heltec_mobile stack evidence is unaffected."
+}

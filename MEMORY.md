@@ -33,7 +33,7 @@
   (Part 57b, 8a warning); R-RA-39 named-family refusal fallback made permanent by R-RA-41 (36 rows refused remotely by design; B395–B398 closed as not required);
   R-RA-40 allocation +80 B ACCEPT-only, Node 230976 native / 157344 gateway, mobile unchanged.
 
-- **Standalone mobile Home redesign (agreements 2026-09-06/07/23/24; revision 2.23 2026-09-29; REVIEWED):**
+- **Standalone mobile Home redesign (agreements 2026-09-06/07/23/24; revision 2.24 2026-09-29; REVIEWED):**
   `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` is REVIEWED but not
   dispatch authority (each package needs its QA pre-check and an approved brief). Owner-agreed: visible own name; no-team join/create entry points; in-team
   communication Home; ordinary team presets already exist (no device report said otherwise); the 17-byte
@@ -68,7 +68,7 @@
   scoped re-review closed seven and kept DR-4 (name origins, request states, known refusal vs residual) plus
   minor DR-9–DR-11; the second re-review returned PASS with fold-ins (DR-12 folded into revision 2.17), and
   the owner confirmed the author's disclosed choices. The design is REVIEWED; each §13 package still needs a
-  Quality-Agent pre-check, a measured allocation and a brief. Package status and dispatch live in the [design §13](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) and [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18); current: W6 (saved phrases up to 163 bytes) — **independent software QA PASS**, uncommitted on `70ff486` ([receipt](docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w6-qa.md)); B335/B475/B477 closed. D14 pages of four and D15 allocation reproduced; hardware UI-12/UI-22/NV-06 OWED. W2 and B459/B461 are committed in `70ff486`. B476 and B478–B481 remain separate/open, alongside the earlier tool backlog. Next package is the owner's choice; W7 still needs W0. Commits are not progress gates. B440–B448 were registered by this work
+  Quality-Agent pre-check, a measured allocation and a brief. Package status and dispatch live in the [design §13](docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md#13-proposed-implementation-packages-for-qa-briefs--not-a-frozen-slice-list) and [register §0](docs/2026-07-30-open-bug-register.md#0-current-remote-admin-dispatch--2026-09-18); current: W0 — [independent QA receipt](docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa.md); next is the owner-ruled B478/B487/B488 tool package before W7. W0 physical persistence is [USB-BLE-03](docs/2026-09-20-metal-test-plan.md#usb-ble-03), still OWED; B489 is a separate stack-evidence follow-up. See the status authorities for closures and remaining work. Commits are not progress gates. B440–B448 were registered by this work
   (B446: the GPS design still contradicts preset ruling R-2; B447: precedence for a NAMED peer's advertisement versus
   a local label remains open; B448: `cfg set name` silently shortens names over 32 bytes).
 

@@ -1,0 +1,28 @@
+{
+  "meshroute": {
+    "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+    "existing_paths_checked": 2187,
+    "changed": [],
+    "missing": [],
+    "additions_before_seal": [
+      "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2.md",
+      "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/review-inputs.json",
+      "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/revision-delta.patch",
+      "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/source-review.json",
+      "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/verification.json"
+    ],
+    "staged": [],
+    "git_diff_check": "PASS"
+  },
+  "simulator": {
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "existing_paths_checked": 285,
+    "changed": [],
+    "missing": [],
+    "additions_before_seal": [],
+    "staged": [],
+    "git_diff_check": "PASS"
+  },
+  "report_links_verified": 6,
+  "seal_note": "preservation.json and SHA256SUMS are added after this comparison; both are review evidence. SHA256SUMS covers the report and every evidence file except itself. Unified-diff context spaces are retained verbatim."
+}

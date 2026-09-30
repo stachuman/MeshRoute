@@ -1,0 +1,109 @@
+{
+  "phase": "after-landing",
+  "repositories": {
+    "meshroute": {
+      "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+      "entry_paths": 2239,
+      "unchanged_paths": 2234,
+      "changed": {
+        "MEMORY.md": {
+          "before": {
+            "sha256": "242610cc1bca53d02e73e861f15b2eb7b9774fff892979cb33dc0f2db057f229",
+            "bytes": 21908
+          },
+          "after": {
+            "sha256": "535818c6e144622fbb04ddca54336042ead7575abc2ebc3d319424b17a1a6c41",
+            "bytes": 21691
+          }
+        },
+        "docs/2026-07-30-open-bug-register.md": {
+          "before": {
+            "sha256": "88fe7cea2aabb382dc3a50da32911957db2ab28f9400e4b243b00ab905834b86",
+            "bytes": 702088
+          },
+          "after": {
+            "sha256": "1cc550e185551456512b4ac752340e882d7a77d87a3624a9bc54992b2de9294f",
+            "bytes": 705826
+          }
+        },
+        "docs/2026-09-20-metal-test-plan.md": {
+          "before": {
+            "sha256": "b571396c0ea2c82a48f18c7cc4158c654779c7bc822cfc98a1b4295c1086825a",
+            "bytes": 102159
+          },
+          "after": {
+            "sha256": "663fd24bae99aa50167b730693fe47b5be1e1954c9a525eab60ae04a14d26b02",
+            "bytes": 103335
+          }
+        },
+        "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": {
+          "before": {
+            "sha256": "da85f228c03d246cc50473caa1853a05bac778ab733d428da6e86f4838f166f0",
+            "bytes": 138629
+          },
+          "after": {
+            "sha256": "da85903a0b97b0c769a98cd151963610732da5c1d7b547e73804b89cf2daadee",
+            "bytes": 138889
+          }
+        },
+        "tracker.md": {
+          "before": {
+            "sha256": "ee6ae9daee59901a29b7c17378f61bcabe3ca2aa6a38b1f08733bc8f88e59669",
+            "bytes": 9615
+          },
+          "after": {
+            "sha256": "3a6bb31de63bb6d9a7117f28ca0fa572155431b6fd95879fb8af58146a365e19",
+            "bytes": 9398
+          }
+        }
+      },
+      "missing": [],
+      "added": [
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa.md",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/SHA256SUMS",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/board-gateway.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/board-heltec_mobile.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/boards-compare.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/coder-raw-logs-verified.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/corpus-compare.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/corpus-manifest.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/finish-measurements.py",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/gateway-config.su",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/inbox-reconciliation.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/inputs-entry.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/mutations-reconciliation.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/preflight.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/preservation-after-landing.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/preservation-before-landing.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/preserve.py",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/prior-checksums.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/raw-artifacts.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/review-notes.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/run-qa.py",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/runs.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/source-review.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/stack-clone-proof.py",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/stack-clone-verdict.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/stack-compile.json",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/stack-disassembly-excerpt.txt",
+        "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/verification.json"
+      ],
+      "staged": 0,
+      "whitespace_exit": 0,
+      "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M docs/2026-09-20-metal-test-plan.md\n M docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md\n M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md\n M src/device_nv.h\n M src/firmware_commands.cpp\n M src/firmware_config.cpp\n M src/firmware_config.h\n M test/test_device_nv.cpp\n M tools/probe_inbox_verbs/probe_main.cpp\n M tools/probe_inbox_verbs/run.sh\n M tools/probe_ui_model_mutations.py\n M tracker.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0/\n?? docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2.md\n?? docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/\n?? docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa.md\n?? docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-qa/\n?? docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md\n?? tools/probe_inbox_verbs/identity_main.cpp\n?? tools/probe_inbox_verbs/identity_platform.h\n"
+    },
+    "simulator": {
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "entry_paths": 285,
+      "unchanged_paths": 285,
+      "changed": {},
+      "missing": [],
+      "added": [],
+      "staged": 0,
+      "whitespace_exit": 0,
+      "status": ""
+    }
+  },
+  "coder_checksum_entries_verified": 42,
+  "verdict": "PASS"
+}

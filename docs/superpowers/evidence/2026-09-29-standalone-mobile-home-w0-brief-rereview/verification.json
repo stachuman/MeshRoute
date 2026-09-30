@@ -1,0 +1,508 @@
+{
+  "brief_sha256": "393af1fca965be40f584833fee460488dcf5801623c24ed3a4e8233b673431ca",
+  "brief_lines": 562,
+  "pins": [
+    {
+      "path": "src/device_nv.h",
+      "expected": "5c0e4352ce99460146074a70151f94dde58a26e67ecc98142bbe004d4c9ce79c",
+      "actual": "5c0e4352ce99460146074a70151f94dde58a26e67ecc98142bbe004d4c9ce79c",
+      "match": true,
+      "expected_lines": 1590,
+      "actual_lines": 1590,
+      "lines_match": true
+    },
+    {
+      "path": "src/firmware_config.h",
+      "expected": "32cabbba4e56706a6abff945507f378278d39c067f4c4dcdba64050fde97015e",
+      "actual": "32cabbba4e56706a6abff945507f378278d39c067f4c4dcdba64050fde97015e",
+      "match": true,
+      "expected_lines": 237,
+      "actual_lines": 237,
+      "lines_match": true
+    },
+    {
+      "path": "src/firmware_config.cpp",
+      "expected": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a",
+      "actual": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a",
+      "match": true,
+      "expected_lines": 2436,
+      "actual_lines": 2436,
+      "lines_match": true
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "expected": "ce1113baa75ecc991a9c8219862334fc6354155b99fa06f65d10f961a72fe128",
+      "actual": "ce1113baa75ecc991a9c8219862334fc6354155b99fa06f65d10f961a72fe128",
+      "match": true,
+      "expected_lines": 1915,
+      "actual_lines": 1915,
+      "lines_match": true
+    },
+    {
+      "path": "test/test_device_nv.cpp",
+      "expected": "93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212",
+      "actual": "93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212",
+      "match": true,
+      "expected_lines": 930,
+      "actual_lines": 930,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_inbox_verbs/run.sh",
+      "expected": "098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61",
+      "actual": "098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61",
+      "match": true,
+      "expected_lines": 933,
+      "actual_lines": 933,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_inbox_verbs/probe_main.cpp",
+      "expected": "263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1",
+      "actual": "263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1",
+      "match": true,
+      "expected_lines": 2432,
+      "actual_lines": 2432,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_inbox_verbs/transcript_main.cpp",
+      "expected": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+      "actual": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+      "match": true,
+      "expected_lines": 148,
+      "actual_lines": 148,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "expected": "8dfc782a8e81acea1c52bf70299747665f15bea20643dbf272aa87a95edad5f1",
+      "actual": "8dfc782a8e81acea1c52bf70299747665f15bea20643dbf272aa87a95edad5f1",
+      "match": true,
+      "expected_lines": 12894,
+      "actual_lines": 12894,
+      "lines_match": true
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md",
+      "expected": "ca393c0d18451a252dd58c62db8a679793e2ec15cff1284f15a93334c93f6741",
+      "actual": "ca393c0d18451a252dd58c62db8a679793e2ec15cff1284f15a93334c93f6741",
+      "match": true,
+      "expected_lines": 259,
+      "actual_lines": 259,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_deferred_actions/run.py",
+      "expected": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+      "actual": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+      "match": true,
+      "expected_lines": 190,
+      "actual_lines": 190,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_deferred_actions/probe.cpp",
+      "expected": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+      "actual": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+      "match": true,
+      "expected_lines": 222,
+      "actual_lines": 222,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_console_sink/structural.py",
+      "expected": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19",
+      "actual": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19",
+      "match": true,
+      "expected_lines": 908,
+      "actual_lines": 908,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_board_ui/run.sh",
+      "expected": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf",
+      "actual": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf",
+      "match": true,
+      "expected_lines": 1665,
+      "actual_lines": 1665,
+      "lines_match": true
+    },
+    {
+      "path": "tools/probe_board_ui/expected.tsv",
+      "expected": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196",
+      "actual": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196",
+      "match": true,
+      "expected_lines": 598,
+      "actual_lines": 598,
+      "lines_match": true
+    },
+    {
+      "path": "tools/gen_command_inventory.py",
+      "expected": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+      "actual": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+      "match": true,
+      "expected_lines": 1186,
+      "actual_lines": 1186,
+      "lines_match": true
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "expected": "3727f88ef3c56692691ffe88282079ab5be864cfb8d94f8ff3dd1947b0ac54f3",
+      "actual": "3727f88ef3c56692691ffe88282079ab5be864cfb8d94f8ff3dd1947b0ac54f3",
+      "match": true
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "expected": "6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94",
+      "actual": "6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94",
+      "match": true
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md",
+      "expected": "a10f1186cfb595ea42f05b84efeac6c0717945e1ee18c80f526f45237fa40942",
+      "actual": "a10f1186cfb595ea42f05b84efeac6c0717945e1ee18c80f526f45237fa40942",
+      "match": true
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS",
+      "expected": "88fed7716cfe8d130d339d5e0307b275ffc5b8ca0bc32b547b1f0ed690b916c1",
+      "actual": "88fed7716cfe8d130d339d5e0307b275ffc5b8ca0bc32b547b1f0ed690b916c1",
+      "match": true
+    },
+    {
+      "path": "tracker.md",
+      "expected": "f524269409dc3023c20301d8f7c6e2cb2c3f868764beb2de3965d5004a577632",
+      "actual": "f524269409dc3023c20301d8f7c6e2cb2c3f868764beb2de3965d5004a577632",
+      "match": true
+    },
+    {
+      "path": "MEMORY.md",
+      "expected": "029243f44ebded632f6840806ed02433be536d20ea8b1abe2cabc22be9250ba4",
+      "actual": "029243f44ebded632f6840806ed02433be536d20ea8b1abe2cabc22be9250ba4",
+      "match": true
+    }
+  ],
+  "new_paths": [
+    {
+      "path": "tools/probe_inbox_verbs/identity_main.cpp",
+      "absent": true
+    },
+    {
+      "path": "tools/probe_inbox_verbs/identity_platform.h",
+      "absent": true
+    }
+  ],
+  "checksums": {
+    "precheck": [
+      {
+        "path": "b478-reproducer.py",
+        "match": true
+      },
+      {
+        "path": "b478-reproduction.json",
+        "match": true
+      },
+      {
+        "path": "base-1-gateway.json",
+        "match": true
+      },
+      {
+        "path": "base-1-heltec_mobile.json",
+        "match": true
+      },
+      {
+        "path": "base-2-gateway.json",
+        "match": true
+      },
+      {
+        "path": "base-2-heltec_mobile.json",
+        "match": true
+      },
+      {
+        "path": "baseline-output.txt",
+        "match": true
+      },
+      {
+        "path": "baseline-summary.json",
+        "match": true
+      },
+      {
+        "path": "battery-counts.json",
+        "match": true
+      },
+      {
+        "path": "ble-source-fragments.txt",
+        "match": true
+      },
+      {
+        "path": "board-runs.json",
+        "match": true
+      },
+      {
+        "path": "board-summary.json",
+        "match": true
+      },
+      {
+        "path": "corpus-comparison.json",
+        "match": true
+      },
+      {
+        "path": "corpus-manifest.json",
+        "match": true
+      },
+      {
+        "path": "documentation-checks.json",
+        "match": true
+      },
+      {
+        "path": "gateway-repeat.txt",
+        "match": true
+      },
+      {
+        "path": "heltec_mobile-repeat.txt",
+        "match": true
+      },
+      {
+        "path": "identity-abi.json",
+        "match": true
+      },
+      {
+        "path": "identity-cases.inc",
+        "match": true
+      },
+      {
+        "path": "identity-output.txt",
+        "match": true
+      },
+      {
+        "path": "identity-platform-shim.h",
+        "match": true
+      },
+      {
+        "path": "identity-results.json",
+        "match": true
+      },
+      {
+        "path": "inputs.json",
+        "match": true
+      },
+      {
+        "path": "oversize-query.cpp",
+        "match": true
+      },
+      {
+        "path": "oversize-result.txt",
+        "match": true
+      },
+      {
+        "path": "preservation.json",
+        "match": true
+      },
+      {
+        "path": "raw-logs.json",
+        "match": true
+      },
+      {
+        "path": "readers.txt",
+        "match": true
+      },
+      {
+        "path": "register.diff",
+        "match": true
+      },
+      {
+        "path": "reproduce-identity.py",
+        "match": true
+      },
+      {
+        "path": "runs.json",
+        "match": true
+      },
+      {
+        "path": "supplement-runs.json",
+        "match": true
+      },
+      {
+        "path": "symbol-readers.json",
+        "match": true
+      },
+      {
+        "path": "target-map.json",
+        "match": true
+      },
+      {
+        "path": "verify-characterization.py",
+        "match": true
+      },
+      {
+        "path": "../2026-09-29-standalone-mobile-home-w0-precheck.md",
+        "match": true
+      }
+    ],
+    "prior_review": [
+      {
+        "path": "preservation.json",
+        "match": true
+      },
+      {
+        "path": "reproduce-static.py",
+        "match": true
+      },
+      {
+        "path": "review-inputs.json",
+        "match": true
+      },
+      {
+        "path": "source-audit.json",
+        "match": true
+      },
+      {
+        "path": "source-excerpts.txt",
+        "match": true
+      },
+      {
+        "path": "verification.json",
+        "match": true
+      },
+      {
+        "path": "../2026-09-29-standalone-mobile-home-w0-brief-review.md",
+        "match": true
+      }
+    ]
+  },
+  "inventory": {
+    "meshroute": {
+      "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+      "entry_count": 2169,
+      "staged": "",
+      "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md\n M tracker.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/SHA256SUMS\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/preservation.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/reproduce-static.py\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/review-inputs.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-audit.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-excerpts.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/verification.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproducer.py\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproduction.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-gateway.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-heltec_mobile.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-gateway.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-heltec_mobile.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-output.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-summary.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/battery-counts.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/ble-source-fragments.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-runs.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-summary.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-comparison.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-manifest.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/documentation-checks.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/gateway-repeat.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/heltec_mobile-repeat.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-cases.inc\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-output.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-platform-shim.h\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-results.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/inputs.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-query.cpp\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-result.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/preservation.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/raw-logs.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/readers.txt\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/register.diff\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/reproduce-identity.py\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/runs.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/supplement-runs.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/symbol-readers.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/target-map.json\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/verify-characterization.py\n?? docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md\n",
+      "comparisons": {
+        "precheck": {
+          "base_count": 2123,
+          "changed": [
+            "MEMORY.md",
+            "docs/2026-07-30-open-bug-register.md",
+            "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+            "tracker.md"
+          ],
+          "missing": [],
+          "added": [
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/SHA256SUMS",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/preservation.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/reproduce-static.py",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/review-inputs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-audit.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-excerpts.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/verification.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproducer.py",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproduction.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-gateway.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-heltec_mobile.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-gateway.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-heltec_mobile.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-output.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-summary.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/battery-counts.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/ble-source-fragments.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-runs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-summary.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-comparison.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-manifest.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/documentation-checks.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/gateway-repeat.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/heltec_mobile-repeat.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-cases.inc",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-output.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-platform-shim.h",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-results.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/inputs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-query.cpp",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-result.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/preservation.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/raw-logs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/readers.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/register.diff",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/reproduce-identity.py",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/runs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/supplement-runs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/symbol-readers.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/target-map.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/verify-characterization.py",
+            "docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md"
+          ]
+        },
+        "review1": {
+          "base_count": 2161,
+          "changed": [
+            "docs/2026-07-30-open-bug-register.md",
+            "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+            "docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md"
+          ],
+          "missing": [],
+          "added": [
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/SHA256SUMS",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/preservation.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/reproduce-static.py",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/review-inputs.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-audit.json",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-excerpts.txt",
+            "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/verification.json"
+          ]
+        }
+      }
+    },
+    "simulator": {
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "entry_count": 285,
+      "staged": "",
+      "status": "",
+      "comparisons": {
+        "precheck": {
+          "base_count": 285,
+          "changed": [],
+          "missing": [],
+          "added": []
+        },
+        "review1": {
+          "base_count": 285,
+          "changed": [],
+          "missing": [],
+          "added": []
+        }
+      }
+    }
+  },
+  "links": [
+    {
+      "target": "../evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md",
+      "exists": true
+    },
+    {
+      "target": "../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md",
+      "exists": true
+    },
+    {
+      "target": "../specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-07-30-open-bug-register.md",
+      "exists": true
+    },
+    {
+      "target": "../../2026-09-02-agent-roles.md",
+      "exists": true
+    },
+    {
+      "target": "../evidence/README.md",
+      "exists": true
+    }
+  ],
+  "inventory_method_note": "An initial in-memory census classified the file symlink spec/dv_dual_sf.lua by index, unlike the earlier inventory. Rechecked its dereferenced file bytes under the original convention: identical; no input change."
+}

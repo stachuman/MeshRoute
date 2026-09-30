@@ -1,0 +1,4 @@
+PASS: exact repeatability env=heltec_mobile
+  RAM=219540 flash=1400540 objects=329
+  payload_sha256=045d4e144a60c950ea0895fa136a000e63dbf7bbd17c9e193b2d4460a452b98e
+  ELF hashes are diagnostic only and were not used as the verdict

@@ -1,0 +1,10 @@
+# final chain step 8 — warning census (tools/warning_census.sh, its six pinned OLED envs)
+env                   objs      warn    expect  -Wswitch        RAM      Flash  verdict
+gateway_heltec         329       171       171         0     246668    1343344  ok
+gateway_heltec_v4      330       175       175         0     246940    1341332  ok
+heltec_mobile          329       175       175         0     219540    1400540  ok
+heltec_v3              329       175       175         0     221884    1398236  ok
+heltec_v4              330       179       179         0     222156    1396224  ok
+heltec_v4_mobile       330       179       179         0     219812    1398516  ok
+
+PASS — 6 OLED env(s) match their pinned warning baseline

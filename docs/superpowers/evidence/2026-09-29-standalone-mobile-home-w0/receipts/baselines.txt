@@ -1,0 +1,50 @@
+# baselines (unmodified tree, run-baselines.sh) — every step exit 0
+native-build	0	2
+native-binary	0	0
+inboxverbs	0	746
+consolesink	0	67
+boardui	0	26
+deferred	0	279
+deviceradio	0	49
+provtx	0	2
+ownership	0	2
+ownership-controls	0	66
+abi	0	20
+abi-idblob	0	18
+board-base-1	0	48
+board-base-2	0	47
+compare-base-gateway	0	0
+compare-base-heltec_mobile	0	0
+DONE
+
+== ARM: accept  (independently compiled; own defines, own objects, own outputs)
+probe: 1400 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 1400)
+controls: 63 verified / 0 unusable (pin 63)
+== ARM: client  (independently compiled; own defines, own objects, own outputs)
+probe: 483 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 483)
+controls: 71 verified / 0 unusable (pin 71)
+== ARM: oled  (independently compiled; own defines, own objects, own outputs)
+probe: 27 checks against the REAL dispatch()+handle_clear_inbox, 0 failed (pin 27)
+controls: 7 verified / 0 unusable (pin 7)
+PINS profiles=6 checks=720 structural=84 ble_guard=905 ownership=6 ownership_controls=3 controls=152 unusable_controls=0
+identities accounted: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)
+wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1
+b0-p1 150 checks 39 transcripts PASS
+b1-p1 151 checks 39 transcripts PASS
+b2-p1 158 checks 39 transcripts PASS
+b2-p0 158 checks 39 transcripts PASS
+40 controls compile/assertion RED
+96 passed, 0 failed
+41 passed, 0 failed
+25 structural checks passed, 0 failed
+72 controls checked, 0 unusable
+  ok   O13 source integrity: 218 scanned files, sha256(tree) b9ef6e95ff42be90… before and after
+ownership controls: 43 verified / 0 unusable
+PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)
+PASS: board ABI (299 checks, 9/9 controls RED, 0 unusable)
+PASS: exact repeatability env=gateway
+  RAM=203740 flash=571936 objects=285
+  payload_sha256=97deca60b8f3ca94d790986f016a0cefb43a82cd2aeb99ace7db6ed830682886
+PASS: exact repeatability env=heltec_mobile
+  RAM=219540 flash=1400276 objects=329
+  payload_sha256=6af09c96f96735c7b053741e1ca5b5b59fa73050602c4fb10cf54243f4ee5998

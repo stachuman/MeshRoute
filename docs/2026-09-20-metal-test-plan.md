@@ -50,7 +50,7 @@ Use `OWED`, `PASS <build> <date>`, `FAIL → B###`, `N/A <reason>`, or `RETIRED 
 | [CUSTODY-03](#custody-03) | lost correlation and optional re-home | OWED |
 | [USB-BLE-01](#usb-ble-01) | complete console, help and removed verbs | OWED |
 | [USB-BLE-02](#usb-ble-02) | NUS lengths, chunking and raw validation | OWED |
-| [USB-BLE-03](#usb-ble-03) | regen replies and real identity write | OWED |
+| [USB-BLE-03](#usb-ble-03) | identity writes, reboot persistence and regen replies | OWED |
 | [USB-BLE-04](#usb-ble-04) | secured link, bond and SoftDevice/RF coexistence | OWED |
 | [RADMIN-01](#radmin-01) | target trust on physical USB | OWED |
 | [RADMIN-02](#radmin-02) | controller target book and public pages | OWED |
@@ -599,13 +599,15 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 
 <a id="usb-ble-03"></a>
 
-### USB-BLE-03 — regen replies and real identity write
+### USB-BLE-03 — identity writes, reboot persistence and regen replies
 
-1. Scratch N as CLIENT, with a saved dedicated admin key and target. Record self hash/public identity, name and both public listings. Secured BLE `regen` gives `> regen ok  key_hash32= 0x<8HEX>` with `  name="..."` on the same line if named, then `> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved`.
-2. No command output leaks to USB. Reboot: new ordinary identity/name and unchanged dedicated keys/target book persist. Old target ACL grants to self do not magically follow it.
-3. USB `regen` yields the same contract only on USB. On an ACCEPT image the success line has no CLIENT note, and independent admin-id/ACL remain unchanged. Restore trust explicitly through public-key exchange.
+1. Use disposable ESP32 Preferences and nRF52 LittleFS fixtures; record the board/image, current identity, name, coordinates and unrelated stores. On physical USB set `cfg set name ABCDEFGHIJKLMNOPQRSTUVWXYZ123456` (32 bytes): exactly `> cfg ok name (saved to /mrid)`. Then `cfg set lat 50.0` and `cfg set lon 20.0`: each gives `> cfg ok (saved to /mrid)`.
+2. `cfg set name ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567` (33 bytes): exactly `> cfg err too_long`. Physically restart; USB `whoami` still contains `name="ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"`, and `cfg` contains `lat=50.0000000 lon=20.0000000`. The identity and unrelated stores are unchanged. Repeat steps 1–2 on both physical backends; host faults do not substitute for this persistence observation.
+3. Scratch N as CLIENT, with a saved dedicated admin key and target. Record self hash/public identity, name, coordinates and both public listings. Secured BLE `regen` gives `> regen ok  key_hash32= 0x<8HEX>` with `  name="..."` on the same line if named, then `> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved`.
+4. No command output leaks to USB. Reboot: the new ordinary identity and unchanged name/coordinates, dedicated keys and target book persist. Old target ACL grants to self do not magically follow it.
+5. USB `regen` yields the same contract only on USB. On an ACCEPT image the success line has no CLIENT note, and independent admin-id/ACL remain unchanged. Confirm name/coordinate persistence through USB regen and a physical restart on both backends. Restore trust explicitly through public-key exchange and restore the scratch settings.
 
-**PASS:** real transport isolation and persisted identity separation. **STOP:** cross-sink reply, lost unrelated stores, name loss or false transfer of ACL authority.
+**PASS:** real backend persistence, transport isolation and identity separation hold. **STOP:** rejected rename changes the persisted identity, cross-sink reply, lost name/coordinates or unrelated stores, or false transfer of ACL authority. Flash-failure/power-cut qualification stays in the existing NV procedures; these steps do not claim fault atomicity or a physical write-count measurement.
 
 <a id="usb-ble-04"></a>
 

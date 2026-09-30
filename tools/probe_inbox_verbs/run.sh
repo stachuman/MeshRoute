@@ -77,10 +77,16 @@ HERE=$(pwd)                      #   once already ([[B82]]). Never make these re
 #     `PresetPrintLines`). The one missing symbol above is supplied by a LABELLED STUB in `probe_main.cpp`, under
 #     `#if MR_FEAT_OLED`, whose only job is the `busy` row. That arm runs ONLY its own W6-O rows and controls; arms 1/2
 #     are unchanged, and so is the builder prefix `tools/probe_deferred_actions/run.py` reuses (it runs `accept`).
+# ★★★ W0 (brief §2.7) — TWO MORE ARMS, `identity_accept` and `identity_client`: ARM 1 / ARM 2's defines, but the build
+#     ALSO links the REAL, UNEDITED `src/firmware_config.cpp` (with `identity_platform.h` force-included into that TU
+#     only), and the driver is `identity_main.cpp` — which includes `probe_main.cpp` with its eight config-handler stubs
+#     and the legacy adapter stand-in left out (`MR_PROBE_IDENTITY_ARM`). They run ONLY the W0 identity rows and
+#     controls. The config TU enters through `CFG_TU`, EMPTY for every other arm, so `build_variant` (and the prefix
+#     `tools/probe_deferred_actions/run.py` reuses) builds exactly what it built before for them.
 # ================================================================================================================
 if [ -z "${MR_PROBE_ARM:-}" ]; then
   arm_rc=0
-  for _arm in accept client oled; do
+  for _arm in accept client oled identity_accept identity_client; do
     echo "================================================================================================"
     echo "== ARM: $_arm  (independently compiled; own defines, own objects, own outputs)"
     echo "================================================================================================"
@@ -105,12 +111,16 @@ FAKE_PREFS="$HERE/fakes/Preferences.h"      # the probe-local NV medium — cont
 FW_NVH="$ROOT/src/device_nv.h"              # §RADMIN slice 3: the typed wrappers — controls C27..C29 mutate this
 FAKE_RNG="$HERE/fakes/esp_random.h"         # the probe-local deterministic entropy stream
 FW_VERBS="$ROOT/src/firmware_ui_preset_verbs.h"   # W6: the `ui preset` replies — the OLED arm's controls shadow it
+FW_CFG="$ROOT/src/firmware_config.cpp"      # W0: the REAL config TU the identity arms link — their controls mutate it
 
 DEFS=(-DARDUINO=100 -DMR_CONSOLE=1 -DBOARD_HELTEC_V3)
 # ★ ARM 2 = ARM 1 + `platformio.ini`'s own `[env:heltec_v3]` -> `[env:heltec_mobile]` delta (see the header note).
-[ "$MR_PROBE_ARM" = client ] && DEFS+=(-DMR_PROFILE_MOBILE)
+case "$MR_PROBE_ARM" in client|identity_client) DEFS+=(-DMR_PROFILE_MOBILE) ;; esac   # W0: identity_client = arm 2's set
 # ★ W6 — ARM 3 = ARM 1 + the OLED feature, which is `[env:heltec_v3]`'s own `-DMR_FEAT_OLED=1` (see the header note).
 [ "$MR_PROBE_ARM" = oled ] && DEFS+=(-DMR_FEAT_OLED=1)
+# ★ W0: the identity arms link the config TU and drive `identity_main.cpp`; every other arm leaves both at their default.
+CFG_TU=""; PROBE_SRC="$HERE/probe_main.cpp"
+case "$MR_PROBE_ARM" in identity_accept|identity_client) CFG_TU="$FW_CFG"; PROBE_SRC="$HERE/identity_main.cpp" ;; esac
 # ★★ [[B321]]'s OBSERVATION SEAM, at LINK time: every `crypto_wipe` call is routed to the probe's `__wrap_` symbol,
 #    which copies the bytes, performs the REAL wipe and re-reads the SAME LIVE storage. ⛔ Production is unmodified
 #    and unaware; the wrapper is a straight forward unless a case arms it.
@@ -258,7 +268,17 @@ PIN_CHECKS_CLIENT=483
 #     O1 1 · O2 1 · O3/b/c 3 · O4 1 · O5 1 · O6 1 · O7/b/c/e/d 5 · O8 1 · O9 1 · O10 1 · O11 1 · O12/b/c/d 4 ·
 #     O13/b/c/d 4 · O14/b 2 = 1+1+3+1+1+1+5+1+1+1+1+4+4+2 = 27.
 PIN_CHECKS_OLED=27
-case "$MR_PROBE_ARM" in client) PIN_CHECKS=$PIN_CHECKS_CLIENT ;; oled) PIN_CHECKS=$PIN_CHECKS_OLED ;; *) PIN_CHECKS=$PIN_CHECKS_ACCEPT ;; esac
+# ★ W0 — THE IDENTITY ARMS' OWN ROWS (identity_main.cpp), counted from the clean probe's `  ok  ` lines:
+#     M  the storage × writer matrix: 4 writers (name/lat/lon/regen) × 7 media × 5 aspects (out/writes/rec/live/others) 140
+#     N  N1 1 · N2/N2b 2 · N3a..N3e 5 · N4 1 · N5/N5b 2 · N6 1                                                        12
+#     G  7 accepted names (G3 G4 G5 G6 G7 G9 G12) 7 · 5 refused names × 2 (G1 G8 G10 G11 G13 + their b rows) 10 · G2 1    18
+#     C  B482: lat/lon × (err, live) 4 · R1 1
+#     140 + 12 + 18 + 4 + 1 = 175 on ACCEPT; CLIENT adds R2 (the remote-debt refusal) = 176.
+PIN_CHECKS_IDENTITY_ACCEPT=175
+PIN_CHECKS_IDENTITY_CLIENT=176
+case "$MR_PROBE_ARM" in client) PIN_CHECKS=$PIN_CHECKS_CLIENT ;; oled) PIN_CHECKS=$PIN_CHECKS_OLED ;;
+  identity_accept) PIN_CHECKS=$PIN_CHECKS_IDENTITY_ACCEPT ;; identity_client) PIN_CHECKS=$PIN_CHECKS_IDENTITY_CLIENT ;;
+  *) PIN_CHECKS=$PIN_CHECKS_ACCEPT ;; esac
 # ⚠ RE-PINNED 2026-09-06 BY §RADMIN SLICE 3, 22 -> 27: five controls on what the BINDINGS alone own — C22 the
 #   dispatch arm deleted · C23 ★ the seed binding stops drawing from the platform · C24 the store binding stops
 #   reading its record · C25 the Print adapter re-chooses `mrcon` ([[B279]]'s shape) · C26 the read-only boot
@@ -282,7 +302,10 @@ PIN_CONTROLS_ACCEPT=63
 PIN_CONTROLS_CLIENT=71
 # ★ W6 — the OLED arm: the [[B237]] control-of-the-controls + W6-C1..W6-C6 (below) = 7.
 PIN_CONTROLS_OLED=7
-case "$MR_PROBE_ARM" in client) PIN_CONTROLS=$PIN_CONTROLS_CLIENT ;; oled) PIN_CONTROLS=$PIN_CONTROLS_OLED ;; *) PIN_CONTROLS=$PIN_CONTROLS_ACCEPT ;; esac
+# ★ W0 — each identity arm: the [[B237]] control-of-the-controls + W0-C1..W0-C12 (below), all on real production code = 13.
+PIN_CONTROLS_IDENTITY=13
+case "$MR_PROBE_ARM" in client) PIN_CONTROLS=$PIN_CONTROLS_CLIENT ;; oled) PIN_CONTROLS=$PIN_CONTROLS_OLED ;;
+  identity_accept|identity_client) PIN_CONTROLS=$PIN_CONTROLS_IDENTITY ;; *) PIN_CONTROLS=$PIN_CONTROLS_ACCEPT ;; esac
 
 # ---- the tree must not move -------------------------------------------------------------------------------------
 # ⛔ SPELLED ONCE, IN A FUNCTION, AND THAT IS A FIX RATHER THAN TIDINESS: the sibling probe once had two `cat` lists
@@ -300,7 +323,8 @@ md5_sources() {
       "$ROOT/lib/core/node_mac_rx.cpp" "$ROOT/src/firmware_remote_actions.h" \
       "$ROOT/src/firmware_remote_actions.cpp" "$ROOT/src/firmware_remote_client.cpp" \
       "$ROOT/src/firmware_remote_client.h" "$HERE/remote_client_rows.h" \
-      "$FW_VERBS" "$ROOT/src/firmware_ui_presets.h" | md5sum | cut -d' ' -f1
+      "$FW_VERBS" "$ROOT/src/firmware_ui_presets.h" \
+      "$FW_CFG" "$ROOT/src/firmware_config.h" "$HERE/identity_main.cpp" "$HERE/identity_platform.h" | md5sum | cut -d' ' -f1
 }
 MD5_BEFORE=$(md5_sources)
 
@@ -343,6 +367,8 @@ build_support() {
 #   because there are now THREE headers a control shadows: `console_json.h` (C5), `dispatch_sink.h` (C11) and the
 #   probe's own `fakes/Preferences.h` (C12/C13). The dir is placed FIRST on the include path, ahead of both
 #   `$HERE/fakes` and `$ROOT/src`, so the copy wins for every consumer in the build.
+# ★ W0: a non-empty `CFG_TU` (the identity arms only; a control may point it at a mutated copy) adds that config TU to
+#   the link, compiled with `identity_platform.h` force-included. Empty — every other caller — the build is unchanged.
 build_variant() {
   local router=$1 handler=$2 shadowdir=$3 bin=$4 probe=${5:-"$HERE/probe_main.cpp"}
   local actions=${6:-"$ROOT/src/firmware_remote_actions.cpp"}
@@ -355,20 +381,28 @@ build_variant() {
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$actions" -o "$OUT/v_actions.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$client" -o "$OUT/v_client.o" 2>>"$OUT/build.log" \
     && "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" "${DEFS[@]}" "${INCS[@]}" -c "$probe" -o "$OUT/v_main.o" 2>>"$OUT/build.log" \
-    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT/v_actions.o" "$OUT/v_client.o" "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
+    && { [ -z "${CFG_TU:-}" ] || "$CXX" "${STD[@]}" -Wall -Wextra "${pre[@]}" -include "$HERE/identity_platform.h" "${DEFS[@]}" "${INCS[@]}" -c "$CFG_TU" -o "$OUT/v_config.o" 2>>"$OUT/build.log"; } \
+    && "$CXX" "$OUT/v_main.o" "$OUT/v_cmds.o" "$OUT/v_inbox.o" "$OUT/v_actions.o" "$OUT/v_client.o" ${CFG_TU:+"$OUT/v_config.o"} "$OUT"/sup_*.o "${LDWRAP[@]}" -o "$bin" 2>>"$OUT/build.log"
 }
 
 rc=0
 if ! build_support; then echo "FAIL — the support half did not build"; exit 1; fi
-if ! build_variant "$FW_CMDS" "$FW_INBOX" "" "$OUT/probe"; then
+if ! build_variant "$FW_CMDS" "$FW_INBOX" "" "$OUT/probe" "$PROBE_SRC"; then
   echo "PROBE BUILD FAILED — the real src/ TUs did not host-compile:"
   sed 's/^/    /' "$OUT/build.log" | head -25
   exit 1
 fi
+# ★ W0: the identity driver is this slice's code, so it is held to -Werror like `probe_main.cpp` — with the same two
+#   named header suppressions, plus `-Wno-unused-function` for `probe_main.cpp`'s helpers its excluded `main` would use.
+if [ -n "$CFG_TU" ]; then
+  "$CXX" "${STD[@]}" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function \
+       "${DEFS[@]}" "${INCS[@]}" -c "$PROBE_SRC" -o "$OUT/identity_werror.o" 2>"$OUT/identity_werror.log" \
+    || { echo "IDENTITY DRIVER -Werror BUILD FAILED:"; head -20 "$OUT/identity_werror.log"; exit 1; }
+fi
 # Link-level absence, not a synthetically disabled runtime role. Both arms link the
 # same source list under their own real profile; the executor must exist only on ACCEPT.
 nm -C "$OUT/probe" > "$OUT/symbols.txt"
-if [ "$MR_PROBE_ARM" = client ]; then
+if [ "$MR_PROBE_ARM" = client ] || [ "$MR_PROBE_ARM" = identity_client ]; then
   if grep -Eq 'mrfw::(remote_executor_service_once|radmin_service_once|\(anonymous namespace\)::Remote(Target|Exec))' "$OUT/symbols.txt"; then
     echo 'FAIL — CLIENT contains executor symbols'; exit 1
   fi
@@ -413,7 +447,7 @@ classify_control() {   # classify_control <exit-code> <fail-line-count> -> red |
 #   so a stale header from a previous control can never join a later build) and hands that dir to build_variant.
 ctl() {
   local label=$1 which=$2 script=$3
-  local router="$FW_CMDS" handler="$FW_INBOX" shadowdir="" probe="$HERE/probe_main.cpp"
+  local router="$FW_CMDS" handler="$FW_INBOX" shadowdir="" probe="$PROBE_SRC"
   local client="$ROOT/src/firmware_remote_client.cpp"
   shadow_hdr() {   # shadow_hdr <real-header> <basename> -> writes $OUT/shadow/<basename>, sets shadowdir
     rm -rf "$OUT/shadow"; mkdir -p "$OUT/shadow"
@@ -424,6 +458,10 @@ ctl() {
     client) sed "$script" "$client" > "$OUT/mutant_client.cpp"
             cmp -s "$client" "$OUT/mutant_client.cpp" && { n_bad=$((n_bad+1)); echo "  FAIL $label VACUOUS"; return; }
             client="$OUT/mutant_client.cpp" ;;
+    # ★ W0: the REAL config TU the identity arms link — a mutated copy replaces it in this one build.
+    config)  local CFG_TU="$OUT/mutant_config.cpp"
+             sed "$script" "$FW_CFG" > "$CFG_TU"
+             cmp -s "$FW_CFG" "$CFG_TU" && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     router)  sed "$script" "$FW_CMDS"  > "$OUT/mutant_cmds.cpp";  router="$OUT/mutant_cmds.cpp"
              cmp -s "$FW_CMDS" "$router"  && { n_bad=$((n_bad+1)); printf '  FAIL %s — the mutation changed NOTHING (VACUOUS)\n' "$label"; return; } ;;
     handler) sed "$script" "$FW_INBOX" > "$OUT/mutant_inbox.cpp"; handler="$OUT/mutant_inbox.cpp"
@@ -546,6 +584,85 @@ if [ "${1:-}" != "--no-neg" ]; then
   w6_ctl 'W6-C6 the preset emergency gate stops asking the seam (a mutation lands during an alarm)' router "$FW_CMDS" \
     '    bool emergency_active() const override { return mrfw::ui_emergency_active(); }' \
     's|    bool emergency_active() const override { return mrfw::ui_emergency_active(); }|    bool emergency_active() const override { return false; }|'
+  elif [ -n "$CFG_TU" ]; then
+  # ================================================ W0 — THE IDENTITY ARMS' OWN CONTROLS (the shared ones below measure rows
+  #                                                  these arms do not run, so each would score `passes` = UNUSABLE)
+  # ★ Every control mutates REAL production code — the adapter, the service or a caller in `firmware_config.cpp`, or
+  #   `do_regen` in `firmware_commands.cpp` — never the legacy stand-in. Each carries an exactly-one-match guard on its
+  #   source ([[B449]]), then the stock `ctl` classification ([[B237]]: a crash, a build failure or a vacuous mutant is
+  #   never RED), and then ★ it counts ONLY if its INTENDED row went RED — a control that reddens something else
+  #   measures something other than its label says.
+  w0_ctl() {   # w0_ctl <label> <which> <source> <needle> <intended-row-ERE> <sed-script>
+    local label=$1 which=$2 source=$3 needle=$4 intended=$5 script=$6 before=$n_ctl
+    if ! python3 -c 'import pathlib,sys; n=pathlib.Path(sys.argv[1]).read_text().count(sys.argv[2]); print("    source match count",n); sys.exit(0 if n==1 else 1)' "$source" "$needle"; then
+      n_bad=$((n_bad+1)); echo "  FAIL $label — not exactly one source match"; return
+    fi
+    ctl "$label" "$which" "$script"
+    if [ "$n_ctl" -gt "$before" ] && ! grep -Eq "^  FAIL ($intended) " "$OUT/mutant.out"; then
+      n_ctl=$((n_ctl-1)); n_bad=$((n_bad+1))
+      printf '  FAIL %s — RED, but NOT on its intended assertion (%s)\n' "$label" "$intended"
+    fi
+  }
+  # ---- W0-C1: the lat/lon writer builds from `load_id` again (the pre-W0 shape) — a field from failed NV bytes.
+  w0_ctl 'W0-C1 the lat/lon candidate is rebuilt from load_id (fields from failed/rejected NV bytes)' config "$FW_CFG" \
+    '        (void)id_candidate_from_live(idb);        // no override: the live name is ≤ 32 bytes, so this cannot refuse' \
+    'M\.lat\.[a-z_]+\.rec' \
+    's|^        (void)id_candidate_from_live(idb);        // no override: the live name is ≤ 32 bytes, so this cannot refuse$|        idb = {}; if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed); idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;|'
+  # ---- W0-C2: `regen` builds from an UNCHECKED load_id again (the pre-W0 shape) — name/position from NV bytes.
+  w0_ctl 'W0-C2 the regen candidate is rebuilt from an unchecked load_id (the name and position come from NV bytes)' router "$FW_CMDS" \
+    '    (void)id_candidate_from_live(idb);                           // no override: the live name cannot be refused' \
+    'M\.regen\.[a-z_]+\.rec' \
+    's|^    (void)id_candidate_from_live(idb);                           // no override: the live name cannot be refused$|    idb = {}; mrnv::load_id(idb); idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;|'
+  # ---- W0-C3: the service's OVERLENGTH EARLY RETURN removed — a refused (zeroed) candidate goes on to be saved.
+  w0_ctl 'W0-C3 the rename service loses its overlength early return' config "$FW_CFG" \
+    '    if (!id_candidate_from_live(cand, name, name_len)) return RenameResult::too_long;   // zero writes, nothing live' \
+    'G(8|10|11|13)b?' \
+    's|^    if (!id_candidate_from_live(cand, name, name_len)) return RenameResult::too_long;   // zero writes, nothing live$|    (void)id_candidate_from_live(cand, name, name_len);|'
+  # ---- W0-C4: B448 restored at the caller — the console arm CLAMPS the length to 32 before the service sees it.
+  w0_ctl 'W0-C4 the console arm clamps the name to 32 bytes before admission (B448 restored)' config "$FW_CFG" \
+    '        switch (rename_node(val, strlen(val))) {' \
+    'G(8|10|11|13)b?' \
+    's|^        switch (rename_node(val, strlen(val))) {$|        switch (rename_node(val, strlen(val) > 32 ? 32 : strlen(val))) {|'
+  # ---- W0-C5: the NAME is published BEFORE the save — a failed save leaves a name live that is not durable.
+  w0_ctl 'W0-C5 the requested name is published before its save' config "$FW_CFG" \
+    '    if (!mrnv::save_id(cand)) return RenameResult::nv_save_failed;                     // nothing published' \
+    'N5b' \
+    's|^    if (!mrnv::save_id(cand)) return RenameResult::nv_save_failed;                     // nothing published$|    g_node.set_name(cand.name, static_cast<uint8_t>(cand.name_len)); if (!mrnv::save_id(cand)) return RenameResult::nv_save_failed;|'
+  # ---- W0-C6: B482 restored — the COORDINATE is published before its save.
+  w0_ctl 'W0-C6 the coordinate is published before its save (B482 restored)' config "$FW_CFG" \
+    '        if (!mrnv::save_id(idb)) { out.println(F("> cfg err nv_save_failed")); return; }   // B482: nothing published' \
+    'C\.(lat|lon)\.live' \
+    's|^        if (!mrnv::save_id(idb)) { out.println(F("> cfg err nv_save_failed")); return; }   // B482: nothing published$|        if (is_lat) { g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; } else { g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; } if (!mrnv::save_id(idb)) { out.println(F("> cfg err nv_save_failed")); return; }|'
+  # ---- W0-C7: only ONE mirror of a saved latitude is published — the NodeConfig copy keeps the old value.
+  w0_ctl 'W0-C7 a saved latitude is published to the global only (the NodeConfig mirror is left stale)' config "$FW_CFG" \
+    '        if (is_lat) { g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }                   // "lat" (now LIVE)' \
+    'M\.lat\.[a-z_]+\.live' \
+    's|^        if (is_lat) { g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }                   // "lat" (now LIVE)$|        if (is_lat) { g_lat_e7 = e7; }|'
+  # ---- W0-C8: the coalescing is dropped — a byte-identical record is written again (a no-op that writes).
+  w0_ctl 'W0-C8 the byte-identical no-op writes anyway (coalescing dropped)' config "$FW_CFG" \
+    '    if (mrnv::load_id(durable) && memcmp(&durable, &cand, sizeof cand) == 0) {' \
+    'N1|N2' \
+    's|^    if (mrnv::load_id(durable) \&\& memcmp(\&durable, \&cand, sizeof cand) == 0) {$|    if (false) {|'
+  # ---- W0-C9: the coalescing keys on LIVE-NAME equality — an absent/bad/partial/different record is never repaired.
+  w0_ctl 'W0-C9 the no-op test compares the live name instead of the durable record (repair skipped)' config "$FW_CFG" \
+    '    if (mrnv::load_id(durable) && memcmp(&durable, &cand, sizeof cand) == 0) {' \
+    'N3[a-e]' \
+    's|^    if (mrnv::load_id(durable) \&\& memcmp(\&durable, \&cand, sizeof cand) == 0) {$|    if (g_node.effective_name(durable.name, static_cast<uint8_t>(sizeof durable.name)) == cand.name_len \&\& memcmp(durable.name, cand.name, cand.name_len) == 0) {|'
+  # ---- W0-C10: the equal-record branch returns BEFORE making the requested name live (W0R-1).
+  w0_ctl 'W0-C10 the already-durable branch returns before making the requested name live' config "$FW_CFG" \
+    '            g_node.set_name(cand.name, static_cast<uint8_t>(cand.name_len));' \
+    'N2b' \
+    's|^            g_node.set_name(cand.name, static_cast<uint8_t>(cand.name_len));$|            ;|'
+  # ---- W0-C11: the adapter reserves a terminator byte — a 32-byte live name loses its last byte on every writer.
+  w0_ctl 'W0-C11 the snapshot adapter reads the live name with a reserved terminator byte (31 of 32)' config "$FW_CFG" \
+    '        name_len = g_node.effective_name(live, static_cast<uint8_t>(sizeof live));' \
+    'N6' \
+    's|^        name_len = g_node.effective_name(live, static_cast<uint8_t>(sizeof live));$|        name_len = g_node.effective_name(live, static_cast<uint8_t>(sizeof live - 1));|'
+  # ---- W0-C12: the adapter takes the seed and position from the DURABLE record — every writer inherits NV bytes.
+  w0_ctl 'W0-C12 the snapshot adapter reads the seed and position from load_id instead of the live authorities' config "$FW_CFG" \
+    '    return mrnv::id_blob_from_live(out, g_identity.seed, name, name_len, g_lat_e7, g_lon_e7);' \
+    'M\.name\.[a-z_]+\.rec' \
+    's|^    return mrnv::id_blob_from_live(out, g_identity.seed, name, name_len, g_lat_e7, g_lon_e7);$|    { mrnv::IdBlob nv{}; (void)mrnv::load_id(nv); return mrnv::id_blob_from_live(out, nv.seed, name, name_len, nv.lat_e7, nv.lon_e7); }|'
   else
 
   # ---- C1: THE DISPATCH ARM REMOVED. The verb becomes unreachable; the router answers its unknown-verb path and
@@ -801,7 +918,8 @@ if [ "${1:-}" != "--no-neg" ]; then
   fi   # W6: the OLED arm's controls above, or the shared ones (arms 1/2)
 fi
 
-if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" != oled ]; then
+# ⓘ W0: arms 1/2 only — the OLED and identity arms run none of these rows, so each control would score `passes`.
+if [ "${1:-}" != "--no-neg" ] && [ "$MR_PROBE_ARM" != oled ] && [ -z "$CFG_TU" ]; then
   ctl 'R7-C1 B372 eight-byte truncation restored in medium (positive contents must fail)' probe \
     's|rec\[n_rec\].len = len;|rec[n_rec].len = len < 8 ? len : 8;|'
   if [ "$MR_PROBE_ARM" = accept ]; then

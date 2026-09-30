@@ -1,0 +1,20 @@
+# W0 stack — compile-only -fstack-usage frames (-fno-lto); base = git archive 0f23aee, final = the frozen tree
+# ⚠ compiler frames and call-chain subtotals only: NOT a task high-water mark and NOT a whole-program bound.
+# compiles: base/heltec_mobile/firmware_config.cpp=exit0, base/heltec_mobile/firmware_commands.cpp=exit0, base/heltec_mobile/fw_main.cpp=exit0, base/gateway/firmware_config.cpp=exit0, base/gateway/firmware_commands.cpp=exit0, base/gateway/fw_main.cpp=exit0, final/heltec_mobile/firmware_config.cpp=exit0, final/heltec_mobile/firmware_commands.cpp=exit0, final/heltec_mobile/fw_main.cpp=exit0, final/gateway/firmware_config.cpp=exit0, final/gateway/firmware_commands.cpp=exit0, final/gateway/fw_main.cpp=exit0
+
+## heltec_mobile
+  base: mesh_service_once 2128; mrfw::dispatch 336; mrfw::do_regen 320; mrfw::exec_console_line 400; mrfw::handle_cfg_set 352; mrfw::print_identity 48
+  final: mesh_service_once 2128; mrfw::dispatch 336; mrfw::do_regen 320; mrfw::exec_console_line 400; mrfw::handle_cfg_set 352; mrfw::id_candidate_from_live 80; mrfw::print_identity 48; mrfw::rename_node 240
+
+## gateway
+  base: mesh_service_once 728; mrfw::dispatch 312; mrfw::exec_console_line 376; mrfw::handle_cfg_set 440; mrfw::print_identity 32
+  final: mesh_service_once 728; mrfw::dispatch 312; mrfw::exec_console_line 376; mrfw::handle_cfg_set 448; mrfw::id_candidate_from_live 64; mrfw::print_identity 32; mrfw::rename_node 0
+
+Xtensa base: head mesh_service_once 2128 + exec_console_line 400 + dispatch 336 = 2864
+  name path : head + handle_cfg_set 352 = 3216
+  coord path: head + handle_cfg_set 352 = 3216
+  regen path: head + do_regen 320 = 3184
+Xtensa final: head mesh_service_once 2128 + exec_console_line 400 + dispatch 336 = 2864
+  name path : head + handle_cfg_set 352 + rename_node 240 + id_candidate_from_live 80 = 3536
+  coord path: head + handle_cfg_set 352 + id_candidate_from_live 80 = 3296
+  regen path: head + do_regen 320 + id_candidate_from_live 80 = 3264

@@ -267,6 +267,10 @@ mrfault::FaultRecord g_last_reset{};
 // ================================================================================================================
 static char g_routed[64] = {};
 static void routed(const char* who) { std::snprintf(g_routed, sizeof g_routed, "%s", who); }
+// ★★ W0 (brief §2.7) — THE ONE NARROW EXCLUSION: the identity arm (`identity_main.cpp`, which defines
+//    `MR_PROBE_IDENTITY_ARM` before including this file) links the REAL `src/firmware_config.cpp`, so these eight
+//    stubs and the legacy stand-in below are left out of THAT build only. Every other build keeps them byte-for-byte.
+#ifndef MR_PROBE_IDENTITY_ARM
 namespace mrfw {
 void handle_cfg_set(const char*, Print&)      { routed("cfg_set"); }
 void handle_create(const char*, Print&)       { routed("create"); }
@@ -277,6 +281,20 @@ void handle_leave(Print&)                     { routed("leave"); }
 void handle_mobile(const char*, Print&)       { routed("mobile"); }
 void handle_team(const char*, Print&)         { routed("team"); }
 }  // namespace mrfw
+// ★★ W0 (brief §2.7, W0R-2) — THE LEGACY ADAPTER STAND-IN, labelled, for the builds that link `firmware_commands.cpp`
+//    WITHOUT `firmware_config.cpp`: this probe's accept/client/oled arms, the transcript driver and the deferred-actions
+//    probe (both include this file). `do_regen` now calls `mrfw::id_candidate_from_live`, which the config TU defines,
+//    so those links need a provider. It builds the candidate from the fixture's LIVE fields through the REAL pure
+//    `mrnv::id_blob_from_live`; it reads no NV, installs no identity or crypto, and adds no production hook.
+// ⛔ The identity arm EXCLUDES it (above) and links the real adapter and service — no W0 proof is satisfied here.
+namespace mrfw {
+bool id_candidate_from_live(mrnv::IdBlob& out, const char* name, size_t name_len) {
+    char live[sizeof out.name];
+    if (name == nullptr) { name_len = g_node.effective_name(live, uint8_t(sizeof live)); name = live; }
+    return mrnv::id_blob_from_live(out, g_identity.seed, name, name_len, g_lat_e7, g_lon_e7);
+}
+}  // namespace mrfw
+#endif   // MR_PROBE_IDENTITY_ARM
 #ifndef MR_PROBE_ACTION_EFFECTS
 namespace mrfw {
 // The standing router probe still fakes board effects; probe_deferred_actions separately executes their owners.
@@ -371,6 +389,15 @@ static mrnv::IdBlob seed_id(const char* name, uint16_t name_len, uint8_t seed_by
     (void)mrnv::save_id(idb);
     nv.writes = 0; nv.reads = 0;                              // the seeding write is the fixture's, not the verb's
     return idb;
+}
+
+// ★ W0 (brief §2.7) — THE LIVE PRECONDITION `regen` NOW READS: the running name and position a booted device installs
+//   from this record (`regen`'s candidate is the live snapshot, never `load_id`). ⛔ Deliberately NOT folded into
+//   `seed_id`, and it installs NO crypto: R1..R17 observe `crypto_ready()` becoming true.
+static void install_live_name_pos(const mrnv::IdBlob& rec) {
+    g_node.set_name(rec.name, uint8_t(rec.name_len));
+    g_lat_e7 = rec.lat_e7; g_lon_e7 = rec.lon_e7;
+    g_node.mutable_config().lat_e7 = rec.lat_e7; g_node.mutable_config().lon_e7 = rec.lon_e7;
 }
 
 // "`key_hash32= 0x` + EXACTLY 8 UPPERCASE hex digits" — pinned WITHOUT reusing the `%08lX` that builds the golden
@@ -948,6 +975,7 @@ int main() {
     //            not read back out of the very global the command writes.
     // ---------------------------------------------------------------------------------------------------------
     const mrnv::IdBlob rec = seed_id(kName, kNameLen, 0x10);
+    install_live_name_pos(rec);                  // W0: the live name/position `regen`'s candidate carries
     uint8_t             exp_seed[32] = {};
     meshroute::Identity exp{};
     expected_next_identity(exp_seed, exp);
@@ -995,7 +1023,7 @@ int main() {
     //            BLE-shaped success. This is the one measurement that makes "both transports get the same text"
     //            a fact rather than an argument about two call sites.
     // ---------------------------------------------------------------------------------------------------------
-    seed_id(kName, kNameLen, 0x10);
+    install_live_name_pos(seed_id(kName, kNameLen, 0x10));   // W0: live name/position = the record's
     expected_next_identity(exp_seed, exp);
     ble_reset(); Serial.reset(); mrprobe_nv().writes = 0;
     const bool own_ok_usb = mrfw::dispatch("regen", 5, mrcon);
@@ -1008,7 +1036,7 @@ int main() {
     // R25..R26 — THE OPTIONAL-NAME BOUNDARY. `print_identity` emits the name segment only for
     //            `0 < name_len <= sizeof name`; both ends keep today's exact bytes.
     // ---------------------------------------------------------------------------------------------------------
-    seed_id("", 0, 0x20);
+    install_live_name_pos(seed_id("", 0, 0x20));              // W0: an UNNAMED live node
     expected_next_identity(exp_seed, exp);
     ble_reset(); Serial.reset();
     route_ble("regen");
@@ -1017,7 +1045,7 @@ int main() {
     CHK(std::strcmp(g_ble, want) == 0 && Serial.n_out == 0,
         "R25 a record with NO name emits no `name=` segment, and still nothing on USB [%s]", g_ble);
 
-    seed_id(kMaxName, 32, 0x30);
+    install_live_name_pos(seed_id(kMaxName, 32, 0x30));       // W0: a live 32-byte name
     expected_next_identity(exp_seed, exp);
     ble_reset(); Serial.reset();
     route_ble("regen");

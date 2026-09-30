@@ -1,0 +1,264 @@
+[
+  {
+    "step": "lus-configure",
+    "command": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/mr-w0-qa-akh045fd/lus",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "seconds": 0.493,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/lus-configure.log",
+    "sha256": "c07cd6705cc0b8bd671ea4e7895eae7cc28f4a5ae8ca5b6d84527f03b4a974a2"
+  },
+  {
+    "step": "lus-build",
+    "command": [
+      "cmake",
+      "--build",
+      "/tmp/mr-w0-qa-akh045fd/lus",
+      "--target",
+      "lus",
+      "-j",
+      "16"
+    ],
+    "exit": 0,
+    "seconds": 18.502,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/lus-build.log",
+    "sha256": "98c6a017e8601f1c7618722956d813b84893b9fd52a7a10714b947e2b36ba40b"
+  },
+  {
+    "step": "corpus",
+    "command": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/mr-w0-qa-akh045fd/corpus",
+      "--lus",
+      "/tmp/mr-w0-qa-akh045fd/lus/orchestrator/lus",
+      "--require-anchors"
+    ],
+    "exit": 0,
+    "seconds": 119.659,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/corpus.log",
+    "sha256": "dc58e569855df62297a2f735fc6cf15d8f9ab570c9dba81b1f23f3f6aba7da12"
+  },
+  {
+    "step": "corpus-validate",
+    "command": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--validate",
+      "/tmp/mr-w0-qa-akh045fd/corpus"
+    ],
+    "exit": 0,
+    "seconds": 0.653,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/corpus-validate.log",
+    "sha256": "ec9ad6f468bc748012efd562aeb18a940729122a8dde150f71d3fbaeb6d58f41"
+  },
+  {
+    "step": "abi",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "exit": 0,
+    "seconds": 18.097,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/abi.log",
+    "sha256": "c6d499ec5bf5817a69f2ba13acd7001a2e28506c2220aecae1f598165fcb0fa7"
+  },
+  {
+    "step": "abi-idblob",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py",
+      "--extra-pins",
+      "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.json"
+    ],
+    "exit": 0,
+    "seconds": 17.988,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/abi-idblob.log",
+    "sha256": "48c0dea63ae1aa38ce1181407bf017edf70371b291f8a934a388d874a535b3a0"
+  },
+  {
+    "step": "inboxverbs",
+    "command": [
+      "bash",
+      "tools/probe_inbox_verbs/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 929.484,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/inboxverbs.log",
+    "sha256": "9c99a2d9d238dde092a6834af6295f9d8c18a6fd96c45e238a6fc15d77b5fa20"
+  },
+  {
+    "step": "consolesink",
+    "command": [
+      "bash",
+      "tools/probe_console_sink/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 68.401,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/consolesink.log",
+    "sha256": "4aca00eddb1e0acb5b30460ea869e5b1fb0eaf2d3d7ea3b09feb8384ebf521dd"
+  },
+  {
+    "step": "boardui",
+    "command": [
+      "bash",
+      "tools/probe_board_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 25.128,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/boardui.log",
+    "sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286"
+  },
+  {
+    "step": "deferred",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_deferred_actions/run.py",
+      "--out",
+      "/tmp/mr-w0-qa-akh045fd/deferred"
+    ],
+    "exit": 0,
+    "seconds": 276.901,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/deferred.log",
+    "sha256": "629a052d42a84786fc8ff2edf693746c9f6e4b6810c2fec6437dfdd53d65e20a"
+  },
+  {
+    "step": "deviceradio",
+    "command": [
+      "bash",
+      "tools/probe_device_radio/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 48.485,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/deviceradio.log",
+    "sha256": "a33cb11b987942b6a9ad9d6c25e1a7e04f7345d68c00514cc3227ce3197d832f"
+  },
+  {
+    "step": "provtx",
+    "command": [
+      "bash",
+      "tools/probe_prov_tx/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 1.801,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/provtx.log",
+    "sha256": "6b6397c0f4e334ca7416e810cc93fd351b580920020f0c1f12834b9e1b3bc783"
+  },
+  {
+    "step": "ownership",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_features/ownership.py"
+    ],
+    "exit": 0,
+    "seconds": 1.741,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/ownership.log",
+    "sha256": "e13fdec6fa8c14e88c4588b71c59815751e915d6ef1d58f2cca7d4da61089fca"
+  },
+  {
+    "step": "ownership-controls",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_features/ownership.py",
+      "--controls"
+    ],
+    "exit": 0,
+    "seconds": 64.602,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/ownership-controls.log",
+    "sha256": "b5fc9764745d773ea6c8f2bd7c9eef1a7bcb005cece791407e19e53ca261ebfd"
+  },
+  {
+    "step": "inventory",
+    "command": [
+      "python3",
+      "-B",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 2.214,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/inventory.log",
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "step": "authority",
+    "command": [
+      "python3",
+      "-B",
+      "tools/check_command_authority.py"
+    ],
+    "exit": 0,
+    "seconds": 0.051,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/authority.log",
+    "sha256": "d505e9f38473c5fd49b608a7aea9166d335fdfa1d0170b71d69197986eb7f066"
+  },
+  {
+    "step": "authority-selftest",
+    "command": [
+      "python3",
+      "-B",
+      "tools/check_command_authority.py",
+      "--selftest"
+    ],
+    "exit": 0,
+    "seconds": 0.075,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/authority-selftest.log",
+    "sha256": "497d092473a7bc2d7f2288944ac22bfa4f16867b115a11e01c18257e5fd98e16"
+  },
+  {
+    "step": "literals",
+    "command": [
+      "python3",
+      "-B",
+      "tools/check_data_type_literals.py"
+    ],
+    "exit": 0,
+    "seconds": 1.705,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/literals.log",
+    "sha256": "82bd3159d9c43ee97ab29397255ccaef71ad6c20279ea16e0bb5bc0f5e024930"
+  },
+  {
+    "step": "mutations-devicenv",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=devicenv"
+    ],
+    "exit": 0,
+    "seconds": 513.414,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/mutations-devicenv.log",
+    "sha256": "e32444c1652d2792a5f7d2bd81381687bb34e62062394277615965c569df9792"
+  },
+  {
+    "step": "boards",
+    "command": [
+      "python3",
+      "-B",
+      "tools/measure_board.py",
+      "pair",
+      "--jobs=1",
+      "--output",
+      ".pio-measure/w0-qa/2026-09-30"
+    ],
+    "exit": 0,
+    "seconds": 46.67,
+    "log": "/home/staszek/MeshRoute/artifacts/2026-09-30-standalone-mobile-home-w0-qa/boards.log",
+    "sha256": "993bb654f19a23562da275298e13c23627f35834dcda10180af7e4686c879fb6"
+  }
+]

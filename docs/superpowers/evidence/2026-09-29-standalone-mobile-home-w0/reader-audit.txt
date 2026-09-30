@@ -1,0 +1,237 @@
+# W0 reader audit (D6/P7) — every reader of the changed statements and symbols in lib/ src/ test/ tools/, on the frozen tree
+# Method: `grep -rnw` per symbol over *.h/*.hpp/*.cpp/*.c/*.py/*.sh (counts per file at the end), the reply strings, and the
+# tools that name the changed TUs by path; the pre-check's readers.txt / symbol-readers.json were the starting point.
+
+## Dispositions — every reader whose predicate the edits could touch, and what was rerun
+- console-sink structural S37/S48 (+ negctl S-C37/S-C48): `save_id` stays INSIDE `do_regen`, no administration/controller
+  store write; S-C48's anchor `meshroute::identity_from_seed(g_identity, idb.seed);` and S-C37's `static void do_regen(Print& out) {`
+  are unchanged. S38/S49 read `handle_leave` (untouched). S66 reads `handle_cfg_set`'s FIRST `mrnv::save(b)` — the W0 arms use
+  `mrnv::save_id(idb)`, so the first `mrnv::save(b)` is still the /mrcfg save. S67 unchanged. RERUN green (720/84/905/152).
+- board-UI W12–W20: `cfg_writer_counts_ok` counts `mrnv::save(` (never `mrnv::save_id(`) and `mr_ui_on_config_saved()` in
+  firmware_config.cpp — both counts unchanged; W12's sequence pin is the /mrcfg persist line, untouched; W12's fourth control
+  sed (`{ out.println(F("> cfg err nv_save_failed")); return; }`) now also matches the new lat/lon line, which only ADDS
+  notifications in its mutant, so it stays RED. W49–W54 (firmware_commands.cpp dispatch/OLED sites) untouched. RERUN green:
+  592 identities, wiring live 60 / mutant 186, negctl 60 + 3; no manifest delta.
+- inbox-verbs legacy controls C8 (`do_regen(out)` in the dispatch arm), C9 (`do_regen`'s own `out.` writes — the W0 comment
+  lines contain none), C35 (`out.print(F("> regen ok"));`), C36 (the regen save line, unchanged), C12/C13 (the NV fake),
+  CLIENT C8–C10 and C8-C10's regen binding: anchors untouched. RERUN: accept 63/63, client 71/71.
+- inbox-verbs R12/R21/R22/R23/R25/R26: their fixture needed the live precondition (measured: receipts/r-fixture-necessity.txt);
+  corrected in place with every expected output and persisted field unchanged.
+- deferred-actions run.py: reuses the inbox runner prefix up to `rc=0\nif ! build_support;` (still exactly ONE occurrence);
+  `build_variant`'s new optional config TU is keyed on `CFG_TU`, empty on its arm, so its builds are unchanged; its probe.cpp
+  includes probe_main.cpp and links the legacy stand-in. Source unchanged (inputs-*.json readonly). RERUN green (40 RED).
+- transcript.py / transcript_main.cpp: include probe_main.cpp (the stand-in keeps them linkable) — NOT RUN by owner ruling
+  2026-09-30 (B487/B488); files unchanged (inputs-*.json readonly).
+- gen_command_inventory.py (+ tools/test_gen_command_inventory.py): scans both TUs and caller hops — regenerated with the
+  stock generator for line anchors only (receipts/inventory.txt: anchor-normalised identical, 197 rows). --check PASS.
+- check_command_authority.py: binds the ruled table, the production header and the generated inventory — PASS + 6/6 selftests.
+- device-radio structural S16/S17 + mutations.py (reads firmware_config.cpp's radio apply/validation): untouched functions.
+  RERUN green (96 + 41, 25 structural, 72 controls).
+- prov-tx probe.py (apply_team ordering/one-write/notification in firmware_config.cpp): untouched functions. RERUN green
+  (20 structural PASS, 47 controls RED).
+- feature ownership scanner (directory scanner, reads every src/lib/test file): no feature gate added. RERUN PASS + 43/0.
+- check_data_type_literals.py (directory scanner): PASS (218 files).
+- probe_board_abi.py (compiles device_nv.h): stock 290 checks + the pre-check IdBlob overlay 299 — IdBlob 80/4 on all three ABIs.
+- tools/probe_ui_model_mutations.py `devicenv` (targets device_nv.h): every prior anchor still matches exactly once (46 prior +
+  10 W0 entries, 56/56 RED); `config` (firmware_config_service.h), `w1cname`, `consoleline`, `radmin4verbs` batteries RED.
+- firmware_config_parse.h: NOT touched ⇒ `cfgparse` / `sliceDtoken` stay out of selector (a), per the brief.
+- tools tests reading run.sh pins: full discovery Ran 406 OK (the D5 strict readers parse the bare `NAME=<int>` pins).
+- Out-of-scope readers seen and left: `ble_dispatch_line`'s `cfg set` / `whoami` branches in fw_main.cpp (B483/B485, out of
+  the fence), `create`/leaf-label setters (B484), the boot load/re-mint (unchanged — fw_main.cpp untouched).
+
+## Raw per-symbol reader counts (file: occurrences)
+### id_blob_from_live
+      1 src/device_nv.h
+      1 src/firmware_config.cpp
+      1 src/firmware_config.h
+      8 test/test_device_nv.cpp
+      2 tools/probe_inbox_verbs/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+      2 tools/probe_ui_model_mutations.py
+### id_candidate_from_live
+      1 src/device_nv.h
+      1 src/firmware_commands.cpp
+      3 src/firmware_config.cpp
+      2 src/firmware_config.h
+      1 tools/probe_inbox_verbs/identity_main.cpp
+      2 tools/probe_inbox_verbs/probe_main.cpp
+      6 tools/probe_inbox_verbs/run.sh
+### rename_node
+      2 src/firmware_config.cpp
+      2 src/firmware_config.h
+      1 tools/probe_inbox_verbs/identity_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+### RenameResult
+     11 src/firmware_config.cpp
+      2 src/firmware_config.h
+      4 tools/probe_inbox_verbs/run.sh
+### install_live_name_pos
+      5 tools/probe_inbox_verbs/probe_main.cpp
+### MR_PROBE_IDENTITY_ARM
+      2 tools/probe_inbox_verbs/identity_main.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      1 tools/probe_inbox_verbs/run.sh
+### CFG_TU
+     12 tools/probe_inbox_verbs/run.sh
+### PROBE_SRC
+      5 tools/probe_inbox_verbs/run.sh
+### do_regen
+      1 src/firmware_admin_client_verbs.h
+      1 src/firmware_admin_identity.h
+      5 src/firmware_commands.cpp
+      1 src/firmware_commands.h
+      1 src/fw_main.cpp
+      4 tools/probe_console_sink/negctl.py
+      3 tools/probe_console_sink/run.sh
+      4 tools/probe_console_sink/structural.py
+      1 tools/probe_features/ownership.py
+      1 tools/probe_features/run.sh
+      1 tools/probe_inbox_verbs/identity_main.cpp
+      4 tools/probe_inbox_verbs/probe_main.cpp
+      8 tools/probe_inbox_verbs/run.sh
+      1 tools/test_probe_features.py
+### handle_cfg_set
+      1 src/firmware_commands.cpp
+      9 src/firmware_config.cpp
+      5 src/firmware_config.h
+      1 src/firmware_config_parse.h
+      7 src/firmware_config_service.h
+      3 src/firmware_ui.cpp
+      2 src/firmware_ui_model.h
+      3 src/fw_main.cpp
+      6 tools/gen_command_inventory.py
+      1 tools/meshroute_client.py
+      3 tools/probe_board_ui/run.sh
+      1 tools/probe_console_sink/structural.py
+      2 tools/probe_firmware_ui/probe_main.cpp
+      1 tools/probe_inbox_verbs/probe_main.cpp
+      3 tools/test_gen_command_inventory.py
+### load_id
+      2 src/device_nv.h
+      1 src/firmware_commands.cpp
+      2 src/firmware_config.cpp
+      2 src/firmware_config.h
+      2 src/fw_main.cpp
+      1 test/test_device_nv.cpp
+      4 tools/probe_inbox_verbs/probe_main.cpp
+     12 tools/probe_inbox_verbs/run.sh
+### save_id
+      2 src/device_nv.h
+      3 src/firmware_commands.cpp
+      2 src/firmware_config.cpp
+      1 src/firmware_config.h
+      1 src/fw_main.cpp
+      1 test/test_device_nv.cpp
+      1 tools/probe_board_ui/run.sh
+      2 tools/probe_console_sink/structural.py
+      1 tools/probe_inbox_verbs/fakes/esp_random.h
+      2 tools/probe_inbox_verbs/fakes/Preferences.h
+      2 tools/probe_inbox_verbs/identity_main.cpp
+      4 tools/probe_inbox_verbs/probe_main.cpp
+      5 tools/probe_inbox_verbs/run.sh
+### kIdMagic
+      6 src/device_nv.h
+      1 src/fw_main.cpp
+     21 test/test_device_nv.cpp
+      1 test/test_firmware_admin_identity.cpp
+      1 test/test_firmware_admin_keyring.cpp
+      1 test/test_firmware_ui_presets.cpp
+      1 tools/probe_inbox_verbs/identity_main.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+      3 tools/probe_ui_model_mutations.py
+### kIdVersion
+      4 src/device_nv.h
+      1 src/fw_main.cpp
+     19 test/test_device_nv.cpp
+      1 tools/probe_inbox_verbs/identity_main.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+      3 tools/probe_ui_model_mutations.py
+### IdBlob
+      1 lib/core/node.h
+      9 src/device_nv.h
+      2 src/firmware_commands.cpp
+      2 src/firmware_commands.h
+      4 src/firmware_config.cpp
+      1 src/firmware_config.h
+      2 src/fw_main.cpp
+     22 test/test_device_nv.cpp
+     16 tools/probe_inbox_verbs/identity_main.cpp
+     13 tools/probe_inbox_verbs/probe_main.cpp
+      2 tools/probe_inbox_verbs/run.sh
+### g_lat_e7
+      2 src/firmware_commands.cpp
+      3 src/firmware_config.cpp
+      1 src/firmware_config.h
+      1 src/fw_context.h
+      3 src/fw_main.cpp
+      8 tools/probe_inbox_verbs/identity_main.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      5 tools/probe_inbox_verbs/run.sh
+### g_lon_e7
+      2 src/firmware_commands.cpp
+      2 src/firmware_config.cpp
+      1 src/firmware_config.h
+      1 src/fw_context.h
+      3 src/fw_main.cpp
+      8 tools/probe_inbox_verbs/identity_main.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      3 tools/probe_inbox_verbs/run.sh
+### set_name
+      1 lib/core/node.cpp
+      1 lib/core/node.h
+      2 src/firmware_config.cpp
+      1 src/fw_main.cpp
+      1 test/test_dual_layer.cpp
+     16 test/test_firmware_ui_status.cpp
+      4 test/test_node_hashlocate.cpp
+      4 test/test_node_r3.cpp
+      7 tools/probe_firmware_ui/probe_main.cpp
+      1 tools/probe_inbox_verbs/identity_main.cpp
+      5 tools/probe_inbox_verbs/probe_main.cpp
+      3 tools/probe_inbox_verbs/run.sh
+### effective_name
+      2 lib/core/node.cpp
+      1 lib/core/node.h
+      3 lib/core/node_hashlocate.cpp
+      1 src/firmware_commands.cpp
+      3 src/firmware_config.cpp
+      1 src/firmware_config.h
+      2 src/firmware_ui.cpp
+      1 src/firmware_ui_model.h
+      1 test/test_node_hashlocate.cpp
+      9 test/test_node_r3.cpp
+      2 tools/probe_firmware_ui/probe_main.cpp
+      3 tools/probe_firmware_ui/run.sh
+      3 tools/probe_inbox_verbs/identity_main.cpp
+      2 tools/probe_inbox_verbs/probe_main.cpp
+      5 tools/probe_inbox_verbs/run.sh
+      2 tools/probe_ui_model_mutations.py
+### print_identity
+      1 src/firmware_admin_client_verbs.h
+      2 src/firmware_commands.cpp
+      2 src/firmware_commands.h
+      3 src/fw_main.cpp
+      1 tools/probe_console_sink/negctl.py
+      1 tools/probe_console_sink/structural.py
+      5 tools/probe_inbox_verbs/probe_main.cpp
+      3 tools/probe_inbox_verbs/run.sh
+### seed_id
+     11 tools/probe_inbox_verbs/probe_main.cpp
+      1 tools/probe_inbox_verbs/transcript_main.cpp
+### build_variant
+      2 tools/probe_deferred_actions/run.py
+      7 tools/probe_firmware_ui/run.sh
+      6 tools/probe_inbox_verbs/run.sh
+### build_support
+      2 tools/probe_custody_usb/run.sh
+      2 tools/probe_deferred_actions/run.py
+      4 tools/probe_firmware_ui/run.sh
+      2 tools/probe_inbox_verbs/run.sh
+### reply strings
+      1 src/firmware_commands.cpp
+      3 src/firmware_config.cpp
+      9 tools/probe_inbox_verbs/identity_main.cpp
+      3 tools/probe_inbox_verbs/probe_main.cpp
+      1 tools/probe_inbox_verbs/run.sh

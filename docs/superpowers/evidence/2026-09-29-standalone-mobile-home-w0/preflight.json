@@ -1,0 +1,282 @@
+{
+ "brief_sha256": "2197165149e58a25b3eeccfc88906e652e69641734d8a532a123ecc42e56a6d8",
+ "failures": [],
+ "fence": {
+  "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md": {
+   "base": true,
+   "lines": 259,
+   "sha256": "ca393c0d18451a252dd58c62db8a679793e2ec15cff1284f15a93334c93f6741"
+  },
+  "src/device_nv.h": {
+   "base": true,
+   "lines": 1590,
+   "sha256": "5c0e4352ce99460146074a70151f94dde58a26e67ecc98142bbe004d4c9ce79c"
+  },
+  "src/firmware_commands.cpp": {
+   "base": true,
+   "lines": 1915,
+   "sha256": "ce1113baa75ecc991a9c8219862334fc6354155b99fa06f65d10f961a72fe128"
+  },
+  "src/firmware_config.cpp": {
+   "base": true,
+   "lines": 2436,
+   "sha256": "a104f0c87ecefb450f051a383b56b4c6e7195135d39399a2c6cc64aae2b32f2a"
+  },
+  "src/firmware_config.h": {
+   "base": true,
+   "lines": 237,
+   "sha256": "32cabbba4e56706a6abff945507f378278d39c067f4c4dcdba64050fde97015e"
+  },
+  "test/test_device_nv.cpp": {
+   "base": true,
+   "lines": 930,
+   "sha256": "93865b037b534addf7f7bfcbc084d94372a30bbf91cbe70205bf26b1085d1212"
+  },
+  "tools/probe_inbox_verbs/probe_main.cpp": {
+   "base": true,
+   "lines": 2432,
+   "sha256": "263dc475a6aed2309dc4d1fee2aeb4761c2dc6cd10f5a072340fb718b6b765f1"
+  },
+  "tools/probe_inbox_verbs/run.sh": {
+   "base": true,
+   "lines": 933,
+   "sha256": "098fc041537e0fa64aaa3cfb5bea04066428737368071a8a9dd133e574648e61"
+  },
+  "tools/probe_ui_model_mutations.py": {
+   "base": true,
+   "lines": 12894,
+   "sha256": "8dfc782a8e81acea1c52bf70299747665f15bea20643dbf272aa87a95edad5f1"
+  }
+ },
+ "git_diff_check": {
+  "exit": 0,
+  "out": ""
+ },
+ "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+ "inventory": {
+  "meshroute": {
+   "changed": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "tracker.md"
+   ],
+   "git_visible_now": 2195,
+   "inventoried": 2123,
+   "missing": [],
+   "new": [
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview.md",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/capacity.cpp",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/delta-reconstruction.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/design-delta.patch",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/preparation-deltas.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/preservation.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/qa-register-additions.patch",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/raw-logs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/register-delta.patch",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/reproduce-transcript-drift.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/review-inputs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/revision-1-reconstructed.md",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/revision-delta.patch",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-link-failure.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-measurement.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-stock-failure.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/verification.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/preservation.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/reproduce-static.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/review-inputs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-audit.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-excerpts.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/verification.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproducer.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproduction.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-gateway.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-heltec_mobile.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-gateway.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-heltec_mobile.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-output.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-summary.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/battery-counts.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/ble-source-fragments.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-runs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-summary.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-comparison.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-manifest.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/documentation-checks.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/gateway-repeat.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/heltec_mobile-repeat.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-cases.inc",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-output.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-platform-shim.h",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-results.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/inputs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-query.cpp",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-result.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/preservation.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/raw-logs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/readers.txt",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/register.diff",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/reproduce-identity.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/runs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/supplement-runs.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/symbol-readers.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/target-map.json",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/verify-characterization.py",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0/scope.py",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2.md",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/preservation.json",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/review-inputs.json",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/revision-delta.patch",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/source-review.json",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/verification.json",
+    "docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md"
+   ],
+   "new_hashes": {
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview.md": "c71b020826be8d198fd3f90e1bd7d30f2c8888764e2e7b7ce5eb83957b999063",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/SHA256SUMS": "a5088884232694282e3a5e15b4306f568e290a78f163e657aae970a868c1ff32",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/capacity.cpp": "72dee6dfa2b70f1cb819ded64bfe54a309eb88e08438bddf9b1b38c45a478ddb",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/delta-reconstruction.json": "83af7ccc45803a7ac4a0b6f1dee4e539c2ca20a67fc53e57b3273628f6bb0a80",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/design-delta.patch": "50a2b28d004ea068e5cba6fb505ff7806b5cc3b01d3265b457f71cd9ec0d752a",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/preparation-deltas.json": "2e1fb4a70a03bda16db86e376f72b16201ea36d023f8a4cb0916e1f1aac86ef5",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/preservation.json": "36b96fb7d680163c8991d4947a9f548572b297db3c292300ea4cc8c1df49add1",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/qa-register-additions.patch": "1f4c517b16ff74fc4b0141295f75992a874a49f90f1f71840b7b0b9637533ac8",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/raw-logs.json": "017e5e5aab955f7e7401287ba8e48397ad01b568adfc9d5885c3d91f228f96b8",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/register-delta.patch": "4bea5d911c4a4d32fade7a45e9087b5e66aaa3f12468ef0988de2be0199d712a",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/reproduce-transcript-drift.py": "72ecc87168a72a800bdf3fb3670039a15fb76f47581387d90bb39f454cd393b9",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/review-inputs.json": "4945ba1303e60217f61e7467bb12da134938f50945f717bdf7509b50e7263145",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/revision-1-reconstructed.md": "638f11d693568adbe8eb62d0ca04e623b5cd3ff463860cc12aa44c4f71161235",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/revision-delta.patch": "4d283c14d058fa762c495d1dca11b4bfc8ea3c2ea0783213a718342347e4d5e9",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-link-failure.txt": "17b77123eb2ef8b46adea6b18d449847f41232bb23cff6e1673eb21b27554571",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-measurement.json": "b525b0d4a25013f3c7067052ed89729ef3436707a2cdfbbd7d6f6c8abceb7a1d",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/transcript-stock-failure.txt": "4e7776b6224984aa57f2c0165a525f6417bcd105944f3df14d6b843882bc2365",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/verification.json": "dfc09cb7a33ed3bd3634bb0ef083c2726637d61d5f4a5df3960ea05c3f497057",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md": "03e80e368b102e12cb3d511c3fc11db81679adf67effeb1ac6846ffd5a1de37e",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/SHA256SUMS": "59d6b01812e20d4361fc731009c591440be9ef5a96cab059974f723d98cd488c",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/preservation.json": "10510af8339ace74da2a01dd0600ab392f4ba3fcfa2df85b8d8d30b02291a0ef",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/reproduce-static.py": "dae42338afdbde13c9b4a66af71f38b1aae54e51cd4866702be0232e00cd7cfb",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/review-inputs.json": "d32b33283eb4da12c1918ec9436d96264f5ca2ede0fe3d675ab67837928a5352",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-audit.json": "8c0935667d57156fe54c6408252188a46e8a227697ddd525798aab256200b033",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/source-excerpts.txt": "ee46b418fd2252cfd31cd529ae657143e9bdb6c9fd333c35ccac70dfd0c0864f",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/verification.json": "e335eec8197912a8cbadc83c1ea2cd1f6e54c3ce91f647668b935c1d85396d00",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md": "a10f1186cfb595ea42f05b84efeac6c0717945e1ee18c80f526f45237fa40942",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS": "88fed7716cfe8d130d339d5e0307b275ffc5b8ca0bc32b547b1f0ed690b916c1",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproducer.py": "4c198030f0a07f88736222de1094110adb8517cdf8b667c8186be42e46091618",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/b478-reproduction.json": "25f7dc9da961d13836257adcc3876f822abcdccbf9ba518984d55f10f0aab3d1",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-gateway.json": "8cea71edfa157c864d69fbf8d003d1533d704bb69ba37dc6ac081c19994fee9b",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-1-heltec_mobile.json": "662c267fbff833bd325588b193750ee7e14de5f9fc0f98e0bd245e1ff2ef5e81",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-gateway.json": "8cea71edfa157c864d69fbf8d003d1533d704bb69ba37dc6ac081c19994fee9b",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/base-2-heltec_mobile.json": "662c267fbff833bd325588b193750ee7e14de5f9fc0f98e0bd245e1ff2ef5e81",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-output.txt": "617e4d4c2ddca3e24a1d8ab74fab52c898325f415a78bab0928d1e25b56715df",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/baseline-summary.json": "a8a1540d79ddad7dfb2c318989b31825d68363a7f9d370a1ce361dcecf231d66",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/battery-counts.json": "85d4970ee067331f87dbbcbf1dfdb1f694bb9fc2a7f37356d6a5525665fb8165",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/ble-source-fragments.txt": "5ff33edf144968fcac333fee7a9a2a6496d33948eea460b2ab1316b04606683c",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-runs.json": "3e1291305174711742103613e498895c4207ee18480fd82c32aca92506f70b88",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/board-summary.json": "4c15ffee06e2a3dc079b8189eb613b580fb1cb2873c22353aa112849b4f4a52f",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-comparison.json": "90b3ad5662d7c433054050ff105bbc04eb8d56b0518e2ec06e1665fbfbd8bd9d",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/corpus-manifest.json": "78eaaf53e2cd93eb479b647d92ac64c523de101cb640f0015c217dd6def4db20",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/documentation-checks.json": "f740c2cc6738ba37c95ee5ca3690b6fcba2ebc732221d90cd23280c5847ef0bf",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/gateway-repeat.txt": "e61693f9a8d63eff5ea1d30c1598e386cd13e84ceb434aabe4a67187002f1978",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/heltec_mobile-repeat.txt": "959b6e3c0273af5dd34fa672e50735c41f6794d0752a758316322e93900a7325",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-abi.json": "b68c6ce33329f024ef4d04ff8fb72c5cf8b450c540b3fff6272b9e3a1c34869b",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-cases.inc": "bbd8558c8ff4f75eee3abc12bba7cf4f239354e88c28eac114bacf246a90464d",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-output.txt": "611906a909199e34a856147b77631a0e9492ff77f4c12cc3e1574fbfd4279d65",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-platform-shim.h": "8c1c2c23af29b6e61667676794371e6b208025da5490455686319a6f44de1703",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/identity-results.json": "048324d1acb28c437a98a6b5262884d2f5da9b7a6f73d9fc0c757688b4d486c6",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/inputs.json": "552fe453fc321197b816f68ee3c2f21b373cd5b405c1090e3337183a140ff1a7",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-query.cpp": "29b95a918ecf4c6c9b1b8f3e5b04aa5f762e0e93331721447131e2033a870f3a",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/oversize-result.txt": "be3bec1fd26894396542e116c4d71a99832252294fdd98e4ee641775f27607a8",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/preservation.json": "1ec2df5820d11cf97bcdc30ed0dceca35830f873a0516918e6e905c30480c706",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/raw-logs.json": "ac251f3f5d42b546bbdfceb029694b3ff11b2d7366f646199054430f1217e345",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/readers.txt": "d1026d7b0efc7dc1ad957072a5d192155fd9ad7bd9adb908bd19b7983069ca01",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/register.diff": "b6e7d588e8b81b7d1efa5a1fa9e9ed0e718a9a4471e694e4ab454616da34d263",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/reproduce-identity.py": "a5b5abd0d6c8e17084f81a5f1cb3ee07aaba1187ee9a9f74a3b8516df56f7aa5",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/runs.json": "2c124ec7893dbe84cbe5bfba5afb45c5d58fec415d81ede683d9c7e13099be10",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/supplement-runs.json": "7d6f668b5912d7d605cace698145127be06f81cd64586c0f8028534f27f6b74c",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/symbol-readers.json": "413beb8a745e38904bc70388af9cbc4a622e9bdf73b76289b106e7ba35ad7b35",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/target-map.json": "a9c93c22fc32266bdf94b24311c49a4f117502302f009f46147e02b64d34930f",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/verify-characterization.py": "c89ac14d256e2475af5ca947c416fe78486be7adce0b68b8612aa34ee590ea7a",
+    "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0/scope.py": "57292a128236c77c4781490364fbe4c1cb2498f4c338224ee80c721fa5fdce7e",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2.md": "61db8953ebb68abf8507f5dc4a593f4649d7f8f34165f419db7479431fd72a85",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/SHA256SUMS": "cffd9e3d7d6711e48d742bd0bd4fcde21bf25e2fa1b5ab9e44d68e5a0ecff6b3",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/preservation.json": "9eb40f6e3adb33cdcf97e7491f21ee86852660c21a050e527b1ba3731f47c8fc",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/review-inputs.json": "7f3a06e24db8e74cddcad7222dd0b4bb7b96da50bc648f08003de36168d3d8d7",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/revision-delta.patch": "190d5f73232a502b0098f4e35e4aaa12115464227206ff36f3cd1e3247c96503",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/source-review.json": "1e1b44d699ec2972ba4777a6054e463219f25e28324ac0970e298548dd54fa98",
+    "docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/verification.json": "6a44bb8abd85f7b7de5ee9b53c3ed153b183e9d9642494b66a78fa26e26bc25a",
+    "docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md": "2197165149e58a25b3eeccfc88906e652e69641734d8a532a123ecc42e56a6d8"
+   },
+   "unexplained_changed": [],
+   "unexplained_new": []
+  },
+  "simulator": {
+   "changed": [],
+   "git_visible_now": 285,
+   "inventoried": 285,
+   "missing": [],
+   "new": [],
+   "new_hashes": {},
+   "unexplained_changed": [],
+   "unexplained_new": []
+  }
+ },
+ "new_fence": {
+  "tools/probe_inbox_verbs/identity_main.cpp": null,
+  "tools/probe_inbox_verbs/identity_platform.h": null
+ },
+ "phase": "preflight",
+ "precheck_sums": {
+  "exit": 0,
+  "ok": 36
+ },
+ "preparation": {
+  "MEMORY.md": "242610cc1bca53d02e73e861f15b2eb7b9774fff892979cb33dc0f2db057f229",
+  "docs/2026-07-30-open-bug-register.md": "88fe7cea2aabb382dc3a50da32911957db2ab28f9400e4b243b00ab905834b86",
+  "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md": "a10f1186cfb595ea42f05b84efeac6c0717945e1ee18c80f526f45237fa40942",
+  "docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS": "88fed7716cfe8d130d339d5e0307b275ffc5b8ca0bc32b547b1f0ed690b916c1",
+  "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "da85f228c03d246cc50473caa1853a05bac778ab733d428da6e86f4838f166f0",
+  "tracker.md": "ee6ae9daee59901a29b7c17378f61bcabe3ca2aa6a38b1f08733bc8f88e59669"
+ },
+ "readonly": {
+  "tools/gen_command_inventory.py": {
+   "lines": 1186,
+   "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a"
+  },
+  "tools/probe_board_ui/expected.tsv": {
+   "lines": 598,
+   "sha256": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196"
+  },
+  "tools/probe_board_ui/run.sh": {
+   "lines": 1665,
+   "sha256": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf"
+  },
+  "tools/probe_console_sink/structural.py": {
+   "lines": 908,
+   "sha256": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19"
+  },
+  "tools/probe_deferred_actions/probe.cpp": {
+   "lines": 222,
+   "sha256": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587"
+  },
+  "tools/probe_deferred_actions/run.py": {
+   "lines": 190,
+   "sha256": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f"
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+   "lines": 148,
+   "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163"
+  }
+ },
+ "simulator": {
+  "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "status": ""
+ },
+ "staged": "",
+ "verdict": "PASS"
+}

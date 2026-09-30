@@ -1,0 +1,50 @@
+{
+  "source_sha256": "8dfc782a8e81acea1c52bf70299747665f15bea20643dbf272aa87a95edad5f1",
+  "mutation_batteries": [
+    {
+      "battery": "devicenv",
+      "source": "src/device_nv.h",
+      "count": 46,
+      "list_line": 5136
+    },
+    {
+      "battery": "config",
+      "source": "src/firmware_config_service.h",
+      "count": 32,
+      "list_line": 4543
+    },
+    {
+      "battery": "w1cname",
+      "source": "lib/core/node.cpp",
+      "count": 4,
+      "list_line": 12011
+    },
+    {
+      "battery": "consoleline",
+      "source": "lib/console/console_line.h",
+      "count": 12,
+      "list_line": 11426
+    },
+    {
+      "battery": "radmin4verbs",
+      "source": "src/firmware_admin_client_verbs.h",
+      "count": 30,
+      "list_line": 11125
+    }
+  ],
+  "selector_a": 46,
+  "selector_b": 78,
+  "union": 124,
+  "counterexample": {
+    "kind": "synthetic contract counterexample; not firmware execution",
+    "layout": "<IHH32s32sii; source IdBlob offsets and pre-check three-ABI size",
+    "candidate_equals_successfully_loaded_durable": true,
+    "live_name_hex": "4c697665204e616d65",
+    "requested_name_hex": "5361766564204e616d65",
+    "record_bytes": 80,
+    "candidate_sha256": "ba691d45788de085a247adad1035cce6d1db99a3ef4620a7139f857112d0ecd6",
+    "brief_step_3_result": "unchanged; zero writes",
+    "brief_step_4_condition": "otherwise, save then publish; not reached",
+    "live_name_matches_request_without_publication": false
+  }
+}

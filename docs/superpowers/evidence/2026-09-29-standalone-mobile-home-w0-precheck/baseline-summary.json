@@ -1,0 +1,50 @@
+{
+  "native": {
+    "cases": 3055,
+    "assertions": 199532,
+    "failed": 0,
+    "skipped": 0
+  },
+  "corpus": {
+    "rows": 36,
+    "comparison_mismatches": []
+  },
+  "abi": {
+    "stock_checks": 290,
+    "overlay_checks": 299,
+    "controls_red": 9
+  },
+  "firmware_ui": {
+    "arms": [
+      591,
+      1059,
+      591
+    ],
+    "controls": 240
+  },
+  "board_ui": {
+    "identities": 592,
+    "wiring": 60,
+    "wiring_controls": 186
+  },
+  "inbox_verbs": {
+    "accept": [
+      1400,
+      63
+    ],
+    "client": [
+      483,
+      71
+    ],
+    "oled": [
+      27,
+      7
+    ]
+  },
+  "console_sink": {
+    "checks": 720,
+    "controls": 152
+  },
+  "inventory": 197,
+  "board_pairs_repeatable": true
+}

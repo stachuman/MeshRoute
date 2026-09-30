@@ -1,0 +1,40 @@
+--- docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md (review 1)
++++ docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md (revision 2)
+@@ -222,7 +222,9 @@
+ **Identity-record contract** (a firmware service, not a copy of the console arm — B440):
+ 1. Build the candidate `/mrid` record through **one** live→record conversion carrying the running seed, the new
+    name and the running position (U2). A record unreadable at save time does not reset position or seed.
+-2. Exactly one `save_id`; the live name changes (`Node::set_name`) only after it succeeds (the console's order).
++2. At most one `save_id`. The live name changes (`Node::set_name`) only once the requested record is durable: after
++   a successful `save_id`, or when a successful load shows that the identical record is already stored — which
++   costs no write but still publishes the requested name if the live one differs. A failed save publishes nothing.
+    The console's position setters follow the same rule: `cfg set lat` and `cfg set lon` publish the new
+    coordinate only after a successful save (B482, owner-ruled into W0 on 2026-09-29).
+ 3. Failure: live identity unchanged, result `NAME NOT SAVED` + `NV WRITE FAILED`, draft retained. Identical bytes:
+@@ -237,8 +239,8 @@
+ failed — and the console's `cfg set name` is its first caller; W7's panel is the second. The one live→record
+ conversion is a pure helper beside `IdBlob`; every candidate comes from the live seed, name and position, never
+ from a record that failed to load. The durable record is read only to recognise a byte-identical save, which
+-then costs no write; an absent, invalid or different record is repaired even when the requested name is
+-unchanged ([W0 pre-check](../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md) §4).
++then costs no write but still makes the requested name live; an absent, invalid or different record is repaired
++even when the requested name is unchanged ([W0 pre-check](../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md) §4).
+ 
+ ### 4.4 Name prompt before setup [AGREED D10]
+ 
+@@ -1097,7 +1099,7 @@
+ 
+ | # | Kind | Content | Depends | Gate obligation |
+ | --- | --- | --- | --- | --- |
+-| W0 | fix, `src` | B440: one live→`/mrid` conversion for `cfg set name/lat/lon` (and `regen`); B448: a name over 32 bytes is refused (`too_long`), never shortened; the §4.3 rename service (the console its first caller); B482: the coordinate setters publish only after a successful save (owner-ruled 2026-09-29) | — | native (the conversion as a pure helper; 32 accepted, 33 refused), corpus, 2 boards, touched batteries; a real-config inbox-verbs arm drives `cfg set` and `regen` against a failing slot. **Status 2026-09-29: QA pre-check complete** ([pre-check](../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md)); [brief revision 1](../plans/2026-09-29-standalone-mobile-home-w0-identity-record.md) awaits QA review. B478, the mutation tool's decoding, is its own tool package before W7 (owner-ruled 2026-09-29). |
++| W0 | fix, `src` | B440: one live→`/mrid` conversion for `cfg set name/lat/lon` (and `regen`); B448: a name over 32 bytes is refused (`too_long`), never shortened; the §4.3 rename service (the console its first caller); B482: the coordinate setters publish only after a successful save (owner-ruled 2026-09-29) | — | native (the conversion as a pure helper; 32 accepted, 33 refused), corpus, 2 boards, touched batteries; a real-config inbox-verbs arm drives `cfg set` and `regen` against a failing slot. **Status 2026-09-29: QA pre-check complete** ([pre-check](../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md)); [brief revision 2](../plans/2026-09-29-standalone-mobile-home-w0-identity-record.md) awaits QA's scoped re-review (revision 1 HOLD, W0R-1–W0R-3). B478, the mutation tool's decoding, is its own tool package before W7 (owner-ruled 2026-09-29). |
+ | W1 | fix, `src` | B241: `label_from_hash` terminates at the copied length (one byte reserved; the `0x%08lx` fallback and zero capacity handled); `peer_name_find` keeps its raw full-32-byte contract for the push body and `/mrpeers` persistence ([pre-check](../evidence/2026-09-24-standalone-mobile-home-w1-precheck.md)) | — | `src`-only gate (P6): native (plus an exact-capacity guard on the raw API), corpus (predicted 36/36 identical), the two board envs, the firmware-UI probe driving the real adapter with poisoned destinations and assertion-failing controls **Status 2026-09-25: INDEPENDENT QA PASS; B241 closed**, owner commit `8360802`: native 2951/195777/0; corpus 36/36 identical; firmware-UI 467/902/467 with 225 verified controls / 0 unusable; gateway unchanged, mobile RAM unchanged / flash +28 B. [QA receipt](../evidence/2026-09-25-standalone-mobile-home-w1-qa.md). Product decisions and the remaining packages are unchanged. |
+ | W1b | fix, `lib/core` | B444: refuse a `-t` post while the team-local ID is 0 (or the owner rules the intended pre-DAD behaviour) | — | full gate; independent of the Home work, which hides SEND TO TEAM regardless |
+ | W1c | change, `lib/core` | D10 (§4.6): unnamed devices advertise no name; `whoami` prints `name=""`; the default-name test and comments rewritten | — | full gate: native from a fresh peer cache (exact INTRO, key-answer and key-request bytes from an unnamed node — 26, 26 and 27 bytes shorter; a cached name survives an empty one), corpus keystone per `simulation/BASELINE.md` (predicted unchanged), boards; every `effective_name` user grepped (P7). **Status 2026-09-25:** **INDEPENDENT SOFTWARE QA PASS**, owner commit `c8e36d8`. [Receipt](../evidence/2026-09-25-standalone-mobile-home-w1c-qa.md): native 2962/195904/0; 36/36 corpus identical; ABI/RAM unchanged; flash −304/−140 B; 34/34 mutations RED. B447 unnamed half closed; named-peer precedence and B450 remain open. |
+@@ -1358,4 +1360,5 @@
+ W0 builds the identity-record service with a typed result, the console its first caller, and one pure live→record
+ conversion beside `IdBlob`; every candidate is built from live values, never from a record that failed to load. The
+ owner folded B482 into W0 — the console's position setters publish only after a successful save — and scheduled
+-B478, the mutation tool's decoding, as its own tool package before W7. Documentation only.
++B478, the mutation tool's decoding, as its own tool package before W7. At the W0 brief review (W0R-1), §4.3's item 2
++was corrected: a byte-identical save costs no write but still publishes the requested name. Documentation only.

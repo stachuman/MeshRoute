@@ -1,0 +1,10 @@
+/usr/bin/ld: /tmp/mr-w0-transcript-rereview-proof/transcript/diagnostic-driver.o: in function `__wrap_crypto_wipe':
+transcript_main.cpp:(.text+0x55): undefined reference to `__real_crypto_wipe'
+/usr/bin/ld: transcript_main.cpp:(.text+0xe1): undefined reference to `__real_crypto_wipe'
+/usr/bin/ld: /tmp/mr-w0-transcript-rereview-proof/transcript/diagnostic-driver.o: in function `__wrap__ZN9meshroute4Node10on_commandERKNS_7CommandE':
+transcript_main.cpp:(.text+0x17e): undefined reference to `__real__ZN9meshroute4Node10on_commandERKNS_7CommandE'
+/usr/bin/ld: /tmp/mr-w0-transcript-rereview-proof/transcript/o_firmware_commands.o: in function `mrfw::dump_status(Print&)':
+firmware_commands.cpp:(.text+0x3ed6): undefined reference to `mrfw::remote_action_print_status(Print&)'
+/usr/bin/ld: /tmp/mr-w0-transcript-rereview-proof/transcript/o_firmware_commands.o: in function `mrfw::exec_console_line(char const*, unsigned long, mrfw::LineFormat, Print&, char*, unsigned long, mrfw::CommandContext const&)':
+firmware_commands.cpp:(.text+0x6f68): undefined reference to `mrfw::remote_action_prepare(char const*, unsigned long, mrfw::CommandPolicy const&, mrfw::CommandContext const&, unsigned int, Print&)'
+collect2: error: ld returned 1 exit status

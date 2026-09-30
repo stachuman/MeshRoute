@@ -1,0 +1,201 @@
+--- revision-1
++++ revision-2
+@@ -1,7 +1,8 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # Standalone Home W0 — the identity record: one live conversion, the rename service and loud refusals (`src` fix)
+ 
+-**Revision 1 — 2026-09-29 — draft for QA review.**
++**Revision 2 — 2026-09-29 — for QA's scoped re-review.** The [brief review](../evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md)
++held revision 1 (`638f11d6…1235`) on W0R-1–W0R-3; this revision folds them in (§8).
+ 
+ - **Base:** owner commit **`0f23aee`** (`0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec`, "W6"), with no uncommitted candidate. The
+   pre-check's `inputs.json` is the authority for the whole tree (§1). The simulator is at **`6585649`**
+@@ -104,13 +105,14 @@
+ 
+ | Path | Kind | SHA-256 |
+ | --- | --- | --- |
+-| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.24) | `d8db66a8378f84333e76def6cb54d1302224ae1e0b8be3ab4d8f626da8d4054d` |
+-| `docs/2026-07-30-open-bug-register.md` | authority (B440, B448, B478, B482–B486; §0) | `b9e4ae5642c120f28028bbbadf9bdaec33735707442aaeafe62dfd2946997698` |
++| `docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md` | authority (r2.24) | `3727f88ef3c56692691ffe88282079ab5be864cfb8d94f8ff3dd1947b0ac54f3` |
++| `docs/2026-07-30-open-bug-register.md` | authority (B440, B448, B478, B482–B486; §0) | `6e7200403b4ba1b52ed91964a09aab10eb662d40d8a01bd47aca5c26b8104d94` |
+ | `docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md` | authority (pre-check) | `a10f1186cfb595ea42f05b84efeac6c0717945e1ee18c80f526f45237fa40942` |
+ | `docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/SHA256SUMS` | evidence — 36 entries, including `inputs.json` (`552fe453…f1a7`) | `88fed7716cfe8d130d339d5e0307b275ffc5b8ca0bc32b547b1f0ed690b916c1` |
+ | `tracker.md`, `MEMORY.md` | context pointers | `f524269409dc3023c20301d8f7c6e2cb2c3f868764beb2de3965d5004a577632`, `029243f44ebded632f6840806ed02433be536d20ea8b1abe2cabc22be9250ba4` |
+ 
+-The design changes are r2.24: §4.3's service and conversion, B482's rule, and §13 W0. The register changes are QA's
++The design changes are r2.24: §4.3's service and conversion, B482's rule, W0R-1's correction of §4.3's item 2, and
++§13 W0. The register changes are QA's
+ B482–B486 from the pre-check, the owner's B482 and B478 rulings in their rows, and a W0 entry in §0. This brief is
+ pinned by the hash QA issues on PASS, not listed here.
+ 
+@@ -162,19 +164,24 @@
+    no live change.
+ 2. Build the candidate from live values, with the requested name.
+ 3. Compare it with the durable record **only when `load_id` succeeds**, and only to coalesce an exactly equal
+-   candidate over its complete bytes. An equal one is `unchanged`, with zero writes.
++   candidate over its complete bytes. An equal one is `unchanged`: zero writes, **and then the requested name is
++   made live** through `Node::set_name` if the live name differs — the durable record already holds it (W0R-1).
+    - Live-name equality alone is never enough: an absent, invalid, partial or different record is repaired, even
+      when the requested name is unchanged.
+    - Rejected record bytes are never resurrected.
+-4. Otherwise, exactly one `save_id`. Only after it succeeds is the live name published through `Node::set_name`.
+-5. A failed save is `nv_save_failed`, with the live identity unchanged.
++4. Otherwise, exactly one `save_id`. Only after it succeeds is the requested name published through
++   `Node::set_name`.
++5. A failed save is `nv_save_failed`: nothing is published, and the live identity is unchanged.
++
++Both success paths — already durable (`unchanged`) and newly saved (`saved`) — end with the requested counted name
++live. `unchanged` describes the write decision, not the previous live name.
+ 
+ **The console arm** — the service's first caller:
+ 
+ | Case | Console output | Effect |
+ | --- | --- | --- |
+ | empty value | `> cfg err bad_args` | as today, before anything else |
+-| `saved` or `unchanged` | `> cfg ok name (saved to /mrid)` | today's success bytes; `unchanged` costs no write |
++| `saved` or `unchanged` | `> cfg ok name (saved to /mrid)` | today's success bytes; `unchanged` costs no write; both leave the requested name live |
+ | over 32 bytes | `> cfg err too_long` | zero writes; the seed, name, both position mirrors, membership and every unrelated NV slot unchanged |
+ | a failed save | `> cfg err nv_save_failed` | live identity unchanged |
+ 
+@@ -235,10 +242,26 @@
+ - **Build:** `identity_main.cpp` is its driver and `identity_platform.h` its local platform shim — the LoRa defaults,
+   the `default_output_dbm` stand-in, the `__FlashStringHelper` alias, and the missing `g_persist_team_local_id`
+   definition (pre-check §7).
+-- **Stub exclusion:** `probe_main.cpp` gains only a narrow exclusion of its config-handler stubs, for this arm. The
+-  existing stub-based dispatch-ownership cases stay exactly as they are.
++- **Stub exclusion:** `probe_main.cpp` gains only a narrow exclusion of its config-handler stubs, and of the legacy
++  stand-in below, for this arm. The existing stub-based dispatch-ownership cases stay exactly as they are.
++- **Real code only:** the arm links the real adapter and service from `firmware_config.cpp`, and its controls
++  perturb the real production adapter and callers — never the stand-in.
+ - **Roles:** it runs under both the ACCEPT and CLIENT defines; CLIENT's `regen` debt refusal is preserved.
+ - **Transport:** it is never described as the BLE adapter — B483's branch stays outside it.
++
++**The legacy binding (W0R-2).** Once `do_regen` calls the snapshot adapter defined in `firmware_config.cpp`, every
++existing build of the command TU that does not link the config TU needs a provider for that symbol:
++- inbox-verbs' ACCEPT, CLIENT and OLED arms (`run.sh::build_variant`);
++- the transcript profiles — `transcript.py` builds a driver that includes `probe_main.cpp`;
++- deferred-actions — its `probe.cpp` includes `probe_main.cpp`.
++
++`probe_main.cpp` therefore gains **one labelled, signature-correct adapter stand-in, for those legacy arms only**:
++- it builds the candidate from the fixture's live fields through the real `id_blob_from_live`;
++- it reads no NV, installs no identity or crypto, and adds no production hook;
++- the identity arm excludes it, together with the eight config-handler stubs, and never satisfies a proof through
++  it;
++- the legacy handler-recording behaviour, the transcript's sink contract, `transcript.py`, and the
++  deferred-actions builder and source stay unchanged.
+ 
+ **The proof matrix** (pre-check §9):
+ - **Storage × writer:** healthy, absent, unreadable, short and bad-header storage × name, lat, lon and `regen`. After
+@@ -246,7 +269,13 @@
+   live state matches.
+ - **Live versus durable:** a durable record that differs from the live state is repaired from live values.
+ - **Names:** exact full 32-byte and high-byte names; save success, failure, byte-identical no-op (zero writes, by the
+-  NV fake's counter) and repair; the B448 cases of §2.2.
++  NV fake's counter) and repair.
++- **Already durable, not yet live (W0R-1):** live `Live Name`, a durable record holding `Saved Name` with the same
++  seed and position, requested `Saved Name` — the result is `unchanged`, with zero writes, and `Saved Name` is live
++  afterwards. The existing repair cases, with the live name equal to the request but the record missing, bad or
++  different, stay.
++- **B448 through the real router:** empty; spaces and literal quotes; 31, 32 and 33 ASCII bytes; a multi-byte
++  character within 32; a 2- or 3-byte character crossing byte 32; 32 high bytes; more than 255 bytes.
+ - **Refused input:** zero writes and unchanged live state, as §2.2 states.
+ - **B482:** a failed coordinate save leaves both mirrors unchanged and prints the error.
+ - **`regen`:** one checked write and the post-save installs; the CLIENT busy guard and the administration stores
+@@ -258,7 +287,11 @@
+ - the missing overlength early return;
+ - publication before the save — name and coordinate;
+ - a no-op that writes;
+-- a coalescing that skips the repair of a bad record.
++- a coalescing that skips the repair of a bad record;
++- an equal-record branch that returns before making the requested name live.
++
++A control counts only when it fails its intended assertion; a crash, a build failure or a vacuous control is
++rejected, never counted RED.
+ 
+ **Fixtures that must follow the live precondition:**
+ - `regen`'s R12, R21, R22, R25 and R26 seed only NV. Correct them to install the matching live name and position,
+@@ -280,6 +313,8 @@
+ - the regen fixtures' live preconditions (§2.7);
+ - the transcript driver's live-name precondition;
+ - the new identity arm's checks and controls;
++- the legacy adapter stand-in (W0R-2), named, with the link reconciliation of the legacy arms, the transcript
++  profiles and deferred-actions;
+ - the new native cases;
+ - the `devicenv` additions.
+ 
+@@ -287,7 +322,8 @@
+ - **Selector (a)** — the batteries whose source W0 changes: `devicenv` (46 at the base).
+ - **New `devicenv` entries** for the helper: a dropped seed, name, latitude, longitude or stamp; accepted overlength;
+   narrowing before admission.
+-- **Selector (b):** `config` 32, `w1cname` 4, `consoleline` 12 and `radmin4verbs` 30 — 124.
++- **Selector (b):** `config` 32, `w1cname` 4, `consoleline` 12 and `radmin4verbs` 30 — **78**. With (a), the union is
++  **124** entries before W0's additions (W0R-3).
+ - If W0 touches `firmware_config_parse.h`, add `cfgparse` 8 and `sliceDtoken` 2 to (a). It is not in the fence, so
+   that would be a STOP-1 first.
+ 
+@@ -329,8 +365,8 @@
+   touches them;
+ - `src/firmware_commands.cpp` — `regen`'s candidate (§2.5), and accurate comments where W0 touches them;
+ - `test/test_device_nv.cpp` — the native cases;
+-- `tools/probe_inbox_verbs/run.sh`, `probe_main.cpp` and `transcript_main.cpp`, and the new `identity_main.cpp` and
+-  `identity_platform.h` — §2.7;
++- `tools/probe_inbox_verbs/run.sh`, `probe_main.cpp` (the stub exclusion and the legacy adapter stand-in) and
++  `transcript_main.cpp`, and the new `identity_main.cpp` and `identity_platform.h` — §2.7;
+ - `tools/probe_ui_model_mutations.py` — the `devicenv` additions and the native PIN;
+ - `docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md` — a stock regeneration, line anchors only;
+ - the report and evidence (§5).
+@@ -377,6 +413,7 @@
+ 5. **Probes:**
+    - inbox-verbs default: ACCEPT, CLIENT, OLED and the new identity arm, with every check and control accounted
+      for;
++   - the transcript profiles, built and passing with the legacy stand-in;
+    - console-sink, board-UI (exit 0, 592), deferred-actions (source unchanged), device-radio, prov-tx and the
+      ownership scanner;
+    - report the counts against the baselines, and reconcile the ledger.
+@@ -413,8 +450,8 @@
+ - **Boards** — its own `pair --jobs=1` into a fresh `.pio-measure/` directory, read field by field against the coder's
+   `final-1`;
+ - **Selector (a)** — `devicenv` with W0's additions;
+-- **The affected probes:** inbox-verbs with the identity arm, console-sink, board-UI, deferred-actions, device-radio,
+-  prov-tx and the ownership scanner; the stock ABI plus the overlay.
++- **The affected probes:** inbox-verbs — its identity arm, its legacy arms and the transcript profiles — console-sink,
++  board-UI, deferred-actions, device-radio, prov-tx and the ownership scanner; the stock ABI plus the overlay.
+ 
+ The union's selector (b), full discovery and the warning census stay in the coder's chain.
+ 
+@@ -424,12 +461,14 @@
+   change; a changed read, validation or boot path.
+ - **Refusal:** a name over 32 bytes that writes, publishes or narrows before admission; a changed success or error
+   line other than `> cfg err too_long`.
+-- **Ordering:** a live name or coordinate published before its save succeeds.
++- **Ordering:** a live name or coordinate published before the requested record is durable; anything published
++  after a failed save; an `unchanged` success that leaves the previous live name.
+ - **Coalescing:** a no-op that writes, or a repair skipped because the live name matched.
+ - **`regen`:** its save moved out of `do_regen`; a changed admission, entropy or install order; a lost CLIENT
+   refusal.
+ - **Fence:** an edit outside §3; a `fw_main.cpp` change; a moved board-UI anchor or a manifest delta; a changed
+-  inbox builder contract, or any deferred-actions source change; `seed_id` made to install crypto globally.
++  inbox builder contract, `transcript.py` change or any deferred-actions source change; `seed_id` made to install
++  crypto globally; a proof satisfied through the legacy stand-in.
+ - **Ledger:** any changed, retired or added expectation, control or mutation absent from the §2.8 ledger, or any
+   weakened.
+ - **Inventory:** a semantic inventory change.
+@@ -506,3 +545,18 @@
+ - It folds in the owner's B482 ruling.
+ - It keeps B478 and B483–B486 out.
+ - It defines the closed disposition ledger and the proof matrix.
++
++**Revision 2 (2026-09-29)** folds in the brief review (HOLD, W0R-1–W0R-3):
++- **W0R-1:** an `unchanged` rename — the identical record already durable — costs no write but still makes the
++  requested name live. Both success paths end with the requested name live, and a failed save publishes nothing.
++  Added: the divergent-name case, its control, and the STOP wording. Design r2.24's §4.3 item 2 is corrected to
++  match.
++- **W0R-2:** the legacy command-TU builds get one labelled adapter stand-in in `probe_main.cpp`, built on the real
++  pure conversion. The identity arm excludes it and exercises only the real adapter and service. The transcript
++  profiles join the gates.
++- **W0R-3:** selector (b) is 78 entries; 124 is the union with (a).
++- **Also, from the review's notes:** B448's boundary and over-255 cases through the real router, and control
++  classification that rejects crashes, build failures and vacuous controls.
++- **Pins:** the design and the register.
++
++Nothing else changes.

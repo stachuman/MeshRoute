@@ -1,0 +1,29 @@
+{
+  "phase": "before-landing",
+  "repositories": {
+    "meshroute": {
+      "head": "0f23aee8f5eeaa6e176e3ea37b2acaffb33622ec",
+      "entry_paths": 2239,
+      "unchanged_paths": 2239,
+      "changed": {},
+      "missing": [],
+      "added": [],
+      "staged": 0,
+      "whitespace_exit": 0,
+      "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md\n M docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md\n M src/device_nv.h\n M src/firmware_commands.cpp\n M src/firmware_config.cpp\n M src/firmware_config.h\n M test/test_device_nv.cpp\n M tools/probe_inbox_verbs/probe_main.cpp\n M tools/probe_inbox_verbs/run.sh\n M tools/probe_ui_model_mutations.py\n M tracker.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-rereview/\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-brief-review/\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0-precheck/\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0.md\n?? docs/superpowers/evidence/2026-09-29-standalone-mobile-home-w0/\n?? docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2.md\n?? docs/superpowers/evidence/2026-09-30-standalone-mobile-home-w0-brief-rereview-2/\n?? docs/superpowers/plans/2026-09-29-standalone-mobile-home-w0-identity-record.md\n?? tools/probe_inbox_verbs/identity_main.cpp\n?? tools/probe_inbox_verbs/identity_platform.h\n"
+    },
+    "simulator": {
+      "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+      "entry_paths": 285,
+      "unchanged_paths": 285,
+      "changed": {},
+      "missing": [],
+      "added": [],
+      "staged": 0,
+      "whitespace_exit": 0,
+      "status": ""
+    }
+  },
+  "coder_checksum_entries_verified": 42,
+  "verdict": "PASS"
+}
