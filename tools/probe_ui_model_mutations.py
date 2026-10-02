@@ -12331,27 +12331,82 @@ def md5(p):
     return _md5(p)
 
 
+class SuiteOutput(NamedTuple):
+    """A CREDITED native run ([[B478]] A3): its exit status and both RAW streams, unmodified — the baseline gate's
+    failing-output print reads them."""
+    rc: int
+    stdout: bytes
+    stderr: bytes
+
+
 class SuiteFailure(NamedTuple):
+    """A NO-VERDICT result ([[B478]] A3): the phase (`build` or `run`), its exit status (negative = killed by that
+    signal), both RAW streams separately and unmodified, and — when a summary was printed but not credited — why."""
     reason: str
     rc: int
-    text: str
+    stdout: bytes
+    stderr: bytes
+    note: str = ""
 
 
-def unusable_verdict(reason, rc, text):
-    """Pure classification; retain at most the last 64 KiB and bound the inline excerpt separately."""
-    lines = text.splitlines()
+# ★★ [[B478]] — CHILD OUTPUT IS BYTES, AND THERE IS ONE HUMAN VIEW OF IT. A mutant's build or test binary may write
+#    any byte (a raw `0xBB` marker, half a UTF-8 sequence): strict decoding raised `UnicodeDecodeError` before any
+#    verdict, and `errors="ignore"` silently dropped bytes from the retained record. ⇒ classification reads raw bytes,
+#    retention keeps them byte for byte (`retain_unusable`), and every HUMAN view — the excerpt lines, the baseline
+#    refusal lines and the `.log` file — is this one escape, which is total and lossless: printable ASCII other than
+#    `\`, plus tab and line feed, passes unchanged; `\` becomes `\\`; every other byte becomes `\xHH` (lowercase).
+#    ⛔ A view is for diagnosis only and is never evidence — the raw files are.
+_VIEW_BYTES = 65536
+
+
+def escape_child_bytes(data, limit=None):
+    """The ONE human rendering of child bytes; `limit` bounds the rendered width without splitting an escape."""
+    out, used = [], 0
+    for b in data:
+        if b == 0x5C:
+            tok = "\\\\"
+        elif 0x20 <= b <= 0x7E or b in (0x09, 0x0A):
+            tok = chr(b)
+        else:
+            tok = f"\\x{b:02x}"
+        if limit is not None and used + len(tok) > limit:
+            break
+        out.append(tok)
+        used += len(tok)
+    return "".join(out)
+
+
+def bounded_view(stdout, stderr):
+    """The `.log` view: the escape of the LAST 64 KiB of raw stdout followed by raw stderr. The bound is taken on raw
+    bytes, so no byte inside it is dropped at the cut (the old text tail lost a cut UTF-8 sequence)."""
+    return escape_child_bytes((stdout + stderr)[-_VIEW_BYTES:])
+
+
+def child_lines(data):
+    """Raw child output split on LINE FEEDS ONLY (a trailing newline ends the last line; it does not add one)."""
+    lines = data.split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    return lines
+
+
+def unusable_verdict(failure):
+    """Pure classification of a `SuiteFailure`: its headline, a bounded inline excerpt and the bounded `.log` view."""
+    reason, rc = failure.reason, failure.rc
+    lines = child_lines(failure.stdout + failure.stderr)
     if reason == "build":
         line = f"the mutant does not compile (build rc {rc})"
-        excerpt = [x for x in lines if "error:" in x][:3] or lines[-5:]
+        excerpt = [x for x in lines if b"error:" in x][:3] or lines[-5:]
     elif reason == "run":
         signal_note = f" / killed by signal {-rc}" if rc < 0 else ""
         line = f"the suite ran without a verdict (binary rc {rc}{signal_note})"
         excerpt = lines[-12:]
     else:
         raise ValueError(f"unknown suite failure reason: {reason!r}")
-    extra = [f"        {x[:160]}" for x in excerpt]
-    capture = text.encode("utf-8")[-65536:].decode("utf-8", errors="ignore")
-    return line, extra, capture
+    extra = [f"        {escape_child_bytes(x, 160)}" for x in excerpt]
+    if failure.note:
+        extra.insert(0, f"        not credited: {failure.note}")
+    return line, extra, bounded_view(failure.stdout, failure.stderr)
 
 
 def unusable_log_path(target, label):
@@ -12359,15 +12414,115 @@ def unusable_log_path(target, label):
     return Path(ROOT) / ".pio" / "mutation-unusable" / target / (label.split()[0] + ".log")
 
 
-def retain_unusable(target, label, capture):
+def stream_record(data):
+    return {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def unretained_record(meta, declared, stdout, stderr, failed):
+    """WHAT REMAINS when a retained set cannot be persisted or a transfer does not match its declaration (A5): the
+    console record. The raw bytes themselves are removed with the scratch root at exit."""
+    signal_note = f" / killed by signal {meta['signal']}" if meta.get("signal") else ""
+    lines = [f"        NOT RETAINED — {failed}",
+             f"        {meta['id']}: phase {meta.get('phase')}, exit {meta.get('exit')}{signal_note}"]
+    for name, data in (("stdout", stdout), ("stderr", stderr)):
+        want = (declared or {}).get(name) or {}
+        got = stream_record(data) if data is not None else {"bytes": "(unreadable)", "sha256": "(unreadable)"}
+        lines.append(f"        {name}: declared {want.get('bytes')} B sha256 {want.get('sha256')}; "
+                     f"recomputed {got['bytes']} B sha256 {got['sha256']}")
+    lines.append(f"        bounded view (escaped; the last {_VIEW_BYTES} raw bytes of stdout + stderr):")
+    lines += [f"        | {x}" for x in bounded_view(stdout or b"", stderr or b"").split("\n")]
+    return lines
+
+
+def retain_unusable(target, label, meta, stdout, stderr):
+    """PARENT: persist one retained set (A5) — the raw stdout and the raw stderr byte for byte, a metadata record and
+    the bounded `.log` view at `unusable_log_path` — then RE-READ and verify all four.
+
+    Returns `(lines, problem)`. ⛔ It never raises on a failed write and never claims retention after one: `problem`
+    is then the integrity message and `lines` is the console record of what remains."""
     path = unusable_log_path(target, label)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(capture, encoding="utf-8")
-    return f"        retained: {path}"
+    raw = {".stdout": stdout, ".stderr": stderr}
+    record = dict(meta, target=target, view=path.name,
+                  stdout=dict(stream_record(stdout), file=path.with_suffix(".stdout").name),
+                  stderr=dict(stream_record(stderr), file=path.with_suffix(".stderr").name))
+    body = json.dumps(record, indent=1, sort_keys=True) + "\n"
+    view = bounded_view(stdout, stderr)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for suffix, data in raw.items():
+            path.with_suffix(suffix).write_bytes(data)
+        path.with_suffix(".json").write_text(body, encoding="ascii")
+        path.write_text(view, encoding="ascii")
+        for suffix, data in raw.items():
+            if path.with_suffix(suffix).read_bytes() != data:
+                raise OSError(f"{path.with_suffix(suffix)} reads back different bytes")
+        if path.with_suffix(".json").read_text(encoding="ascii") != body or path.read_text(encoding="ascii") != view:
+            raise OSError(f"{path} or its metadata reads back different text")
+    except OSError as error:
+        failed = f"{path}: {error}"
+        return (unretained_record(meta, {"stdout": stream_record(stdout), "stderr": stream_record(stderr)},
+                                  stdout, stderr, failed),
+                f"{meta['id']}: its evidence was NOT retained ({failed}); the raw bytes are removed with the scratch "
+                f"root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them")
+    return [f"        retained: {path}",
+            f"        raw streams: {path.with_suffix('.stdout').name} ({len(stdout)} B, sha256 "
+            f"{record['stdout']['sha256'][:16]}…), {path.with_suffix('.stderr').name} ({len(stderr)} B, sha256 "
+            f"{record['stderr']['sha256'][:16]}…); metadata {path.with_suffix('.json').name}"], None
+
+
+def ship_streams(stem, stdout, stderr):
+    """WORKER: write one failure's raw streams beside this shard's result file, in the scratch root, and return
+    their declaration (A5). ⛔ The bytes must reach the PARENT: this tree is deleted when the run ends."""
+    declared = {}
+    for name, data in (("stdout", stdout), ("stderr", stderr)):
+        path = f"{_SHARD_RESULT}.{stem}.{name}"
+        with open(path, "wb") as shipped:
+            shipped.write(data)
+        declared[name] = dict(stream_record(data), file=os.path.basename(path))
+    return declared
+
+
+def receive_streams(scratch, declared):
+    """PARENT: read the raw streams a worker shipped and RECOMPUTE each one's length and SHA-256 against the worker's
+    declaration (A5). Returns `(stdout, stderr, problems)`; a stream that cannot be read comes back as None."""
+    got, problems = {}, []
+    for name in ("stdout", "stderr"):
+        want = (declared or {}).get(name) or {}
+        try:
+            data = Path(scratch, os.path.basename(want["file"])).read_bytes()
+        except (KeyError, TypeError, OSError) as error:
+            got[name] = None
+            problems.append(f"its shipped {name} cannot be read ({error!r})")
+            continue
+        got[name] = data
+        if (len(data), hashlib.sha256(data).hexdigest()) != (want.get("bytes"), want.get("sha256")):
+            problems.append(f"its shipped {name} does not match the worker's declaration (declared "
+                            f"{want.get('bytes')} B sha256 {want.get('sha256')}, received {len(data)} B sha256 "
+                            f"{hashlib.sha256(data).hexdigest()})")
+    return got["stdout"], got["stderr"], problems
+
+
+def retain_shipped(target, ident, label, worker, evidence):
+    """PARENT: receive one worker-shipped failure, verify the transfer, then retain it. Returns `(lines, problem)`
+    exactly like `retain_unusable`; a transfer that does not match is never retained and never claimed."""
+    evidence = evidence or {}
+    rc = evidence.get("rc")
+    meta = dict(id=ident, label=label, worker=worker, phase=evidence.get("phase"), exit=rc,
+                signal=-rc if isinstance(rc, int) and rc < 0 else None, note=evidence.get("note", ""))
+    if evidence.get("kind"):
+        meta["kind"] = evidence["kind"]
+    stdout, stderr, problems = receive_streams(_SCRATCH_ROOT, evidence.get("streams"))
+    if problems:
+        failed = "; ".join(problems)
+        return (unretained_record(meta, evidence.get("streams"), stdout, stderr, failed),
+                f"{ident} (worker {worker}): {failed} — NOT retained; the raw bytes are removed with the scratch root "
+                f"at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them")
+    return retain_unusable(target, label, meta, stdout, stderr)
 
 
 def selftest_unusable():
-    """Exercise the real classifier and parent retention path without invoking a build or a mutation."""
+    """Exercise the real classifier and the real parent retention without invoking a build or a mutation: both
+    failure arms, the `.log` view and the two raw streams."""
     build_lines = [f"build noise {i:02d}" for i in range(40)]
     for i in (7, 19, 31):
         build_lines.insert(i, f"error: fabricated build failure {i}")
@@ -12382,18 +12537,31 @@ def selftest_unusable():
     ]
     try:
         for reason, rc, text, expected_line, expected_extra in examples:
+            raw = text.encode("utf-8")
+            cut = raw.index(b"\n", len(raw) // 2) + 1          # the two raw streams are retained SEPARATELY
+            stdout, stderr = raw[:cut], raw[cut:]
             path = unusable_log_path("selftest", reason)
-            path.unlink(missing_ok=True)  # A previous successful self-test must not mask a deleted write.
-            line, extra, capture = unusable_verdict(reason, rc, text)
+            for stale in (path, path.with_suffix(".stdout"), path.with_suffix(".stderr"), path.with_suffix(".json")):
+                stale.unlink(missing_ok=True)  # A previous successful self-test must not mask a deleted write.
+            line, extra, view = unusable_verdict(SuiteFailure(reason, rc, stdout, stderr))
             assert line == expected_line, (line, expected_line)
             assert extra == expected_extra, (extra, expected_extra)
-            assert capture == text, "short output was truncated"
-            extra.append(retain_unusable("selftest", reason, capture))
+            assert view == text, "short output was truncated"
+            meta = dict(id=reason, label=f"{reason} self-test", worker=None, phase=reason, exit=rc,
+                        signal=-rc if rc < 0 else None, note="")
+            lines, problem = retain_unusable("selftest", reason, meta, stdout, stderr)
+            extra += lines
             print(f"  UNUSABLE {reason} — {line}")
             for x in extra:
                 print(x)
-            assert path.read_bytes() == text.encode("utf-8"), "retained output differs"
-    except (AssertionError, OSError, ValueError) as error:
+            assert problem is None, problem
+            assert path.read_bytes() == raw, "retained output differs"
+            assert path.with_suffix(".stdout").read_bytes() == stdout, "retained raw stdout differs"
+            assert path.with_suffix(".stderr").read_bytes() == stderr, "retained raw stderr differs"
+            record = json.loads(path.with_suffix(".json").read_text(encoding="ascii"))
+            assert (record["stdout"]["sha256"], record["stderr"]["sha256"], record["exit"]) == \
+                (hashlib.sha256(stdout).hexdigest(), hashlib.sha256(stderr).hexdigest(), rc), "metadata differs"
+    except (AssertionError, OSError, ValueError, KeyError) as error:
         print(f"SELFTEST FAILED — {error}")
         return 1
     print("SELFTEST OK — build and run failures are told apart and retained")
@@ -12401,17 +12569,33 @@ def selftest_unusable():
 
 
 def run_suite():
-    b = subprocess.run(["pio", "test", "-e", "native", "--without-testing"], cwd=ROOT, capture_output=True, text=True)
-    if b.returncode != 0 or "error:" in b.stdout + b.stderr:
-        return None, SuiteFailure("build", b.returncode, b.stdout + b.stderr)
-    r = subprocess.run([os.path.join(ROOT, ".pio/build/native/program")], cwd=ROOT, capture_output=True, text=True)
-    m = re.search(r"assertions: *(\d+) \| *(\d+) passed \| *(\d+) failed", r.stdout)
-    c = re.search(r"test cases: *(\d+) \| *(\d+) passed \| *(\d+) failed", r.stdout)
+    # ★★ [[B478]] A1: both children are captured as RAW BYTES — no `text=`, `encoding=` or `errors=` — and nothing
+    #    decodes them before classification. The build refusal keeps its meaning on bytes: a nonzero exit or `error:`
+    #    in either stream is a build failure, and the binary is never launched (a stale one would be credited).
+    b = subprocess.run(["pio", "test", "-e", "native", "--without-testing"], cwd=ROOT, capture_output=True)
+    if b.returncode != 0 or b"error:" in b.stdout or b"error:" in b.stderr:
+        return None, SuiteFailure("build", b.returncode, b.stdout, b.stderr)
+    r = subprocess.run([os.path.join(ROOT, ".pio/build/native/program")], cwd=ROOT, capture_output=True)
+    m = re.search(rb"assertions: *(\d+) \| *(\d+) passed \| *(\d+) failed", r.stdout)
+    c = re.search(rb"test cases: *(\d+) \| *(\d+) passed \| *(\d+) failed", r.stdout)
     if not m or not c:
-        return None, SuiteFailure("run", r.returncode, r.stdout + r.stderr)
-    # (failed assertions, total cases, total assertions) — the FIRST is what the baseline gate gates on; the last two
-    # are what it DERIVES this run's baseline from ([[B217]]; they used to be checked against a literal).
-    return (int(m.group(3)), int(c.group(1)), int(m.group(1))), r.stdout
+        return None, SuiteFailure("run", r.returncode, r.stdout, r.stderr)
+    failed_cases, failed = int(c.group(3)), int(m.group(3))
+    # ★★ [[B490]] A2 — A VERDICT NEEDS AN AGREEING EXIT. doctest prints its summary BEFORE it re-raises a fatal signal
+    #    (`FatalConditionHandler::handleSignal` -> `reportFatal` -> every reporter's `test_run_end`, then `raise(sig)`),
+    #    so a mutant that crashes inside a test case prints a summary AND dies — the summary alone proves nothing about
+    #    how the run ended. Credited only: exit 0 with no failed test case and no failed assertion (a clean tree or a
+    #    surviving mutant), or exit 1 with at least one of each (RED) — doctest's own `EXIT_FAILURE` rule. Everything
+    #    else (a signal, any other exit, a summary that contradicts its exit) is a no-verdict `run` failure.
+    agrees = ((r.returncode == 0 and failed_cases == 0 and failed == 0) or
+              (r.returncode == 1 and failed_cases >= 1 and failed >= 1))
+    if agrees:
+        # (failed assertions, total cases, total assertions) — the FIRST is what the baseline gate gates on; the last
+        # two are what it DERIVES this run's baseline from ([[B217]]; they used to be checked against a literal).
+        return (failed, int(c.group(1)), int(m.group(1))), SuiteOutput(r.returncode, r.stdout, r.stderr)
+    return None, SuiteFailure("run", r.returncode, r.stdout, r.stderr,
+                              f"the doctest summary ({failed_cases} failed test case(s), {failed} failed "
+                              f"assertion(s)) disagrees with exit {r.returncode}")
 
 if "--selftest-unusable" in sys.argv[1:]:
     sys.exit(selftest_unusable())
@@ -12536,11 +12720,14 @@ def orchestrate():
         #   slice is the normal state here, and a battery run against `HEAD` would measure code nobody wrote yet.
         #   `.git` and `.pio` are excluded: the first is 100x the payload and no build reads it (the native env has
         #   no `git_rev.py`), the second is a 140 MB build directory each worker must own a FRESH copy of anyway.
+        # ⓘ [[B478]] A6: captured as bytes and decoded for DISPLAY only, with a total, visible policy — a strict
+        #   decode of a diagnostic must never turn this abort into a traceback.
         r = subprocess.run(["rsync", "-a", "--delete", "--exclude=.git", "--exclude=.pio", ROOT + "/", tree + "/"],
-                           capture_output=True, text=True)
+                           capture_output=True)
         if r.returncode != 0:
             print(f"  ABORT rsync of the working tree into {tree} failed (rc {r.returncode}):")
-            print("        " + (r.stderr.strip().splitlines() or ["(no stderr)"])[-1][:200])
+            print("        " + (r.stderr.decode("utf-8", "backslashreplace").strip().splitlines()
+                                or ["(no stderr)"])[-1][:200])
             sys.exit(9)
         # ⛔ AND THE COPY OF THIS FILE MUST BE BYTE-IDENTICAL, checked rather than assumed: the worker judges entries
         #   by ITS OWN `MUTS` table, so a scratch tree carrying a different revision of this script would return
@@ -12574,10 +12761,21 @@ def orchestrate():
     results, streams = [None] * _WORKERS, [[] for _ in range(_WORKERS)]
 
     def _pump(w, proc):
-        for line in proc.stdout:
-            line = line.rstrip("\n")
+        # ★ [[B478]] A6: the worker's output arrives as BYTES and is decoded for display only, as UTF-8 with
+        #   `backslashreplace` — never by the parent's locale. A text-mode pipe decoded it with the locale, so a
+        #   non-UTF-8 locale mis-rendered or raised, and a raised pump stops draining the worker's pipe. ⛔ It must
+        #   never raise and never stop reading: a console that cannot spell a line gets it escaped, a console that is
+        #   gone gets nothing, and the pipe is drained to EOF either way.
+        for raw in proc.stdout:
+            line = raw.rstrip(b"\n").decode("utf-8", "backslashreplace")
             streams[w].append(line)
-            print(f"  [w{w}] {line}", flush=True)
+            try:
+                try:
+                    print(f"  [w{w}] {line}", flush=True)
+                except UnicodeEncodeError:
+                    print(f"  [w{w}] {line}".encode("ascii", "backslashreplace").decode("ascii"), flush=True)
+            except (OSError, ValueError):
+                pass
 
     threads = []
     t_run = time.time()
@@ -12596,8 +12794,7 @@ def orchestrate():
         wenv = dict(os.environ,
                     CCACHE_DIR=os.path.expanduser("~/.cache/meshroute-battery-ccache"),
                     CCACHE_BASEDIR=tree, CCACHE_NOHASHDIR="1")
-        p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, bufsize=1, env=wenv)
+        p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=wenv)
         _WORKER_PROCS.append(p)
         results[w] = {"proc": p, "path": res_path, "tree": tree, "assigned": shards[w]}
         t = threading.Thread(target=_pump, args=(w, p), daemon=True)
@@ -12639,6 +12836,7 @@ def orchestrate():
                 continue
             if i in verdicts:
                 integrity.append(f"index {i} ({MUTS[i][0]}) was reported twice")
+            ent["worker"] = w
             verdicts[i] = ent
         # ⛔ 0 = every entry RED, 1 = at least one worthless entry. ANY other code is an abort (2..8) or a death, and
         #   both mean this shard's entries were not all judged — see the missing-index sweep below, which is what
@@ -12662,6 +12860,23 @@ def orchestrate():
     else:
         b0 = None
         integrity.append("no worker derived a clean baseline — nothing measured a clean tree")
+
+    # ★★ [[B478]] A5 — A WORKER THAT REFUSED ITS CLEAN BASELINE SHIPPED THAT RUN'S RAW STREAMS; they are received,
+    #    verified and retained HERE, in the merge, so on every exit below (the agreed abort codes included) they
+    #    already sit in `.pio/mutation-unusable/` before `_cleanup_scratch` removes the scratch root at exit.
+    for w, r in enumerate(results):
+        refusal = ((r or {}).get("json") or {}).get("refusal")
+        if not refusal:
+            continue
+        rc = refusal.get("rc")
+        print(f"  REFUSED worker {w}'s clean baseline ({refusal.get('kind')}) — phase {refusal.get('phase')}, exit "
+              f"{rc}{f' / killed by signal {-rc}' if isinstance(rc, int) and rc < 0 else ''}", flush=True)
+        lines, problem = retain_shipped(_TARGET, f"baseline-w{w}", f"baseline-w{w} clean baseline of worker {w}",
+                                        w, refusal)
+        for x in lines:
+            print(x, flush=True)
+        if problem:
+            integrity.append(problem)
 
     # ★★ THE CROSS-CHECK PIN, ONCE, AGAINST THE MERGED (agreed) BASELINE — warn-only, per [[B217]]: a moved figure is
     #    bookkeeping and must never zero a run, so it does not touch the exit code.
@@ -12690,7 +12905,11 @@ def orchestrate():
             continue
         print(ent["line"], flush=True)
         if ent["verdict"] == "UNUSABLE":
-            ent["extra"].append(retain_unusable(_TARGET, ent["label"], ent["capture"]))
+            lines, problem = retain_shipped(_TARGET, ent["label"].split()[0], ent["label"], ent["worker"],
+                                            ent.get("evidence"))
+            ent["extra"].extend(lines)
+            if problem:
+                integrity.append(problem)
         for x in ent.get("extra", []):
             print(x, flush=True)
         if ent["verdict"] == "RED":
@@ -12824,21 +13043,31 @@ try:
           "baseline", flush=True)
     base, base_out = run_suite()
     if base is None:
+        # ★★ [[B478]]/[[B490]] A2/A5: the refusal names the phase, the exit status and any signal, and the run's RAW
+        #    streams are shipped to the parent BEFORE this worker exits — this tree is deleted with the scratch root.
+        _shard["refusal"] = dict(kind="no-verdict", phase=base_out.reason, rc=base_out.rc, note=base_out.note,
+                                 streams=ship_streams("baseline", base_out.stdout, base_out.stderr))
+        _shard_flush()
+        _why, _extra, _view = unusable_verdict(base_out)
         print("  ABORT the clean tree does not build / did not run — no mutation was applied")
-        for line in base_out.text.splitlines():
-            if "error:" in line:
-                print("        " + line[:160]); break
+        print(f"        phase {base_out.reason}: exit {base_out.rc}"
+              f"{f' / killed by signal {-base_out.rc}' if base_out.rc < 0 else ''}")
+        for line in _extra:
+            print(line)
         sys.exit(2)
     base_failed, base_cases, base_asserts = base
     if base_failed != 0:
         # ⛔ THE LOUD ARM. It prints the FAILING OUTPUT and not merely a count, because the reader's next question is
         #   always "failing WHERE" and a run that answers it is a run nobody has to repeat.
+        _shard["refusal"] = dict(kind="red", phase="run", rc=base_out.rc, note="",
+                                 streams=ship_streams("baseline", base_out.stdout, base_out.stderr))
+        _shard_flush()
         print(f"  ABORT the clean tree is RED — {base_cases} / {base_asserts} / {base_failed} FAILED. Every mutation "
               f"below would read RED for the wrong reason. No mutation was applied.")
-        _fails = [ln for ln in base_out.splitlines()
-                  if "ERROR:" in ln or "FATAL ERROR:" in ln or ln.startswith("TEST CASE:")]
-        for line in (_fails[:24] or base_out.splitlines()[-24:]):
-            print("        " + line[:200])
+        _lines = child_lines(base_out.stdout)
+        _fails = [ln for ln in _lines if b"ERROR:" in ln or b"FATAL ERROR:" in ln or ln.startswith(b"TEST CASE:")]
+        for line in (_fails[:24] or _lines[-24:]):
+            print("        " + escape_child_bytes(line, 200))
         sys.exit(2)
     BASE_CASES, BASE_ASSERTS = base_cases, base_asserts      # ★ DERIVED — this is the baseline, from here on.
     print(f"  ok   clean baseline {base_cases} / {base_asserts} / {base_failed}   (DERIVED from this tree)",
@@ -12854,14 +13083,14 @@ try:
         label, pat, rep = MUTS[_i]
         # ★ Each entry's verdict is recorded as the EXACT LINE the serial runner printed, so the parent's merged
         #   report is the same report — reassembled in table order — rather than a paraphrase of it.
-        def _verdict(kind, line, extra=(), capture=None):
+        def _verdict(kind, line, extra=(), evidence=None):
             print(line, flush=True)
             for _x in extra:
                 print(_x, flush=True)
             _shard["entries"].append({"idx": _i, "label": label, "verdict": kind, "line": line,
                                       "extra": list(extra)})
-            if capture is not None:
-                _shard["entries"][-1]["capture"] = capture
+            if evidence is not None:
+                _shard["entries"][-1]["evidence"] = evidence
             _shard_flush()
 
         hits = orig.count(pat)
@@ -12878,8 +13107,10 @@ try:
         guarded_write(orig, f"restoring after {label}", allow=("original", "mutant"))
         clear_mutant()
         if res is None:
-            line, extra, capture = unusable_verdict(out.reason, out.rc, out.text)
-            _verdict("UNUSABLE", f"  UNUSABLE {label} — {line}", extra, capture)
+            line, extra, _view = unusable_verdict(out)
+            _verdict("UNUSABLE", f"  UNUSABLE {label} — {line}", extra,
+                     dict(phase=out.reason, rc=out.rc, note=out.note,
+                          streams=ship_streams(f"e{_i}", out.stdout, out.stderr)))
             bad += 1; continue
         failed, cases, asserts = res
         if failed > 0:

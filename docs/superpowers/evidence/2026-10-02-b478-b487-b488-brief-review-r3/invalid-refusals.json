@@ -1,0 +1,29 @@
+[
+  {
+    "case": "profile-bare-token",
+    "ledger_sha256": "7597266bf28b288686f44602e32d6c1563b227bdd76790eb6d3223481e199834",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "COMPARE REFUSED: A (/tmp/mr-qa-invalid-ledger-7o3o075j/profile-bare-token.txt), line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'\n",
+    "contract_exit": 2,
+    "contract_met": true
+  },
+  {
+    "case": "count-5000-digits",
+    "ledger_sha256": "87e70928dd6a7ca2f90293ea67b9e7b36721f474a602c6c5fca1a998407b5c00",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "COMPARE REFUSED: A (/tmp/mr-qa-invalid-ledger-7o3o075j/count-5000-digits.txt), line 2: the identity's lines= has 5000 digits \u2014 not a count a ledger can carry\n",
+    "contract_exit": 2,
+    "contract_met": true
+  },
+  {
+    "case": "length-5000-digits",
+    "ledger_sha256": "54be1df53a80f924c9829cf3d2721c7dbd81ff688ad369d39136385bab4b80ea",
+    "exit": 2,
+    "stdout": "",
+    "stderr": "COMPARE REFUSED: A (/tmp/mr-qa-invalid-ledger-7o3o075j/length-5000-digits.txt), line 4: LINE L001's len has 5000 digits \u2014 not a count a ledger can carry\n",
+    "contract_exit": 2,
+    "contract_met": true
+  }
+]

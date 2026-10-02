@@ -1,0 +1,57 @@
+[
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/b8-empty-ledger.txt",
+    "bytes": 327,
+    "sha256": "fbc3fdc0a5629d271201ec83f90a200b14331b5b19ed3bbb2903ebc1c51bb3e1"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/b8-one-row-ledger.txt",
+    "bytes": 653,
+    "sha256": "5c55bd6983344efedf90e4c52c43e83bd20ede8e82e4fb893b9cacbb513fd93e"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/doctest-build.log",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/doctest-fatal.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/doctest-fatal.stdout",
+    "bytes": 706,
+    "sha256": "a39f9454ec69fe07b72c23021336f10b46982b9c12d795bbb9da8338ca8fd19d"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/doctest-result.json",
+    "bytes": 1726,
+    "sha256": "107def19b331a3ca9d8b0a502c57eb20f29af4526a977134f16606221a857ffc"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/ledger-counterexamples.json",
+    "bytes": 591,
+    "sha256": "93aa87a5ee2ecff44fc5ad94700b26dd6a5b6a97bc18bc098073bb9a8e7fc3ed"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/locale-control.json",
+    "bytes": 1102,
+    "sha256": "e1ed01d14a5a0e3145185391e0db6de1e9f16837e50b4564be355c8317f5c973"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/pins.json",
+    "bytes": 5535,
+    "sha256": "cea23a025d7f747d2d40ce7897a5784040d325335b8ed2ef7422ea1f1f9a65c0"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/review-inputs.json",
+    "bytes": 434687,
+    "sha256": "71494be31cf77c4213dc8b7760d45eee4ef504cadc7e19f3458bb01a17038872"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-review/scratch-path.txt",
+    "bytes": 35,
+    "sha256": "cdcc2a93bd4a166950d063d0aa5cc9f89fa301aee573a44cf3873ecd83f1e072"
+  }
+]

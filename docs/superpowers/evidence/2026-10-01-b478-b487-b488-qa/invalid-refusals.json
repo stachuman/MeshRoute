@@ -1,0 +1,29 @@
+[
+  {
+    "case": "profile-bare-token",
+    "ledger_sha256": "7597266bf28b288686f44602e32d6c1563b227bdd76790eb6d3223481e199834",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 757, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 721, in main\n    code, report = compare_ledgers(a.compare[0], a.compare[1], a.profile)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 680, in compare_ledgers\n    sides.append(validate_ledger(ascii_text(fh.read(), origin), origin))\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 664, in validate_ledger\n    ledger = parse_ledger(text, origin)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 608, in parse_ledger\n    verify_profile(lines[2], profiles[0])\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 504, in verify_profile\n    got = dict(kv.split(\"=\", 1) for kv in m.group(1).split())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nValueError: dictionary update sequence element #5 has length 1; 2 is required\n",
+    "contract_exit": 2,
+    "contract_met": false
+  },
+  {
+    "case": "count-5000-digits",
+    "ledger_sha256": "87e70928dd6a7ca2f90293ea67b9e7b36721f474a602c6c5fca1a998407b5c00",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 757, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 721, in main\n    code, report = compare_ledgers(a.compare[0], a.compare[1], a.profile)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 680, in compare_ledgers\n    sides.append(validate_ledger(ascii_text(fh.read(), origin), origin))\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 664, in validate_ledger\n    ledger = parse_ledger(text, origin)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 634, in parse_ledger\n    return Ledger(profiles[0], lines[0], lines[1], int(ident.group(1)), rows, lines[n])\n                                                   ^^^^^^^^^^^^^^^^^^^\nValueError: Exceeds the limit (4300 digits) for integer string conversion: value has 5000 digits; use sys.set_int_max_str_digits() to increase the limit\n",
+    "contract_exit": 2,
+    "contract_met": false
+  },
+  {
+    "case": "length-5000-digits",
+    "ledger_sha256": "54be1df53a80f924c9829cf3d2721c7dbd81ff688ad369d39136385bab4b80ea",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Traceback (most recent call last):\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 757, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 721, in main\n    code, report = compare_ledgers(a.compare[0], a.compare[1], a.profile)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 680, in compare_ledgers\n    sides.append(validate_ledger(ascii_text(fh.read(), origin), origin))\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 664, in validate_ledger\n    ledger = parse_ledger(text, origin)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript.py\", line 625, in parse_ledger\n    if int(m.group(2)) != len(command):\n       ^^^^^^^^^^^^^^^\nValueError: Exceeds the limit (4300 digits) for integer string conversion: value has 5000 digits; use sys.set_int_max_str_digits() to increase the limit\n",
+    "contract_exit": 2,
+    "contract_met": false
+  }
+]

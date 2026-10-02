@@ -1,0 +1,20 @@
+[
+  {
+    "case": "transfer",
+    "exit": 9,
+    "traceback": false,
+    "unchanged": true
+  },
+  {
+    "case": "write",
+    "exit": 9,
+    "traceback": false,
+    "unchanged": true
+  },
+  {
+    "case": "baseline-write",
+    "exit": 2,
+    "traceback": false,
+    "unchanged": true
+  }
+]

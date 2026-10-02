@@ -1,0 +1,508 @@
+{
+ "harness_sha256": "72a62ae82d8db5528afd508b3ace932a7cb4559f4a1b5a5da5a5a1f5fd41dfe2",
+ "base_sha256": "b71270ee2ed63d67bfbc4051a8b98cb80ce2e2da49cbba27aa548d781fb13a70",
+ "fails_before_cases": [
+  {
+   "case": "raw_bb_stdout",
+   "defect": "B478",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xbb in position 0: invalid start byte"
+   },
+   "required": "UnicodeDecodeError",
+   "as_required": true
+  },
+  {
+   "case": "raw_c5_stderr",
+   "defect": "B478",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xc5 in position 0: invalid continuation byte"
+   },
+   "required": "UnicodeDecodeError",
+   "as_required": true
+  },
+  {
+   "case": "malformed_both",
+   "defect": "B478",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte"
+   },
+   "required": "UnicodeDecodeError",
+   "as_required": true
+  },
+  {
+   "case": "valid_utf8",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'str' object has no attribute 'rc'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "split_valid_utf8",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'str' object has no attribute 'rc'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "truncated_utf8",
+   "defect": "B478",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xc5 in position 72: unexpected end of data"
+   },
+   "required": "UnicodeDecodeError",
+   "as_required": true
+  },
+  {
+   "case": "no_verdict",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'SuiteFailure' object has no attribute 'stdout'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "signal_no_verdict",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'SuiteFailure' object has no attribute 'stdout'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "signal_with_failure_summary",
+   "defect": "B490",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "signal_with_failure_summary: CREDITED verdict (1, 1, 1) — expected a run failure with exit -11"
+   },
+   "required": "AssertionError (credited verdict)",
+   "as_required": true
+  },
+  {
+   "case": "signal_with_success_summary",
+   "defect": "B490",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "signal_with_success_summary: CREDITED verdict (0, 1, 1) — expected a run failure with exit -11"
+   },
+   "required": "AssertionError (credited verdict)",
+   "as_required": true
+  },
+  {
+   "case": "exit2_with_summary",
+   "defect": "B490",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "exit2_with_summary: CREDITED verdict (1, 1, 1) — expected a run failure with exit 2"
+   },
+   "required": "AssertionError (credited verdict)",
+   "as_required": true
+  },
+  {
+   "case": "build_raw_stderr",
+   "defect": "B478",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xbb in position 7: invalid start byte"
+   },
+   "required": "UnicodeDecodeError",
+   "as_required": true
+  },
+  {
+   "case": "build_ascii",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'SuiteFailure' object has no attribute 'stdout'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "zero_bytes",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'SuiteFailure' object has no attribute 'stdout'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "success_exit0",
+   "defect": null,
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AttributeError",
+    "message": "'str' object has no attribute 'rc'"
+   },
+   "required": null,
+   "as_required": true
+  },
+  {
+   "case": "success_exit1",
+   "defect": "B490",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "success_exit1: CREDITED verdict (0, 1, 1) — expected a run failure with exit 1"
+   },
+   "required": "AssertionError (credited verdict)",
+   "as_required": true
+  },
+  {
+   "case": "failure_exit0",
+   "defect": "B490",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "failure_exit0: CREDITED verdict (1, 1, 1) — expected a run failure with exit 0"
+   },
+   "required": "AssertionError (credited verdict)",
+   "as_required": true
+  },
+  {
+   "case": "failed_case_without_failed_assertion",
+   "defect": "B490",
+   "base": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "failed_case_without_failed_assertion: CREDITED verdict (0, 1, 1) — expected a run failure with exit 1"
+   },
+   "required": "AssertionError (credited verdict)",
+   "as_required": true
+  }
+ ],
+ "fails_before_e2e_mixed_default_locale": {
+  "exit": 9,
+  "traceback": true,
+  "integrity_lines": [
+   "##    worker 0 did not report its source restored",
+   "##    worker 1 did not report its source restored",
+   "##    9 selected entries came back with NO verdict: F01, F02, F03, F04, F05, F06, F07, F08, F09"
+  ],
+  "retained_claims": 0,
+  "console": "base-mixed.console"
+ },
+ "fails_before_e2e_mixed_ascii_parent": {
+  "exit": 9,
+  "traceback": true,
+  "integrity_lines": [
+   "##    worker 0 did not report its source restored",
+   "##    worker 1 did not report its source restored",
+   "##    9 selected entries came back with NO verdict: F01, F02, F03, F04, F05, F06, F07, F08, F09"
+  ],
+  "retained_claims": 0,
+  "console": "base-mixed-ascii-parent.console"
+ },
+ "fails_before_pipe_only_default_locale": {
+  "exit": 0,
+  "traceback": false,
+  "integrity_lines": [],
+  "retained_claims": 0,
+  "console": "base-ordinary.console"
+ },
+ "fails_before_pipe_only_ascii_parent": {
+  "exit": 0,
+  "traceback": true,
+  "integrity_lines": [],
+  "retained_claims": 0,
+  "console": "base-ordinary-ascii-parent.console"
+ },
+ "after_pipe_only_ascii_parent": {
+  "exit": 0,
+  "traceback": false,
+  "integrity_lines": [],
+  "retained_claims": 0,
+  "console": "after-ordinary-ascii-parent.console"
+ },
+ "runs": {
+  "mixed-w2": {
+   "exit": 1,
+   "traceback": false,
+   "integrity_lines": [],
+   "retained_claims": 5,
+   "console": "mixed-w2.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  },
+  "mixed-w1": {
+   "exit": 1,
+   "traceback": false,
+   "integrity_lines": [],
+   "retained_claims": 5,
+   "console": "mixed-w1.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  },
+  "clean-dies-w2": {
+   "exit": 2,
+   "traceback": false,
+   "integrity_lines": [
+    "##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+    "##    worker 0 did not report its source restored",
+    "##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+    "##    worker 1 did not report its source restored",
+    "##    no worker derived a clean baseline — nothing measured a clean tree",
+    "##    9 selected entries came back with NO verdict: F01, F02, F03, F04, F05, F06, F07, F08, F09"
+   ],
+   "retained_claims": 2,
+   "console": "clean-dies-w2.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  },
+  "outer-pipe-ascii-parent": {
+   "exit": 1,
+   "traceback": false,
+   "integrity_lines": [],
+   "retained_claims": 5,
+   "console": "outer-pipe-ascii-parent.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  }
+ },
+ "integrity_faults": {
+  "corrupted-transfer": {
+   "exit": 9,
+   "traceback": false,
+   "integrity_lines": [
+    "##    F01 (worker 0): its shipped stderr does not match the worker's declaration (declared 20 B sha256 53799d9e998708ea44e8014a818d08604beb8d13e35b48854dd149c83963bfad, received 21 B sha256 0c2790c285cc87f1ed0ce4ca33902e9465f1a0e9bc507271eaa372cec498ac83) — NOT retained; the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+   ],
+   "retained_claims": 0,
+   "console": "fault-corrupted-transfer.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  },
+  "failed-write": {
+   "exit": 9,
+   "traceback": false,
+   "integrity_lines": [
+    "##    F01: its evidence was NOT retained (/tmp/mr-b478-e2e-rzdcg694/tree/.pio/mutation-unusable/w4aident/F01.log: [Errno 17] File exists: '/tmp/mr-b478-e2e-rzdcg694/tree/.pio/mutation-unusable/w4aident'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+   ],
+   "retained_claims": 0,
+   "console": "fault-failed-write.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  },
+  "unanimous-refusal-failed-write": {
+   "exit": 2,
+   "traceback": false,
+   "integrity_lines": [
+    "##    worker 0 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+    "##    worker 0 did not report its source restored",
+    "##    worker 1 exited 2 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+    "##    worker 1 did not report its source restored",
+    "##    no worker derived a clean baseline — nothing measured a clean tree",
+    "##    baseline-w0: its evidence was NOT retained (/tmp/mr-b478-e2e-yv78u9sy/tree/.pio/mutation-unusable/w4aident/baseline-w0.log: [Errno 17] File exists: '/tmp/mr-b478-e2e-yv78u9sy/tree/.pio/mutation-unusable/w4aident'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+    "##    baseline-w1: its evidence was NOT retained (/tmp/mr-b478-e2e-yv78u9sy/tree/.pio/mutation-unusable/w4aident/baseline-w1.log: [Errno 17] File exists: '/tmp/mr-b478-e2e-yv78u9sy/tree/.pio/mutation-unusable/w4aident'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+    "##    9 selected entries came back with NO verdict: F01, F02, F03, F04, F05, F06, F07, F08, F09"
+   ],
+   "retained_claims": 0,
+   "console": "fault-unanimous-refusal.console",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  }
+ },
+ "controls": {
+  "A-C1 strict decoding restored at the native-run capture": {
+   "class": "function level",
+   "required": "each raw-byte run-phase case fails by a decoder exception",
+   "cases": {
+    "raw_bb_stdout": {
+     "outcome": "FAILED",
+     "exception": "UnicodeDecodeError",
+     "message": "'utf-8' codec can't decode byte 0xbb in position 0: invalid start byte"
+    },
+    "raw_c5_stderr": {
+     "outcome": "FAILED",
+     "exception": "UnicodeDecodeError",
+     "message": "'utf-8' codec can't decode byte 0xc5 in position 0: invalid continuation byte"
+    },
+    "malformed_both": {
+     "outcome": "FAILED",
+     "exception": "UnicodeDecodeError",
+     "message": "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte"
+    },
+    "truncated_utf8": {
+     "outcome": "FAILED",
+     "exception": "UnicodeDecodeError",
+     "message": "'utf-8' codec can't decode byte 0xc5 in position 72: unexpected end of data"
+    }
+   }
+  },
+  "A-C2 exit agreement removed": {
+   "class": "function level",
+   "required": "each B490 case fails by a credited verdict",
+   "cases": {
+    "signal_with_failure_summary": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "signal_with_failure_summary: CREDITED verdict (1, 1, 1) — expected a run failure with exit -11"
+    },
+    "signal_with_success_summary": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "signal_with_success_summary: CREDITED verdict (0, 1, 1) — expected a run failure with exit -11"
+    },
+    "exit2_with_summary": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "exit2_with_summary: CREDITED verdict (1, 1, 1) — expected a run failure with exit 2"
+    },
+    "success_exit1": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "success_exit1: CREDITED verdict (0, 1, 1) — expected a run failure with exit 1"
+    },
+    "failure_exit0": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "failure_exit0: CREDITED verdict (1, 1, 1) — expected a run failure with exit 0"
+    },
+    "failed_case_without_failed_assertion": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "failed_case_without_failed_assertion: CREDITED verdict (0, 1, 1) — expected a run failure with exit 1"
+    }
+   }
+  },
+  "A-C3 the parent's raw-stream write removed": {
+   "exit": 9,
+   "traceback": false,
+   "integrity_lines": [
+    "##    F01: its evidence was NOT retained (/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F01.log: [Errno 2] No such file or directory: '/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F01.stdout'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+    "##    F02: its evidence was NOT retained (/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F02.log: [Errno 2] No such file or directory: '/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F02.stdout'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+    "##    F03: its evidence was NOT retained (/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F03.log: [Errno 2] No such file or directory: '/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F03.stdout'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+    "##    F04: its evidence was NOT retained (/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F04.log: [Errno 2] No such file or directory: '/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F04.stdout'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+    "##    F09: its evidence was NOT retained (/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F09.log: [Errno 2] No such file or directory: '/tmp/mr-b478-e2e-7hst2ces/tree/.pio/mutation-unusable/w4aident/F09.stdout'); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+   ],
+   "retained_claims": 0,
+   "console": "control-a-c3.console",
+   "class": "end to end",
+   "required": "the end-to-end retention assertions fail",
+   "regression": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "F01: no `retained:` line"
+   }
+  },
+  "A-C4 raw retention cut to the bounded view": {
+   "class": "function level",
+   "required": "the size case fails",
+   "regression": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "size: retention failed: S01: its evidence was NOT retained (/tmp/mr-b478-evidence-oxprz32d/.pio/mutation-unusable/sizecase/S01.log: /tmp/mr-b478-evidence-oxprz32d/.pio/mutation-unusable/sizecase/S01.stdout reads back different bytes); the raw bytes are removed with the scratch root at exit — rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+   }
+  },
+  "A-C5 a text-mode pump restored": {
+   "class": "end to end",
+   "required": "the outer-pipe case fails (and the same copy passes with a UTF-8 parent)",
+   "utf8_parent": {
+    "exit": 1,
+    "traceback": false,
+    "integrity_lines": [],
+    "retained_claims": 5,
+    "console": "control-a-c5-utf8-parent.console",
+    "regression": {
+     "outcome": "PASSED"
+    }
+   },
+   "ascii_parent": {
+    "exit": 9,
+    "traceback": true,
+    "integrity_lines": [
+     "##    worker 0 exited 120 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+     "##    worker 0 did not report its source restored",
+     "##    worker 1 exited 120 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+     "##    worker 1 did not report its source restored",
+     "##    7 selected entries came back with NO verdict: F03, F04, F05, F06, F07, F08, F09"
+    ],
+    "retained_claims": 2,
+    "console": "control-a-c5-ascii-parent.console",
+    "regression": {
+     "outcome": "FAILED",
+     "exception": "AssertionError",
+     "message": "a traceback reached the console: #######################################################################\n  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.\n  ##    worker 0 exited 120 — not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed\n  ##    worker 0 did not report its source restored\n  ##    worker 1 exited 120 — not a v"
+    }
+   }
+  },
+  "A-C6 declared-versus-recomputed comparison removed (with the transfer fault)": {
+   "exit": 1,
+   "traceback": false,
+   "integrity_lines": [],
+   "retained_claims": 1,
+   "console": "control-a-c6.console",
+   "class": "end to end",
+   "required": "the corrupted-transfer regression fails",
+   "regression": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "a corrupted transfer exits 9 (got 1)"
+   }
+  },
+  "A-C7 the parent's failed-write handling removed": {
+   "exit": 1,
+   "traceback": true,
+   "integrity_lines": [],
+   "retained_claims": 0,
+   "console": "control-a-c7.console",
+   "class": "end to end",
+   "required": "the failed-write regression fails",
+   "regression": {
+    "outcome": "FAILED",
+    "exception": "AssertionError",
+    "message": "a traceback reached the console:  panel (UTF-8 as Latin-1 mojibake, lost cells) -> RED (11 assertion(s) failed, match count 1)\n  [w0]   ok   F03 ★★ the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.` -> RED (12 assertion(s) failed, match count 1)\n  [w1]   ok   F04 ★★★ an unnamed peer at 6-9 columns gets a CLIPPED `0x…` hash instead of its fingerprint (the thi"
+   }
+  },
+  "existing: the collapsed build arm": {
+   "class": "self-test",
+   "required": "the self-test is RED",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  },
+  "existing: the deleted .log write": {
+   "class": "self-test",
+   "required": "the self-test is RED",
+   "regression": {
+    "outcome": "PASSED"
+   }
+  }
+ }
+}

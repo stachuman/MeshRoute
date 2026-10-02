@@ -1,0 +1,184 @@
+{
+  "scope": "labelled synthetic child outputs through the unchanged real function; not a full battery run",
+  "harness_sha256": "b71270ee2ed63d67bfbc4051a8b98cb80ce2e2da49cbba27aa548d781fb13a70",
+  "results": [
+    {
+      "name": "raw_bb_stdout",
+      "phase": "run",
+      "child_exit": 1,
+      "stdout_hex": "bb0a746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "",
+      "exception": "UnicodeDecodeError",
+      "detail": "'utf-8' codec can't decode byte 0xbb in position 0: invalid start byte",
+      "calls": 2
+    },
+    {
+      "name": "raw_c5_stderr",
+      "phase": "run",
+      "child_exit": 1,
+      "stdout_hex": "746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "c50a",
+      "exception": "UnicodeDecodeError",
+      "detail": "'utf-8' codec can't decode byte 0xc5 in position 0: invalid continuation byte",
+      "calls": 2
+    },
+    {
+      "name": "malformed_both",
+      "phase": "run",
+      "child_exit": 1,
+      "stdout_hex": "80ff0a746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "c5",
+      "exception": "UnicodeDecodeError",
+      "detail": "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte",
+      "calls": 2
+    },
+    {
+      "name": "valid_utf8",
+      "phase": "run",
+      "child_exit": 1,
+      "stdout_hex": "c58220c2bb0a746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "646961676e6f737469630a",
+      "result": [
+        1,
+        1,
+        1
+      ],
+      "capture": "\u0142 \u00bb\ntest cases: 1 | 0 passed | 1 failed\nassertions: 1 | 0 passed | 1 failed\n",
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "split_valid_utf8",
+      "phase": "run",
+      "child_exit": 1,
+      "stdout_hex": "c5820a746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "",
+      "result": [
+        1,
+        1,
+        1
+      ],
+      "capture": "\u0142\ntest cases: 1 | 0 passed | 1 failed\nassertions: 1 | 0 passed | 1 failed\n",
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "truncated_utf8",
+      "phase": "run",
+      "child_exit": 1,
+      "stdout_hex": "746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640ac5",
+      "stderr_hex": "",
+      "exception": "UnicodeDecodeError",
+      "detail": "'utf-8' codec can't decode byte 0xc5 in position 72: unexpected end of data",
+      "calls": 2
+    },
+    {
+      "name": "no_verdict",
+      "phase": "run",
+      "child_exit": 0,
+      "stdout_hex": "6f75740a",
+      "stderr_hex": "6572720a",
+      "result": null,
+      "capture": {
+        "reason": "run",
+        "rc": 0,
+        "text": "out\nerr\n"
+      },
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "signal_no_verdict",
+      "phase": "run",
+      "child_exit": -11,
+      "stdout_hex": "6f75740a",
+      "stderr_hex": "6572720a",
+      "result": null,
+      "capture": {
+        "reason": "run",
+        "rc": -11,
+        "text": "out\nerr\n"
+      },
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "signal_with_failure_summary",
+      "phase": "run",
+      "child_exit": -11,
+      "stdout_hex": "746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "63726173682061667465722073756d6d6172790a",
+      "result": [
+        1,
+        1,
+        1
+      ],
+      "capture": "test cases: 1 | 0 passed | 1 failed\nassertions: 1 | 0 passed | 1 failed\n",
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "signal_with_success_summary",
+      "phase": "run",
+      "child_exit": -11,
+      "stdout_hex": "746573742063617365733a2031207c203120706173736564207c2030206661696c65640a617373657274696f6e733a2031207c203120706173736564207c2030206661696c65640a",
+      "stderr_hex": "63726173682061667465722073756d6d6172790a",
+      "result": [
+        0,
+        1,
+        1
+      ],
+      "capture": "test cases: 1 | 1 passed | 0 failed\nassertions: 1 | 1 passed | 0 failed\n",
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "exit2_with_summary",
+      "phase": "run",
+      "child_exit": 2,
+      "stdout_hex": "746573742063617365733a2031207c203020706173736564207c2031206661696c65640a617373657274696f6e733a2031207c203020706173736564207c2031206661696c65640a",
+      "stderr_hex": "77726f6e6720657869740a",
+      "result": [
+        1,
+        1,
+        1
+      ],
+      "capture": "test cases: 1 | 0 passed | 1 failed\nassertions: 1 | 0 passed | 1 failed\n",
+      "exception": null,
+      "calls": 2
+    },
+    {
+      "name": "build_raw_stderr",
+      "phase": "build",
+      "child_exit": 1,
+      "stdout_hex": "6275696c640a",
+      "stderr_hex": "6572726f723a20bb0a",
+      "exception": "UnicodeDecodeError",
+      "detail": "'utf-8' codec can't decode byte 0xbb in position 7: invalid start byte",
+      "calls": 1
+    },
+    {
+      "name": "build_ascii",
+      "phase": "build",
+      "child_exit": 1,
+      "stdout_hex": "6275696c640a",
+      "stderr_hex": "6572726f723a2073746f707065640a",
+      "result": null,
+      "capture": {
+        "reason": "build",
+        "rc": 1,
+        "text": "build\nerror: stopped\n"
+      },
+      "exception": null,
+      "calls": 1
+    }
+  ],
+  "retention": {
+    "input_bytes": 65538,
+    "nominal_tail_bytes": 65536,
+    "actual_retained_bytes": 65535,
+    "tail_prefix_hex": "ac78787878787878",
+    "retained_prefix_hex": "7878787878787878",
+    "note": "current errors=ignore drops a cut UTF-8 continuation byte in addition to the intentional 64 KiB prefix truncation"
+  }
+}

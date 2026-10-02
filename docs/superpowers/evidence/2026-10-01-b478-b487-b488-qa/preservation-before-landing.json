@@ -1,0 +1,23 @@
+{
+  "meshroute": {
+    "paths": 2331,
+    "changed": [],
+    "missing": [],
+    "new": [],
+    "head": "10f333298ffad1098daeec37e756ed79ab0fd97f",
+    "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M tools/probe_inbox_verbs/transcript.py\n M tools/probe_inbox_verbs/transcript_main.cpp\n M tools/probe_ui_model_mutations.py\n M tools/test_mutation_unusable_reason.py\n M tracker.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488/\n?? docs/superpowers/plans/2026-09-30-b478-b487-b488-tool-repairs.md\n?? tools/test_probe_inbox_transcript.py\n",
+    "staged": "",
+    "whitespace_exit": 0
+  },
+  "simulator": {
+    "paths": 285,
+    "changed": [],
+    "missing": [],
+    "new": [],
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "status": "",
+    "staged": "",
+    "whitespace_exit": 0
+  },
+  "all_inputs_unchanged": true
+}

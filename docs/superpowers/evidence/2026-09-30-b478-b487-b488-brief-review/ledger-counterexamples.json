@@ -1,0 +1,19 @@
+{
+  "scope": "Counterexamples satisfying the literal B8 self-count/unique-order/triple/END predicates; no comparator implementation exists yet",
+  "zero_rows": {
+    "declared": 0,
+    "actual": 0,
+    "duplicates": 0,
+    "end_last": true,
+    "profile": "full_headless"
+  },
+  "one_row": {
+    "declared": 1,
+    "actual": 1,
+    "duplicates": 0,
+    "end_last": true,
+    "profile": "full_headless"
+  },
+  "required_current_profile_rows": 202,
+  "gap": "B8 has no authoritative expected matrix/set beyond the ledger own count; both identical pairs satisfy its stated exit-0 condition."
+}

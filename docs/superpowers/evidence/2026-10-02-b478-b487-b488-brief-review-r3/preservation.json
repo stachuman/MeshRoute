@@ -1,0 +1,32 @@
+{
+  "entry_paths": 2370,
+  "changed": [],
+  "missing": [],
+  "added_qa_evidence": [
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3.md",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/SHA256SUMS",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/bounded-f07.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/bounded_f07.py",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/f07-replay.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/fuzz-replay.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/inputs.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/invalid-refusals.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/pins.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/preservation.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/raw-files.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/repeat_f07.py",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/review_inputs.py",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/source-facts.txt",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/static-review.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/test_probe_inbox_transcript-round2.diff",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/transcript-round2.diff"
+  ],
+  "all_entry_inputs_unchanged": true,
+  "simulator_paths": 285,
+  "simulator_unchanged_and_clean": true,
+  "index_empty": true,
+  "heads_unchanged": true,
+  "whitespace_clean": true,
+  "exception_handlers_ast_identical_to_gate_freeze": true,
+  "final_meshroute_paths": 2387
+}

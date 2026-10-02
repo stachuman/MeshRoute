@@ -1,0 +1,75 @@
+{
+ "log": "artifacts/2026-09-30-b478-b487-b488/final-05-w4aident-w1.log",
+ "exit": 0,
+ "clean_baseline": [
+  3059,
+  199638,
+  0
+ ],
+ "trees_agree": 1,
+ "entries": [
+  {
+   "id": "F01",
+   "verdict": "RED",
+   "failed_assertions": 39
+  },
+  {
+   "id": "F02",
+   "verdict": "RED",
+   "failed_assertions": 169
+  },
+  {
+   "id": "F03",
+   "verdict": "RED",
+   "failed_assertions": 36
+  },
+  {
+   "id": "F04",
+   "verdict": "RED",
+   "failed_assertions": 4
+  },
+  {
+   "id": "F05",
+   "verdict": "RED",
+   "failed_assertions": 4
+  },
+  {
+   "id": "F06",
+   "verdict": "RED",
+   "failed_assertions": 25
+  },
+  {
+   "id": "F07",
+   "verdict": "RED",
+   "failed_assertions": 44
+  },
+  {
+   "id": "F08",
+   "verdict": "RED",
+   "failed_assertions": 6
+  },
+  {
+   "id": "F09",
+   "verdict": "RED",
+   "failed_assertions": 23
+  }
+ ],
+ "workers": [
+  {
+   "worker": 0,
+   "entries": "9/9",
+   "red": 9,
+   "worthless": 0,
+   "rc": 0,
+   "md5_after": "d6cb727d0c45448c1468b8b33f671163",
+   "restored": "MATCHES"
+  }
+ ],
+ "tally": {
+  "red": 9,
+  "unusable": 0,
+  "note": ""
+ },
+ "integrity_block": false,
+ "real_tree_untouched": true
+}

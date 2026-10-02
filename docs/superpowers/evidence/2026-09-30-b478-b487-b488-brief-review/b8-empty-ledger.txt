@@ -1,0 +1,4 @@
+# transcript label=synthetic shape=seam profile=full_headless fw_main=synthetic sha256=synthetic rows=0 (projected=0 boundaries=0)
+MR0C-TRANSCRIPT v1 adapters=post0c/4b9b86afd330 lines=0
+MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=1 MR_FEAT_RADMIN_CLIENT=0
+MR0C-TRANSCRIPT END chk=0 fail=0

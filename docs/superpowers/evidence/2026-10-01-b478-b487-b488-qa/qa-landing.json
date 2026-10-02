@@ -1,0 +1,17 @@
+{
+  "changed_preparation": {
+    "docs/2026-07-30-open-bug-register.md": "a459ec95f9fae14bce968750b30cd8dad4a850712b00249435936b198cf75ba0",
+    "tracker.md": "6e145e62cb596a191ea448f03ca42d561a87681ab71e2f286d24b040e0520b6a",
+    "MEMORY.md": "e77e4ca9166ee4c23f932aa10b10b7f71432ba4fd95e5d77a1b89822144a9410"
+  },
+  "brief_unchanged": "06e415797741412b0a364b7ff21b0a993a39eed85d3e7e40e5b9d8c113799cd1",
+  "fenced_files_unchanged": {
+    "tools/probe_ui_model_mutations.py": "72a62ae82d8db5528afd508b3ace932a7cb4559f4a1b5a5da5a5a1f5fd41dfe2",
+    "tools/test_mutation_unusable_reason.py": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+    "tools/probe_inbox_verbs/transcript.py": "89ff8a07f61e5122f564d93e016c038c7774c616121fab1aff3f6f686da52c49",
+    "tools/probe_inbox_verbs/transcript_main.cpp": "e5b5b51c709a5f379908f2f048f558251cf8a2ee57b9b79e8030bbbedf787863",
+    "tools/test_probe_inbox_transcript.py": "6be422e28d845206175367c6846d7dc02bc6c31d37fc372fb21a8c4475ce9bd1"
+  },
+  "report_sha256": "189a3eee4486574ad12d57af4b13bcaecc69ee343de53a9109d9136a03d64719",
+  "verdict": "HOLD; B491/B492; no contract waiver"
+}

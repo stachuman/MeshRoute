@@ -1,0 +1,179 @@
+{
+  "tools/probe_ui_model_mutations.py": {
+    "sha256": "b71270ee2ed63d67bfbc4051a8b98cb80ce2e2da49cbba27aa548d781fb13a70",
+    "lines": 12931,
+    "symbols": {
+      "SuiteFailure": {
+        "start": 12334,
+        "end": 12337
+      },
+      "unusable_verdict": {
+        "start": 12340,
+        "end": 12354
+      },
+      "unusable_log_path": {
+        "start": 12357,
+        "end": 12359
+      },
+      "retain_unusable": {
+        "start": 12362,
+        "end": 12366
+      },
+      "selftest_unusable": {
+        "start": 12369,
+        "end": 12400
+      },
+      "run_suite": {
+        "start": 12403,
+        "end": 12414
+      },
+      "_cleanup_scratch": {
+        "start": 12458,
+        "end": 12478
+      },
+      "orchestrate": {
+        "start": 12500,
+        "end": 12763
+      },
+      "_shard_flush": {
+        "start": 12790,
+        "end": 12801
+      },
+      "_pump": {
+        "start": 12576,
+        "end": 12580
+      }
+    }
+  },
+  "tools/test_mutation_unusable_reason.py": {
+    "sha256": "f6ac8119d1f1b585dc6162254747114da08a453387d5a4e5ca7a08409d2838b5",
+    "lines": 117,
+    "symbols": {
+      "suite_runner": {
+        "start": 69,
+        "end": 81
+      }
+    }
+  },
+  "tools/test_worker_formula_derived.py": {
+    "sha256": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+    "lines": 164,
+    "symbols": {}
+  },
+  "tools/probe_inbox_verbs/transcript.py": {
+    "sha256": "ffb23ad6cecb3d74859136ce06b237027739ddc8dfcdad5599a9180649b9b000",
+    "lines": 424,
+    "symbols": {
+      "extract_regions": {
+        "start": 88,
+        "end": 121
+      },
+      "shape_of": {
+        "start": 124,
+        "end": 133
+      },
+      "derive_matrix": {
+        "start": 192,
+        "end": 231
+      },
+      "generate": {
+        "start": 286,
+        "end": 299
+      },
+      "build_env": {
+        "start": 313,
+        "end": 318
+      },
+      "default_flags": {
+        "start": 321,
+        "end": 326
+      },
+      "build_and_run": {
+        "start": 329,
+        "end": 369
+      },
+      "verify_profile": {
+        "start": 372,
+        "end": 382
+      },
+      "main": {
+        "start": 385,
+        "end": 420
+      }
+    }
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+    "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+    "lines": 148
+  },
+  "tools/probe_inbox_verbs/run.sh": {
+    "sha256": "db7add6c5fb335097bc84a192b925b43604f638f7951e422cd926f7ab6292948",
+    "lines": 1051
+  },
+  "tools/probe_inbox_verbs/probe_main.cpp": {
+    "sha256": "69cc26c59f0be12952421501fb0365e85195ff9343995cd4056068e20f0f7650",
+    "lines": 2460
+  },
+  "tools/probe_deferred_actions/run.py": {
+    "sha256": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+    "lines": 190,
+    "symbols": {
+      "main": {
+        "start": 128,
+        "end": 189
+      }
+    }
+  },
+  "tools/probe_deferred_actions/probe.cpp": {
+    "sha256": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+    "lines": 222
+  },
+  "tools/gen_command_inventory.py": {
+    "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+    "lines": 1186,
+    "symbols": {
+      "generate": {
+        "start": 1115,
+        "end": 1118
+      },
+      "main": {
+        "start": 1121,
+        "end": 1182
+      }
+    }
+  },
+  "src/fw_main.cpp": {
+    "sha256": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+    "lines": 1875
+  },
+  "lib/console/console_line.h": {
+    "sha256": "640e4886ef9b0708828d2679cbc993853158475b6d100118bcc08bcf0f7c85a9",
+    "lines": 36
+  },
+  "src/device_ble.h": {
+    "sha256": "56d68dd9270f670451115854e4861dceab8b25c7d81b1f923f73aa5a3f941ac5",
+    "lines": 328
+  },
+  "tools/probe_console_sink/structural.py": {
+    "sha256": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19",
+    "lines": 908,
+    "symbols": {
+      "main": {
+        "start": 893,
+        "end": 905
+      }
+    }
+  },
+  "tools/probe_inbox_verbs/fakes/Preferences.h": {
+    "sha256": "bd57ac322eafe89e4e882c35b8bc02b9fda60f4738e11bfe1dacb0699b617346",
+    "lines": 138
+  },
+  "tools/probe_board_ui/fakes/Arduino.h": {
+    "sha256": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+    "lines": 162
+  },
+  "test/test_firmware_ui_model.cpp": {
+    "sha256": "5f7d61cadf1b50a66cd07e2f229c9478c8c27c5e1f66a0597ff580a1b8397287",
+    "lines": 12527
+  }
+}

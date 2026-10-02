@@ -1,0 +1,53 @@
+{
+ "finding": "QA TQ-2 (B492): F07's failed-assertion count is 42 or 44 on the SAME binary",
+ "binary": {
+  "how": "stock harness, MR_MUT_KEEP_SCRATCH=1 python3 -B tools/probe_ui_model_mutations.py --target=w4aident --workers=1 F07 (scratch tree only; real tree untouched); the retained .pio/build/native/program copied to artifacts/…/tq2/f07-program",
+  "sha256": "b650e977b927a2bc3eefd3c0eae8f3cd07810b9af6984e5150233ba819bb1b51",
+  "harness_verdict": "RED (44 assertion(s) failed, match count 1)"
+ },
+ "aslr_on_200_runs": {
+  "exit": [
+   1
+  ],
+  "distribution": {
+   "42": 13,
+   "44": 187
+  },
+  "varying_sites": [
+   "test/test_firmware_ui_model.cpp:12189",
+   "test/test_firmware_ui_model.cpp:12190"
+  ],
+  "always_failing_sites": 41
+ },
+ "aslr_off_100_runs": {
+  "how": "setarch x86_64 -R",
+  "exit": [
+   1
+  ],
+  "distribution": {
+   "44": 100
+  }
+ },
+ "aslr_off_stack_sweep_256": {
+  "how": "setarch -R; env {PATH,HOME,MRPAD='x'*pad}, pad 0..255 — shifts the stack one byte at a time",
+  "distribution": {
+   "42": 16,
+   "44": 240
+  },
+  "pads_giving_42": [
+   212,
+   227
+  ],
+  "contiguous": true
+ },
+ "mechanism": [
+  "F07 replaces `keep = (len <= cols) ? len : uint8_t(cols - 1)` with `keep = (len <= cols) ? len : cols` in ui_fmt_identity: for a name longer than `cols` the marker lands at out[cols] and the NUL at out[cols + 1] — one byte past a destination of exactly `cols + 1` bytes, which the function's own capacity check (it refuses only `cap < cols + 1`) ADMITS. The clean code's NUL lands at out[cols].",
+  "ui_review_header (src/firmware_ui_send.h) owns `char label[kReviewLabelCols + 1]` = 8 and calls ui_fmt_identity(label, 8, ..., cols 7). In the linked binary its frame is `push %r12; push %rbp; push %rbx; sub $0x10,%rsp` with label at 0x8(%rsp): label[8] = 0x10(%rsp) = the LOW BYTE OF THE CALLER'S SAVED %rbx, restored by `pop %rbx` on return (tq2-f07-disassembly.txt).",
+  "Its only caller, ui_review_capture, sets %rbx = &m (the UiModel&, its first argument; the only write to %rbx in the function) and right after the call passes %rbx as `this` to UiModel::on_review_captured. With the low byte zeroed, the captured review (binding included) is written to &m rounded down to 256 bytes — another stack location — so the test's m.review_binding() keeps stale peer_known / peer_hash: test_firmware_ui_model.cpp:12189 and :12190 fail.",
+  "When &m's low byte is ALREADY 0 the overwrite is a no-op, the capture lands in m, and those two checks pass: 42. The stack is 16-byte aligned and randomized by ASLR, so that happens 1 run in 16 (6.25%; measured 13/200 = 6.5%). ASLR off pins it (100/100 = 44 here), and shifting the stack one byte at a time gives 42 for exactly 16 of 256 offsets, in ONE contiguous run — the 16 stack positions at which the 16-byte-aligned &m ends in 0x00.",
+  "The second fixed-size consumer, ui_home_me_line (`char id[kHomeNameCols + 1]` = 17, cols 16), is overflowed by one byte the same way; its target was not traced, and no count variance beyond :12189/:12190 was observed."
+ ],
+ "attribution": "pre-existing: F07's table entry, src/firmware_ui_model.h and the native test are unchanged at the base (A8; census AST-identical). The count depends only on the mutant binary's stack, not on this package's classification: exit 1 with failures is RED under both the base rule and A2. The brief's baseline 44 and the coder's three runs (44, 44, 44) were the 15-in-16 outcome; QA's 42 was the 1-in-16 one.",
+ "consequence": "F07 is a memory-UNSAFE mutant: 2 of its 44 failures come from a stack overwrite, not from the mutation's semantics, so no exact F07 count is reproducible run to run. Its RED itself is robust (41 failing sites are deterministic).",
+ "raw_outputs": "artifacts/2026-09-30-b478-b487-b488/tq2/runs/{aslr-on,aslr-off,pad-sweep}/ (556 files, ignored); their SHA-256s: tq2-raw-hashes.json"
+}

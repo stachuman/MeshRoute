@@ -1,0 +1,66 @@
+{
+  "diagnostic_only": true,
+  "production_and_native_tests_unchanged": true,
+  "scratch": "/tmp/mr-qa-bounded-f07-3jt6pmjx",
+  "old": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);",
+  "proposed": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - (cap > std::size_t(cols) + 1u ? 0u : 1u));",
+  "scope": "name lengths 0..32, column budgets 0..32, capacities 0..48; logical-capacity sentinels and NUL, plus current test_firmware_ui_model.cpp:2756 witness",
+  "rows": [
+    {
+      "arm": "clean",
+      "exit": 0,
+      "result": {
+        "calls": 53361,
+        "outside_declared_capacity": 0,
+        "missing_nul": 0,
+        "existing_roomy_budget_witness_passes": true,
+        "roomy_length": 6,
+        "tight_examples_unchanged": 3
+      },
+      "command": [
+        "g++",
+        "-std=c++20",
+        "-O1",
+        "-DMESHROUTE_NATIVE=1",
+        "-DMR_N_LAYERS=2",
+        "-I/tmp/mr-qa-bounded-f07-3jt6pmjx/clean",
+        "-I/home/staszek/MeshRoute/lib/core",
+        "-I/home/staszek/MeshRoute/lib/hal",
+        "-I/home/staszek/MeshRoute/lib/console",
+        "-I/home/staszek/MeshRoute/lib/monocypher/src",
+        "/tmp/mr-qa-bounded-f07-3jt6pmjx/clean/main.cpp",
+        "-o",
+        "/tmp/mr-qa-bounded-f07-3jt6pmjx/clean/check"
+      ],
+      "model_sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf"
+    },
+    {
+      "arm": "bounded-proposal",
+      "exit": 0,
+      "result": {
+        "calls": 53361,
+        "outside_declared_capacity": 0,
+        "missing_nul": 0,
+        "existing_roomy_budget_witness_passes": false,
+        "roomy_length": 7,
+        "tight_examples_unchanged": 3
+      },
+      "command": [
+        "g++",
+        "-std=c++20",
+        "-O1",
+        "-DMESHROUTE_NATIVE=1",
+        "-DMR_N_LAYERS=2",
+        "-I/tmp/mr-qa-bounded-f07-3jt6pmjx/bounded-proposal",
+        "-I/home/staszek/MeshRoute/lib/core",
+        "-I/home/staszek/MeshRoute/lib/hal",
+        "-I/home/staszek/MeshRoute/lib/console",
+        "-I/home/staszek/MeshRoute/lib/monocypher/src",
+        "/tmp/mr-qa-bounded-f07-3jt6pmjx/bounded-proposal/main.cpp",
+        "-o",
+        "/tmp/mr-qa-bounded-f07-3jt6pmjx/bounded-proposal/check"
+      ],
+      "model_sha256": "39402c91f2b3701e47461a953c462d9de4ab20460fb56e4f7a8ad9d8a744d2e7"
+    }
+  ]
+}

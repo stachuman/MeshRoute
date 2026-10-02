@@ -1,0 +1,26 @@
+{
+  "meshroute": {
+    "head": "10f333298ffad1098daeec37e756ed79ab0fd97f",
+    "entry_paths_checked": 2267,
+    "changed": [
+      "docs/2026-07-30-open-bug-register.md"
+    ],
+    "missing": [],
+    "unexplained_new": [],
+    "index_empty": true,
+    "status": "M docs/2026-07-30-open-bug-register.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/",
+    "new_path_policy": "Only this report/evidence folder"
+  },
+  "simulator": {
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "entry_paths_checked": 285,
+    "changed": [],
+    "missing": [],
+    "unexplained_new": [],
+    "index_empty": true,
+    "status": "",
+    "new_path_policy": "None"
+  },
+  "register_sha256": "bdfb7c34a4922df89c2af30f4176cd332a4e00671d7207addbb570203d2cfca1",
+  "scope": "Entry-input preservation; output receipt and SHA256SUMS do not inventory themselves."
+}

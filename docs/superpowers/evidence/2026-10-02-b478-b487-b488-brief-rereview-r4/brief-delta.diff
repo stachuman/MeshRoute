@@ -1,0 +1,180 @@
+--- authorized-for-review-r3
++++ review-r4
+@@ -1,11 +1,13 @@
+ <!-- Author: Claude (brief author); QA: Codex (pre-check, brief review, independent gate); coder: a separate agent dispatched by QA; the owner rules and commits -->
+ # B478 + B487 + B488, with B490, B491 and B492 — byte-safe mutation verdicts and a working transcript comparator (tool-only)
+ 
+-**Revision 3 — 2026-10-02 — for QA review.** QA authorized revision 2 (`06e41579…99cd1`,
++**Revision 4 — 2026-10-02 — for QA's scoped re-review.** QA authorized revision 2 (`06e41579…99cd1`,
+ [approval](../evidence/2026-09-30-b478-b487-b488-brief-rereview.md)). The coder froze an implementation, and the
+ [independent QA gate](../evidence/2026-10-01-b478-b487-b488-qa.md) held it on B491 (TQ-1) and on B492 (TQ-2, a
+-STOP-2 that needed this brief's disposition). On 2026-10-02 the owner ruled B492 into this package. This revision
+-re-pins at that checkpoint (P4); §8 gives the delta.
++STOP-2 that needed this brief's disposition). On 2026-10-02 the owner ruled B492 into this package, and revision 3
++(`018c586b…af89`) re-pinned at that checkpoint (P4). The
++[revision-3 review](../evidence/2026-10-02-b478-b487-b488-brief-review-r3.md) held it on TPR-4–TPR-6; this revision
++folds them in. §8 gives each delta.
+ 
+ - **Base:** owner commit **`10f3332`** (`10f333298ffad1098daeec37e756ed79ab0fd97f`), plus the coder's frozen
+   candidate as its round 2 left it (§1). The pre-check's `inputs.json` (2,267 MeshRoute paths, 285 simulator paths)
+@@ -19,6 +21,8 @@
+   - the [brief review](../evidence/2026-09-30-b478-b487-b488-brief-review.md) — cited as "review TPR-n"; its
+     accepted dispositions stand;
+   - the [independent QA gate](../evidence/2026-10-01-b478-b487-b488-qa.md) — cited as "gate TQ-n";
++  - the [revision-3 review](../evidence/2026-10-02-b478-b487-b488-brief-review-r3.md) — TPR-4–TPR-6; its accepted
++    answers stand;
+   - the coder's [round-1 report](../evidence/2026-09-30-b478-b487-b488.md) and its `round2/` folder — the B491
+     repair and the B492 account;
+   - the [register](../../2026-07-30-open-bug-register.md): B478, B487, B488, B490, B491 and B492 in scope; B460,
+@@ -88,10 +92,11 @@
+   (`round2/tq2-f07-account.json`). The entry, the formatter and the test are unchanged from the base, so the defect
+   predates this package. Its RED is robust; its count is not reproducible, so revision 2's exact-count gate could
+   never hold for it.
+-- **Author V1 check of the other eight entries:** none writes past a real array. F08 drops the capacity check, but
+-  its only active calls go through the native test's guarded 48-byte `IdBuf`, and every production consumer passes an
+-  exact `cols + 1` capacity, where the dropped check never fires. F01–F06 and F09 stay within `cols + 1` or write
+-  through `snprintf(out, cap, …)`.
++- **Author V1 check of the other eight entries:** none writes past a real array. Every valid caller passes at least
++  `cols + 1` bytes, so F08's dropped capacity check never fires on a real path; its only active calls go through the
++  native test's guarded 48-byte `IdBuf`. F01–F06 and F09 stay within `cols + 1` or write through
++  `snprintf(out, cap, …)`. (Revision 3 said every production consumer is exactly `cols + 1`; the TEAM row is not —
++  see A10, review TPR-4.)
+ - **Owner ruling, 2026-10-02:** fix F07 inside this package (A10). QA's unfinished return check had already measured
+   the bounded form adopted here: no write outside the declared capacity across 53,361 calls, and the existing
+   roomy-capacity check still catches it. That check ended without a verdict and is not cited as a gate.
+@@ -174,7 +179,7 @@
+ 
+ | Path | Kind | SHA-256 |
+ | --- | --- | --- |
+-| `docs/2026-07-30-open-bug-register.md` | authority (the six rows; §0) | `7fa96cc1e6a59bd26764060ddbce925d0d82c0f533e342590ed1b80051ffa373` |
++| `docs/2026-07-30-open-bug-register.md` | authority (the six rows; §0) | `a07f652dc16d9fe6eb8bb12785713662df6780efaa77b019f0774c82fcf49694` |
+ | `docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md` | authority (pre-check) | `7a32af65fb6f68d78614a2df78f7340b3cd7b3269409a0e9d14a5fe19896a7c7` |
+ | `docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/SHA256SUMS` | evidence — 16 entries, including `inputs.json` (`1226a25e…22ff`) and `source-map.json` (`7381d162…50a0`) | `b790bd21b8b80cd77f85aa50e072801402d4566a3839ffdc544f92ba07c2b64a` |
+ | `docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review.md` | authority (brief review) | `bc0d680c8822496976163988726158fc28b2ad74aa1f631f1e92053f93ab5d03` |
+@@ -186,15 +191,18 @@
+ | `docs/superpowers/evidence/2026-09-30-b478-b487-b488/round2/SHA256SUMS` | evidence — 8 entries (round 2: B491 repair, B492 account) | `329ea7af4f21d8e42b38c0396bd79c83a5a9c41861d20977224074a483422167` |
+ | `docs/superpowers/evidence/2026-10-01-b478-b487-b488-qa.md` | authority (independent gate, HOLD) | `189a3eee4486574ad12d57af4b13bcaecc69ee343de53a9109d9136a03d64719` |
+ | `docs/superpowers/evidence/2026-10-01-b478-b487-b488-qa/SHA256SUMS` | evidence — 29 entries | `6afbf83f424a7ef06e02ed23e0a163d1ab8a54e08ec4591c7621962c62cd1929` |
+-| `tracker.md`, `MEMORY.md` | context pointers | `6dfb45209b478426cf7075ab8ded683faad943793b1a9332923a142444d16d81`, `b28f01cd7873ea9ec2c0e4af3f5858cfbfcc642ebf15564ca01a8402da2c5173` |
++| `docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3.md` | authority (revision-3 review, HOLD) | `674bfcb3eb2d621d6709714226bb16e1237690f677eaf71e0b7d1ec8f5a68359` |
++| `docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-review-r3/SHA256SUMS` | evidence — 16 entries | `e02389c863f8958cb911f113dd3635d7f9f5d278a4e32f775daf809cc91e4846` |
++| `tracker.md`, `MEMORY.md` | context pointers | `78878667d370eaaa00081bbd6f7011054a3df0422f79a3c0e0b67c43c26fd1c6`, `1cd7202c2a948384b120bbdf27d0e173c1b002782516358c557ab5b0bee35fc7` |
+ 
+ **Register history:** the pre-check entered at `1cc550e1…294f`. QA added B490 and the next-free marker, giving
+ `bdfb7c34…cfca1`. The author then added this package's §0 entry and B490's scope status, giving `dcb33335…65a2`
+ for revision 1. For revision 2 the author rewrote that §0 entry in place and noted the review's acceptance in B490's
+ status, giving `ca93842a…7ab3`; no finding was added (next free stays B491). QA's gate then registered B491–B495,
+ moved the next-free marker to B496 and wrote its HOLD dispatch. For revision 3 the author rewrote that §0 entry in
+-place and recorded B491's repair status and the owner's B492 ruling in their rows, giving `7fa96cc1…a373`; no
+-finding was added (next free stays B496).
++place and recorded B491's repair status and the owner's B492 ruling in their rows, giving `7fa96cc1…a373`. For
++revision 4 the author rewrote the §0 entry in place again, naming the revision-3 review and its three corrections,
++giving `a07f652d…9694`. No finding was added (next free stays B496).
+ The design (`da85903a…aadee`) is context, unchanged since the pre-check. This brief is pinned by the hash QA issues,
+ not listed here.
+ 
+@@ -202,7 +210,7 @@
+ 1. Check both repositories: MeshRoute `HEAD` = `10f3332`; the simulator at `6585649` and clean.
+ 2. Every fenced file matches its **candidate** hash, and every read-only dependency above matches its hash.
+ 3. Every preparation-set hash matches, and every evidence folder verifies (`sha256sum -c SHA256SUMS`): pre-check 16,
+-   review 12, re-review 5, round 1 24, round 2 8, gate 29.
++   review 12, re-review 5, round 1 24, round 2 8, gate 29, revision-3 review 16.
+ 4. Every path in `inputs.json` still has its recorded hash, except the register, `tracker.md`, `MEMORY.md` and the
+    five fenced files.
+ 5. Classify every other path. The review, gate and coder reports and evidence named above are explained; so are QA
+@@ -406,18 +414,31 @@
+   Its pattern (the clean line), its ID `F07`, its label and its position stay. One comment line above the entry
+   names B492 and says why the over-keep is bounded.
+ - **What it still attacks.** The same rule — an abbreviated name is exactly `cols` cells, with the marker on the last
+-  one — but only where the destination has room for one more cell. A destination of exactly `cols + 1` bytes, which
+-  every production consumer uses, keeps the clean cut, so the mutant never writes past a real array. The
+-  roomy-capacity check in the `w4a-ident: lengths` case — `id_fmt(b, 48, src, 32, 0, 6)`, expecting `ABCDE»` —
+-  still fails under it.
++  one, whatever the buffer's capacity. The mutant keeps the extra cell only when the destination has room for it and
++  the NUL (`cap >= cols + 2`). Every valid caller passes `cap >= cols + 1`; at an exact destination
++  (`cap == cols + 1`) it keeps the clean cut, so it never writes past a real array.
++- **Production has both kinds of caller (review TPR-4).** The review header, the Home line, DELIVERED, compose TO,
++  REPLY and both invite rows pass exactly `cols + 1`. The TEAM row does not: `build_snapshot` passes `TeamRow::label`
++  (15 bytes) with the six-column `kTeamNameCols` through `label_for_team_id` and `label_from_hash`. There the mutant
++  writes a seven-cell label inside the carrier — safe, and wrong on purpose. No claim of production-wide inertness is
++  made. In the native suite, the roomy-capacity check in the `w4a-ident: lengths` case —
++  `id_fmt(b, 48, src, 32, 0, 6)`, expecting `ABCDE»` — fails under it.
+ - **Proofs at the freeze.** These are evidence; the suite does not change for A10.
+-  1. **Memory safety.** Sweep the formatter over name lengths 0–32, budgets 0–32 and capacities 0–48, with guard
+-     bytes on both sides of the declared capacity, in three arms: the clean formatter, the new F07 and the old F07.
+-     The clean and new arms write nothing outside the declared capacity and always leave a NUL inside it. The old
+-     arm must show its out-of-capacity writes, so the sweep discriminates. Mutate a scratch copy of the header; no
+-     product file changes.
+-  2. **The consumer census.** Grep every `ui_fmt_identity` caller in `src/` and `test/` and record its capacity —
+-     exactly `cols + 1`, or roomy. The new F07 is inert at every exact one.
++  1. **Memory safety (review TPR-5).** Sweep the formatter over name lengths 0–32, budgets 0–32 and capacities
++     0–48, in three arms: the clean formatter, the new F07 and the old F07. Every call writes into one padded backing
++     array, with the guard bytes around the declared capacity inside that array. Even the old arm's admitted overrun
++     then lands inside the array and is observed, never a physical out-of-bounds access. Two conditions:
++     - at capacity 0, every byte is untouched;
++     - at any positive capacity, a NUL lies inside the declared capacity and no byte outside it changes.
++
++     The clean and new arms meet both conditions on every call. The old arm must show its out-of-capacity writes,
++     so the sweep discriminates. A crash or corruption is never a sweep verdict. Mutate a scratch copy of the
++     header; no product file changes.
++  2. **The consumer census.** Grep every `ui_fmt_identity` caller in `src/` and `test/`, following the wrappers
++     (`label_from_hash`, `label_for_team_id`, `label_for_origin`) to their callers. Record for each the physical
++     buffer extent and the capacity and budget passed. Every valid caller has `cap >= cols + 1`. The census names
++     the callers with `cap >= cols + 2`, where the new F07 is active — at authoring, the TEAM row in production and
++     the roomy native test cases.
+   3. **RED for its own reason.** The new F07's failing assertions include the roomy-capacity check above. Record the
+      exact count and failing sites.
+   4. **Stable.** One retained F07 binary gives one count and one site set on every run: 200 runs with address
+@@ -710,16 +731,17 @@
+ ### 4.3 STOP conditions
+ 
+ - **Fence:** an edit outside §3; a needed change to `run.sh`, a fixture or a fake (STOP-1).
+-- **Harness contract:** a changed `MUTS_*` list, target, pin or worker constant; strict decoding, `errors="ignore"`
+-  or a replacement character used as captured evidence; a verdict credited against a disagreeing exit; build and run
+-  refusals merged; evidence that exists only in a deleted worker.
++- **Harness contract:** a changed `MUTS_*` list, target, pin or worker constant, other than A10's F07 replacement
++  string and its comment line (review TPR-6); strict decoding, `errors="ignore"` or a replacement character used as
++  captured evidence; a verdict credited against a disagreeing exit; build and run refusals merged; evidence that
++  exists only in a deleted worker.
+ - **Verdicts:** a `w4aident` entry that is not RED at final; a count other than its baseline for F01–F06, F08 or F09;
+   an F07 count other than A10's stable count. If A2 exposes a crash-masked entry, that is STOP-2: report the entry,
+   its exit and its retained evidence. Never relax the rule.
+ - **A10:** the new F07 not RED, or its count or site set varying between runs or worker counts; an out-of-capacity
+-  write in its sweep; the old F07 arm not showing its writes; any table edit beyond F07's replacement string and its
+-  comment line. A bounded F07 that survives (no failure) is STOP-2: report it; the native tests stay outside the
+-  fence.
++  write in its sweep, or a sweep call that crashes; the old F07 arm not showing its writes; any table edit beyond
++  F07's replacement string and its comment line. A bounded F07 that survives (no failure) is STOP-2: report it; the
++  native tests stay outside the fence.
+ - **Transcript contract:** a copied build recipe; altered extracted-region bytes; a numeric limit patched into the
+   copied tail; weakened profile validation; SER compared with BLE; a record disagreeing with the pre-check's
+   measurement (STOP-2).
+@@ -731,7 +753,7 @@
+   the existing precedence, or a claim of retention after persistence failed (A5, A9.7).
+ - **Validity:** a ledger accepted on its own counts rather than the expected matrix (B7).
+ - **Other instruments:** a tools count other than the derived one, any skip or import failure, a command-inventory
+-  difference, or a census difference.
++  difference, or a census difference other than F07's replacement string (review TPR-6).
+ - **Inputs:** a mismatch at preflight, a changed preparation file, or an input change during the chain.
+ - **Source facts:** a §1 fact found false is STOP-1 to QA, never a coder assumption.
+ 
+@@ -863,3 +885,19 @@
+   and coder evidence join the preparation set.
+ 
+ Nothing else changes.
++
++**Revision 4 (2026-10-02)** folds in the revision-3 review (HOLD, TPR-4–TPR-6). The review accepted the bounded F07,
++B491's contract, the fence and the count gate; it requested no new ruling.
++- **TPR-4:** the TEAM row passes a 15-byte carrier for a six-column budget, so not every production caller is exact.
++  §0 now argues safety from `cap >= cols + 1` for every valid caller. A10 names both kinds of caller, says the new F07
++  over-keeps only at `cap >= cols + 2` — a seven-cell TEAM label inside its carrier — and its census follows the
++  wrappers and records each buffer's extent with the capacity and budget passed.
++- **TPR-5:** A10's sweep states its two conditions — capacity 0 untouched; a positive capacity holds a NUL with
++  nothing outside it changed — and runs every arm in one padded backing array, so the old arm's overrun is observed
++  safely. A crash is never a sweep verdict.
++- **TPR-6:** the "Harness contract" and "Other instruments" STOP bullets carry A10's exception: the F07 replacement
++  string and its comment line. Everything else stays protected.
++- **Pins:** the register (§0 rewritten in place) and the two pointers are refreshed, and the revision-3 review joins
++  the authorities and the preparation set.
++
++Nothing else changes.

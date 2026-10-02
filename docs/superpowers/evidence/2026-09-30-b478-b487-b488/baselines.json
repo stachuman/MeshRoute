@@ -1,0 +1,65 @@
+{
+ "scope": "§4.1 baselines on the unmodified tree (HEAD 10f3332 + the pinned preparation set), before any edit",
+ "runs": [
+  {
+   "step": "native-build",
+   "exit": 0,
+   "seconds": 2,
+   "command": "pio test -e native"
+  },
+  {
+   "step": "native-binary",
+   "exit": 0,
+   "seconds": 0,
+   "command": "./.pio/build/native/program"
+  },
+  {
+   "step": "w4aident",
+   "exit": 0,
+   "seconds": 190,
+   "command": "python3 -B tools/probe_ui_model_mutations.py --target=w4aident"
+  },
+  {
+   "step": "transcript-stock",
+   "exit": 2,
+   "seconds": 17,
+   "command": "python3 -B tools/probe_inbox_verbs/transcript.py --out /tmp/claude-1001/-home-staszek-MeshRoute/7019fa4d-8324-4b18-b429-3c8de8a32587/scratchpad/b478/base-transcript-out"
+  },
+  {
+   "step": "discovery",
+   "exit": 0,
+   "seconds": 813,
+   "command": "python3 -B -m unittest discover -s tools -p test_*.py"
+  },
+  {
+   "step": "inventory",
+   "exit": 0,
+   "seconds": 2,
+   "command": "python3 -B tools/gen_command_inventory.py --check"
+  }
+ ],
+ "native": {
+  "test_cases": 3059,
+  "assertions": 199638,
+  "failed_cases": 0,
+  "failed_assertions": 0
+ },
+ "w4aident": "w4aident-base.json",
+ "stock_transcript": {
+  "exit": 2,
+  "verdict": "FAILURE (the B487 defect baseline), never a before-state PASS",
+  "diagnostic": [
+   "TRANSCRIPT REFUSED: transcript driver build failed:",
+   "/tmp/claude-1001/-home-staszek-MeshRoute/7019fa4d-8324-4b18-b429-3c8de8a32587/scratchpad/b478/base-transcript-out/mr0c_adapters.h:111:46: error: 'mrble' has not been declared"
+  ]
+ },
+ "defect_baseline": "defect-baseline.json",
+ "discovery": {
+  "ran": 406,
+  "result": "OK"
+ },
+ "inventory": [
+  "gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)"
+ ],
+ "census": "census-base.json"
+}

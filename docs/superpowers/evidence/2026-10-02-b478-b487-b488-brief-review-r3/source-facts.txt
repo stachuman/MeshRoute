@@ -1,0 +1,86 @@
+src/firmware_ui.cpp:453: void label_from_hash(uint32_t hash, char* out, uint8_t cap, uint8_t cols) {
+src/firmware_ui.cpp:454:     if (cap == 0) return;                                       // nothing to write (W1)
+src/firmware_ui.cpp:455:     char raw[MESHROUTE_NS::protocol::peer_name_max];            // the FULL counted name — no terminator, no clip
+src/firmware_ui.cpp:456:     const uint8_t n = g_node.peer_name_find(hash, raw, uint8_t(sizeof raw));
+src/firmware_ui.cpp:457:     (void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols);
+src/firmware_ui.cpp:458: }
+src/firmware_ui.cpp:459: // ★★★ §UI-17 S5 — IT **RETURNS THE HASH IT RESOLVED** (0 = none), AND THAT IS THE WHOLE OF THE CHANGE (spec §3.4
+src/firmware_ui.cpp:460: //     term 2, U1): `build_snapshot` needs the same `team_key_of_id` answer to look the peer's cached POSITION up, and
+src/firmware_ui.cpp:461: //     a second call there would be a second resolution of one fact — the fork this project keeps paying for. ⇒ ONE
+src/firmware_ui.cpp:462: //     resolution per row, handed to both the label and `peer_loc_find`.
+src/firmware_ui.cpp:463: // ⓘ The two compose call sites ignore the value; they only ever wanted the label, and that behaviour is unchanged.
+src/firmware_ui.cpp:464: uint32_t label_for_team_id(uint8_t id, char* out, uint8_t cap, uint8_t cols) {
+src/firmware_ui.cpp:465:     uint32_t hash = 0;
+src/firmware_ui.cpp:466:     // ⓘ Inert on a !MR_FEAT_TEAM build: `team_key_of_id` stubs to false there, so the label falls straight through to
+src/firmware_ui.cpp:467:     //   the bare id. No #if needed — the stub IS the fallback.
+src/firmware_ui.cpp:468:     if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap, cols); return hash; }
+src/firmware_ui.cpp:469:     snprintf(out, cap, "id %u", unsigned(id));
+src/firmware_ui.cpp:470:     return 0;   // ⛔ C2: "no hash" is said out loud, never a plausible one — the caller blanks the location columns
+src/firmware_ui.cpp:471: }
+src/firmware_ui.cpp:472: void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap, uint8_t cols) {
+src/firmware_ui.cpp:473:     // §chan-crypt CL2c: a channel_recv carries the sender's stable key_hash32 here too, and `origin` on a team post is
+src/firmware_ui.cpp:474:     // only a DAD-assigned team_local_id — so prefer the hash when the post named one.
+src/firmware_ui.cpp:475:     if (pu.sender_hash != 0) { label_from_hash(pu.sender_hash, out, cap, cols); return; }
+src/firmware_ui.cpp:476:     snprintf(out, cap, "id %u", unsigned(pu.origin));
+src/firmware_ui.cpp:477: }
+src/firmware_ui.cpp:478: 
+src/firmware_ui.cpp:479: // ★★★ W4a — EACH DEVICE-LABEL SITE's COLUMN BUDGET (design §4.1 r2.20), NAMED AND DERIVED FROM EXISTING GEOMETRY —
+src/firmware_ui.cpp:480: //     ⛔ no site passes a bare number. The two compose budgets need the body width and sit beside `kBodyCols`.
+src/firmware_ui.cpp:481: //     ⓘ Every production budget is at least SIX cells (the member fingerprint), and every carrier has at least
+src/firmware_ui.cpp:482: //     `budget + 1` bytes, so `IdentityFmt::no_fit` is unreachable at every production site — asserted, not argued.
+src/firmware_ui.cpp:483: constexpr uint8_t kLabelMinCols   = uint8_t(mrui::kMemberFpCap - 1);     // the six-digit member fingerprint
+src/firmware_ui.cpp:484: constexpr uint8_t kTeamNameCols   = uint8_t(mrui::kTeamLabelCols);       // TEAM row's name field                  (6)
+src/firmware_ui.cpp:485: constexpr uint8_t kReplyWhoCols   = mrui::kLabelCap;                     // REPLY sender, the carriers' width     (14)
+src/firmware_ui.cpp:486: constexpr uint8_t kInviteNameCols = uint8_t(mrui::kInviteNameCap - 1);   // invite carrier = NEW MEMBER name row (14)
+src/firmware_ui.cpp:487: constexpr uint8_t kInviteCandCols = mrui::kInviteRowNameCols;            // candidate row's name column           (6)
+src/firmware_ui.cpp:488: static_assert(kTeamNameCols >= kLabelMinCols && kReplyWhoCols >= kLabelMinCols &&
+src/firmware_ui.cpp:489:               kInviteNameCols >= kLabelMinCols && kInviteCandCols >= kLabelMinCols,
+src/firmware_ui.cpp:490:               "W4a: every device-label budget holds at least the six-digit member fingerprint");
+src/firmware_ui.cpp:491: static_assert(sizeof(mrui::TeamRow::label) >= std::size_t(kTeamNameCols) + 1u &&
+src/firmware_ui.cpp:492:               sizeof(OutcomeView::who) >= std::size_t(kReplyWhoCols) + 1u &&
+src/firmware_ui.cpp:493:               sizeof(mrui::InviteMember::name) >= std::size_t(kInviteNameCols) + 1u,
+src/firmware_ui.cpp:494:               "W4a: every resident label carrier holds its site's budget plus the NUL (zero resident growth)");
+
+src/firmware_ui.cpp:829:         // ⓘ COST (spec §6): ONE linear scan of at most `cap_peer_loc` (16) slots per shown row, per tick, bounded by
+src/firmware_ui.cpp:830:         //   `kMaxTeamRows` (8). ⛔ No flash, no radio, no allocation.
+src/firmware_ui.cpp:831:         const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols);
+src/firmware_ui.cpp:832:         // ★★★★ §UI-16 N4 — THE **SECOND CONSUMER** OF THAT ONE RESOLUTION (spec §6, U1: *"one `team_key_of_id`
+
+src/firmware_ui_model.h:1495: inline IdentityFmt ui_fmt_identity(char* out, std::size_t cap, const char* bytes, uint8_t len,
+src/firmware_ui_model.h:1496:                                    uint32_t key_hash32, uint8_t cols) {
+src/firmware_ui_model.h:1497:     if (!out || cap == 0) return IdentityFmt::no_fit;               // nothing may be written
+src/firmware_ui_model.h:1498:     out[0] = '\0';
+src/firmware_ui_model.h:1499:     if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result
+src/firmware_ui_model.h:1500:     if (len > 0) {
+src/firmware_ui_model.h:1501:         if (cols == 0) return IdentityFmt::no_fit;                  // no name byte is read
+src/firmware_ui_model.h:1502:         const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);
+src/firmware_ui_model.h:1503:         for (uint8_t i = 0; i < keep; ++i) out[i] = ui_display_byte(uint8_t(bytes[i]));
+src/firmware_ui_model.h:1504:         uint8_t end = keep;
+src/firmware_ui_model.h:1505:         if (keep < len) out[end++] = kIdentityMarker;               // generated AFTER sanitizing: stays 0xBB
+src/firmware_ui_model.h:1506:         out[end] = '\0';
+src/firmware_ui_model.h:1507:         return IdentityFmt::name;
+src/firmware_ui_model.h:1508:     }
+src/firmware_ui_model.h:1509:     if (key_hash32 == 0) return IdentityFmt::none;
+src/firmware_ui_model.h:1510:     if (std::size_t(cols) >= kMemberHashCap - 1) { ui_fmt_member_hash_full(out, cap, key_hash32);   return IdentityFmt::hash; }
+
+src/firmware_ui_model.h:1873:     //    reader from concluding the renderer merely forgot them ([[meshroute-mark-done-vs-missing-in-code]]).
+src/firmware_ui_model.h:1874:     uint8_t  id = 0; uint32_t last_heard_s = 0; int16_t score_q4 = 0; uint8_t hops = 0;
+src/firmware_ui_model.h:1875:     char     label[kLabelCap + 1] = {};   // `ui_fmt_identity` at the TEAM budget (6): name / fingerprint / bare id
+src/firmware_ui_model.h:1876:     // ★★★★ §UI-17 S5 — THE PEER's LAST **AUTHENTICATED** POSITION, AS THE CACHE HANDED IT OVER. Published by
+
+src/firmware_ui_team.h:92: inline constexpr std::size_t kTeamLabelCols = 6;   // `%-6.6s` — pads AND bounds (the clamp/clip difference, §7.1 r5)
+src/firmware_ui_team.h:93: inline constexpr std::size_t kTeamAgeCols   = 3;   // `%3s`  — `ui_fmt_home_age` is bounded to 3 BY CONSTRUCTION
+src/firmware_ui_team.h:94: inline constexpr std::size_t kTeamDistCols  = 4;   // `%4s`  — §UI-17 S5's distance token (`850m` / `1.2k` / `far`)
+src/firmware_ui_team.h:95: inline constexpr std::size_t kTeamDirCols   = 2;   // `%2s`  — §UI-17 S5's eight-way octant (`N` .. `NW`)
+src/firmware_ui_team.h:96: static_assert(1 + kTeamLabelCols + 1 + kTeamAgeCols + 1 + kTeamDistCols + 1 + kTeamDirCols == kTeamRowCols,
+
+src/firmware_ui_send.h:658:         n = snprintf(out, cap, "TO T%u UNVERIFIED", unsigned(b.peer_id));
+src/firmware_ui_send.h:659:     } else {
+src/firmware_ui_send.h:660:         char label[kReviewLabelCols + 1];
+src/firmware_ui_send.h:661:         if (ui_fmt_identity(label, sizeof label, name, name_len, b.peer_hash, kReviewLabelCols) != IdentityFmt::name &&
+src/firmware_ui_send.h:662:             label[0] == '\0')
+src/firmware_ui_send.h:663:             snprintf(label, sizeof label, "T%u", unsigned(b.peer_id));
+src/firmware_ui_send.h:664:         n = snprintf(out, cap, "TO %s %08lX", label, (unsigned long)b.peer_hash);
+src/firmware_ui_send.h:665:     }
+src/firmware_ui_send.h:666:     if (n < 0 || std::size_t(n) >= cap) out[0] = '\0';   // never a clipped destination
+src/firmware_ui_send.h:667: }

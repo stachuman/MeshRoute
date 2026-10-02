@@ -1,0 +1,300 @@
+[
+  {
+    "profile": "full_headless",
+    "arm": "accept",
+    "matrix": 202,
+    "projected": 166,
+    "profile_verified": true,
+    "caller_bytes_preserved": true,
+    "repeat_same_binary_identical": true,
+    "variants": {
+      "pointer": {
+        "above7_refused": 164,
+        "examples": [
+          {
+            "id": "L003",
+            "len": 8,
+            "command": "acl list",
+            "SER": "  SER usb=[> err bad_line too_long\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=37 buf=[{\"err\":\"admin\",\"msg\":\"console_only\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L133",
+            "len": 5,
+            "command": "regen",
+            "SER": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L166",
+            "len": 6,
+            "command": "whoami",
+            "SER": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L201",
+            "len": 1023,
+            "command": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "SER": "  SER usb=[> err bad_line too_long\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"bad_line\",\"msg\":\"too_long\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L202",
+            "len": 8,
+            "command": "12345678",
+            "SER": "  SER usb=[> err bad_line too_long\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          }
+        ]
+      },
+      "array": {
+        "above7_refused": 0,
+        "examples": [
+          {
+            "id": "L003",
+            "len": 8,
+            "command": "acl list",
+            "SER": "  SER usb=[> acl end count=0 owners=0 operators=0\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=37 buf=[{\"err\":\"admin\",\"msg\":\"console_only\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L133",
+            "len": 5,
+            "command": "regen",
+            "SER": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L166",
+            "len": 6,
+            "command": "whoami",
+            "SER": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L201",
+            "len": 1023,
+            "command": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"bad_line\",\"msg\":\"too_long\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L202",
+            "len": 8,
+            "command": "12345678",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          }
+        ]
+      },
+      "array_live": {
+        "above7_refused": 0,
+        "examples": [
+          {
+            "id": "L003",
+            "len": 8,
+            "command": "acl list",
+            "SER": "  SER usb=[> acl end count=0 owners=0 operators=0\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=37 buf=[{\"err\":\"admin\",\"msg\":\"console_only\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L133",
+            "len": 5,
+            "command": "regen",
+            "SER": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L166",
+            "len": 6,
+            "command": "whoami",
+            "SER": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L201",
+            "len": 1023,
+            "command": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"bad_line\",\"msg\":\"too_long\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L202",
+            "len": 8,
+            "command": "12345678",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          }
+        ]
+      }
+    },
+    "live_precondition_changed_rows": [
+      {
+        "id": "L133",
+        "command": "regen",
+        "SER_before": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "SER_live": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_before": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_live": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+      },
+      {
+        "id": "L166",
+        "command": "whoami",
+        "SER_before": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "SER_live": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_before": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_live": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+      }
+    ]
+  },
+  {
+    "profile": "mobile",
+    "arm": "client",
+    "matrix": 206,
+    "projected": 170,
+    "profile_verified": true,
+    "caller_bytes_preserved": true,
+    "repeat_same_binary_identical": true,
+    "variants": {
+      "pointer": {
+        "above7_refused": 167,
+        "examples": [
+          {
+            "id": "L003",
+            "len": 8,
+            "command": "acl list",
+            "SER": "  SER usb=[> err bad_line too_long\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L133",
+            "len": 5,
+            "command": "regen",
+            "SER": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L170",
+            "len": 6,
+            "command": "whoami",
+            "SER": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L205",
+            "len": 1023,
+            "command": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "SER": "  SER usb=[> err bad_line too_long\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"bad_line\",\"msg\":\"too_long\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L206",
+            "len": 8,
+            "command": "12345678",
+            "SER": "  SER usb=[> err bad_line too_long\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          }
+        ]
+      },
+      "array": {
+        "above7_refused": 0,
+        "examples": [
+          {
+            "id": "L003",
+            "len": 8,
+            "command": "acl list",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L133",
+            "len": 5,
+            "command": "regen",
+            "SER": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L170",
+            "len": 6,
+            "command": "whoami",
+            "SER": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L205",
+            "len": 1023,
+            "command": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"bad_line\",\"msg\":\"too_long\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L206",
+            "len": 8,
+            "command": "12345678",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          }
+        ]
+      },
+      "array_live": {
+        "above7_refused": 0,
+        "examples": [
+          {
+            "id": "L003",
+            "len": 8,
+            "command": "acl list",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L133",
+            "len": 5,
+            "command": "regen",
+            "SER": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L170",
+            "len": 6,
+            "command": "whoami",
+            "SER": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L205",
+            "len": 1023,
+            "command": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"bad_line\",\"msg\":\"too_long\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          },
+          {
+            "id": "L206",
+            "len": 8,
+            "command": "12345678",
+            "SER": "  SER usb=[> parse error\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+            "BLE": "  BLE ret=36 buf=[{\"err\":\"parse\",\"msg\":\"unknown_cmd\"}\\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+          }
+        ]
+      }
+    },
+    "live_precondition_changed_rows": [
+      {
+        "id": "L133",
+        "command": "regen",
+        "SER_before": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "SER_live": "  SER usb=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_before": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"node\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_live": "  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name=\"transcript\"\\r\\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-"
+      },
+      {
+        "id": "L170",
+        "command": "whoami",
+        "SER_before": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "SER_live": "  SER usb=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_before": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"node\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-",
+        "BLE_live": "  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name=\"transcript\" leaf=0 gw=0 gwonly=0 mobile=0\\r\\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-"
+      }
+    ]
+  }
+]

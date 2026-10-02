@@ -1,0 +1,74 @@
+--- QA-freeze/tools/test_probe_inbox_transcript.py
++++ round2/tools/test_probe_inbox_transcript.py
+@@ -289,6 +289,49 @@
+         self.assertEqual(code, 2)
+         self.assertIn("A declares profile full_headless and B declares mobile", err)
+ 
++    def malformed(self, t):
++        """QA TQ-1 (B491): ledgers whose NUMBERS or PROFILE FIELDS cannot be read — each must be a named refusal."""
++        lines = self.full[:-1].split("\n")
++        rejoin = lambda ls: "\n".join(ls) + "\n"
++        line1 = next(i for i, ln in enumerate(lines) if ln.startswith("LINE L001 "))
++        return {
++            "a profile field without `=`": rejoin(lines[:2] + [lines[2] + " malformed"] + lines[3:]),
++            "a 5,000-digit identity count": rejoin(lines[:1] + [re.sub(r"lines=\d+", "lines=" + "9" * 5000, lines[1])]
++                                                   + lines[2:]),
++            "a 5,000-digit LINE length": rejoin(lines[:line1] + [re.sub(r"len=\d+", "len=" + "9" * 5000, lines[line1])]
++                                                + lines[line1 + 1:]),
++        }
++
++    def test_malformed_numbers_and_profile_fields_are_named_refusals_in_either_position(self):
++        """Through the stock CLI, in BOTH ledger positions: exit 2, a named refusal, no traceback."""
++        good = self.tmp / "good.txt"
++        good.write_text(self.full, encoding="ascii")
++        for why, ledger in self.malformed(self.t).items():
++            bad = self.tmp / "bad.txt"
++            bad.write_text(ledger, encoding="ascii")
++            for order in ((bad, good), (good, bad)):
++                with self.subTest(why=why, bad_side="A" if order[0] == bad else "B"):
++                    r = cli("--compare", *order)
++                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
++                    self.assertIn("COMPARE REFUSED: %s (" % ("A" if order[0] == bad else "B"), r.stderr)
++                    self.assertNotIn("Traceback", r.stderr)
++        other = self.tmp / "other.txt"                       # the valid pairs keep their 0 / 1
++        other.write_text(self.full.replace("  SER usb=[] ble=[]", "  SER usb=[x] ble=[]", 1), encoding="ascii")
++        self.assertEqual(cli("--compare", good, good).returncode, 0)
++        self.assertEqual(cli("--compare", good, other).returncode, 1)
++
++    def test_malformed_ledgers_are_named_refusals_of_the_shared_validator(self):
++        """The fresh-ledger run path and `--compare` share `validate_ledger`: it raises ONLY its named refusal."""
++        for why, ledger in self.malformed(self.t).items():
++            with self.subTest(why=why):
++                with self.assertRaises(self.t.LedgerError) as caught:
++                    self.t.validate_ledger(ledger, "the fresh ledger")
++                self.assertRegex(str(caught.exception), {
++                    "a profile field without `=`": r"^the fresh ledger, line 3: .* not `name=value`: 'malformed'$",
++                    "a 5,000-digit identity count": r"^the fresh ledger, line 2: the identity's lines= has 5000 digits",
++                    "a 5,000-digit LINE length": r"^the fresh ledger, line 4: LINE L001's len has 5000 digits",
++                }[why])
++
+     def test_control_b_c0_trusting_the_ledger_count_lets_the_counterexamples_compare_equal(self):
+         b0 = load()
+         b0.match_expected = lambda *args, **kwargs: None      # B-C0: the expected-matrix check bypassed
+@@ -337,6 +380,8 @@
+                                                                                    THREE_MACROS))),
+             "B-C5": lambda: cls.inprocess(b5, "c5"),
+             "B-C6": lambda: cls.inprocess(cls.t, "c6", driver_copy("c6-driver", edit(driver, SITE_BLE_INCLUDE, ""))),
++            "TQ-1": lambda: cls.inprocess(cls.t, "tq1", driver_copy("tq1-driver", edit(
++                driver, '"MR_FEAT_RADMIN_CLIENT=%d\\n"', '"MR_FEAT_RADMIN_CLIENT=%d malformed\\n"'))),
+         }
+         with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+             futures = {name: pool.submit(job) for name, job in jobs.items()}
+@@ -492,6 +537,12 @@
+         self.assertIn("MR0C-REFUSED row L203 len=1024 cannot be represented in the USB intake array (1024 bytes, "
+                       "1023 admitted)", run["stderr"])
+ 
++    def test_a_malformed_fresh_profile_line_is_a_named_refusal_of_the_run_path(self):
++        run = self.runs["TQ-1"]                                  # QA TQ-1 (B491), through `run_profile`
++        self.assertEqual((run["code"], run["ledger"], run["child_rc"]), (2, "", 0), run["stderr"])
++        self.assertIn("INVALID LEDGER — the fresh ledger, line 3: the MR0C-PROFILE line carries a field that is not "
++                      "`name=value`: 'malformed'", run["stderr"])
++
+     def test_control_b_c6_device_ble_include_removed_is_a_build_refusal(self):
+         run = self.runs["B-C6"]
+         self.assertEqual((run["code"], run["ledger"], run["built"], run["child_rc"]), (2, "", None, None),

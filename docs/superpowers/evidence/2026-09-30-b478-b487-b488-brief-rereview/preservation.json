@@ -1,0 +1,9 @@
+{
+  "entry_paths": 2298,
+  "changed": [],
+  "missing": [],
+  "allowed_additions": "Only this scoped-review receipt and its companion evidence",
+  "index_empty": true,
+  "simulator_clean": true,
+  "brief_sha256": "06e415797741412b0a364b7ff21b0a993a39eed85d3e7e40e5b9d8c113799cd1"
+}

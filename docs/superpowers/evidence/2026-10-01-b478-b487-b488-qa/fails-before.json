@@ -1,0 +1,79 @@
+[
+  {
+    "case": "raw_bb_stdout",
+    "defect": "B478",
+    "base": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xbb in position 0: invalid start byte",
+    "final": "PASS"
+  },
+  {
+    "case": "raw_c5_stderr",
+    "defect": "B478",
+    "base": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xc5 in position 0: invalid continuation byte",
+    "final": "PASS"
+  },
+  {
+    "case": "malformed_both",
+    "defect": "B478",
+    "base": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte",
+    "final": "PASS"
+  },
+  {
+    "case": "truncated_utf8",
+    "defect": "B478",
+    "base": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xc5 in position 72: unexpected end of data",
+    "final": "PASS"
+  },
+  {
+    "case": "signal_with_failure_summary",
+    "defect": "B490",
+    "base": "AssertionError",
+    "message": "signal_with_failure_summary: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit -11",
+    "final": "PASS"
+  },
+  {
+    "case": "signal_with_success_summary",
+    "defect": "B490",
+    "base": "AssertionError",
+    "message": "signal_with_success_summary: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit -11",
+    "final": "PASS"
+  },
+  {
+    "case": "exit2_with_summary",
+    "defect": "B490",
+    "base": "AssertionError",
+    "message": "exit2_with_summary: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit 2",
+    "final": "PASS"
+  },
+  {
+    "case": "build_raw_stderr",
+    "defect": "B478",
+    "base": "UnicodeDecodeError",
+    "message": "'utf-8' codec can't decode byte 0xbb in position 7: invalid start byte",
+    "final": "PASS"
+  },
+  {
+    "case": "success_exit1",
+    "defect": "B490",
+    "base": "AssertionError",
+    "message": "success_exit1: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit 1",
+    "final": "PASS"
+  },
+  {
+    "case": "failure_exit0",
+    "defect": "B490",
+    "base": "AssertionError",
+    "message": "failure_exit0: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit 0",
+    "final": "PASS"
+  },
+  {
+    "case": "failed_case_without_failed_assertion",
+    "defect": "B490",
+    "base": "AssertionError",
+    "message": "failed_case_without_failed_assertion: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit 1",
+    "final": "PASS"
+  }
+]

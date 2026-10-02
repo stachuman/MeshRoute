@@ -1,0 +1,20 @@
+{
+  "scope": "Labelled synthetic doctest program, not a mutant of repository source",
+  "compile": [
+    "g++",
+    "-std=c++17",
+    "-fno-exceptions",
+    "/tmp/mr-tool-brief-review-t3mviaec/fatal.cpp",
+    "-o",
+    "/tmp/mr-tool-brief-review-t3mviaec/fatal"
+  ],
+  "run": [
+    "/tmp/mr-tool-brief-review-t3mviaec/fatal"
+  ],
+  "core_dumps": "RLIMIT_CORE=(0,0)",
+  "build_exit": 0,
+  "run_exit": -11,
+  "source_sha256": "b36d50af2dba9d5e1d4256471a249f0c97d3326fc12f395ee2137db421aab670",
+  "header_sha256": "94029a7d32da24a56249658147dbd2b33ff0b9ed665295cbbaf19aafff5b0ced",
+  "binary_sha256": "d755f6575d370c8bc7fce9b6facd2817c42f3eaf4ae86ec652e46a86117dd1c9"
+}

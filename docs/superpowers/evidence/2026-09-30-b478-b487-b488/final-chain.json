@@ -1,0 +1,121 @@
+{
+ "chain": "§4.1 final chain #2 (chain #1 was stopped after its step 6 failure — report §3.3); every step exit 0",
+ "steps": [
+  {
+   "step": "00-stability-start",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "01-scope",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "02-syntax",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "03a-part-a-regressions",
+   "exit": 0,
+   "seconds": 10
+  },
+  {
+   "step": "03b-selftest",
+   "exit": 0,
+   "seconds": 1
+  },
+  {
+   "step": "03c-part-a-evidence",
+   "exit": 0,
+   "seconds": 12
+  },
+  {
+   "step": "04-w4aident-default",
+   "exit": 0,
+   "seconds": 164
+  },
+  {
+   "step": "04s-w4aident-default-summary",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "05-w4aident-w1",
+   "exit": 0,
+   "seconds": 42
+  },
+  {
+   "step": "05s-w4aident-w1-summary",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "06-transcript-stock",
+   "exit": 0,
+   "seconds": 144
+  },
+  {
+   "step": "07-part-b-regressions",
+   "exit": 0,
+   "seconds": 53
+  },
+  {
+   "step": "08-discovery",
+   "exit": 0,
+   "seconds": 874
+  },
+  {
+   "step": "09-inventory",
+   "exit": 0,
+   "seconds": 2
+  },
+  {
+   "step": "10-census",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "11-reader-audit",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "12-stability-end",
+   "exit": 0,
+   "seconds": 1
+  }
+ ],
+ "part_a_cases": {
+  "ran": 24,
+  "ok_lines": 24,
+  "result": "OK"
+ },
+ "selftest": "SELFTEST OK — build and run failures are told apart and retained",
+ "part_b_cases": {
+  "ran": 21,
+  "ok_lines": 21,
+  "result": "OK"
+ },
+ "discovery": {
+  "ran": 444,
+  "result": "OK",
+  "derivation": "406 baseline + 17 (tools/test_mutation_unusable_reason.py: 7 -> 24) + 21 (new tools/test_probe_inbox_transcript.py) = 444"
+ },
+ "inventory": "gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)",
+ "census": "census IDENTICAL to docs/superpowers/evidence/2026-09-30-b478-b487-b488/census-base.json",
+ "stability": {
+  "start": "2302 frozen inputs hashed; simulator 6585649 clean",
+  "end": [
+   "2302 frozen inputs hashed; simulator 6585649 clean",
+   "STABLE — no input changed during the chain"
+  ]
+ },
+ "scope": [
+  "  fence at base: 0/4; new path present: ['tools/test_probe_inbox_transcript.py']; read-only 17/17; preparation 7/7; folders precheck 16 OK, review 12 OK",
+  "  meshroute: inventoried 2267, changed ['MEMORY.md', 'docs/2026-07-30-open-bug-register.md', 'tools/probe_inbox_verbs/transcript.py', 'tools/probe_inbox_verbs/transcript_main.cpp', 'tools/probe_ui_model_mutations.py', 'tools/test_mutation_unusable_reason.py', 'tracker.md'], unexplained [], missing []; new 55, unexplained []",
+  "  simulator: inventoried 285, changed 0, missing 0, new 0",
+  "SCOPE PASS []"
+ ]
+}

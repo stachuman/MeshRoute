@@ -1,0 +1,622 @@
+# transcript label=- shape=post0c profile=mobile fw_main=/home/staszek/MeshRoute/src/fw_main.cpp sha256=4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766 rows=206 (projected=170 boundaries=36)
+MR0C-TRANSCRIPT v1 adapters=post0c/4b9b86afd330 lines=206
+MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=0 MR_FEAT_RADMIN_CLIENT=1
+LINE L001 len=3 [acl]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L002 len=7 [acl add]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L003 len=8 [acl list]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L004 len=10 [acl remove]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L005 len=9 [acl reset]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L006 len=7 [acl set]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L007 len=8 [admin-id]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L008 len=17 [admin-id generate]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L009 len=14 [admin-id reset]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L010 len=15 [admin-id rotate]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L011 len=13 [admin-id show]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L012 len=9 [admin-key]
+  SER usb=[> admin-key err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L013 len=16 [admin-key export]
+  SER usb=[> admin-key err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L014 len=18 [admin-key generate]
+  SER usb=[> admin-key err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L015 len=16 [admin-key import]
+  SER usb=[> admin-key err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L016 len=14 [admin-key list]
+  SER usb=[> admin-key err not_found\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> admin-key err not_found\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L017 len=16 [admin-key remove]
+  SER usb=[> admin-key err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L018 len=15 [admin-key reset]
+  SER usb=[> admin-key err needs_confirm\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L019 len=14 [admin-key show]
+  SER usb=[> admin-key err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> admin-key err bad_args\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L020 len=19 [admin-key show self]
+  SER usb=[> admin-key self fp=9ab7a73a97a1a303 pub=0000000000000000000000000000000000000000000000000000000000000000\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> admin-key self fp=9ab7a73a97a1a303 pub=0000000000000000000000000000000000000000000000000000000000000000\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L021 len=12 [admin-target]
+  SER usb=[> admin-target err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L022 len=16 [admin-target add]
+  SER usb=[> admin-target err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L023 len=17 [admin-target list]
+  SER usb=[> admin-target end page=0 count=0\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> admin-target end page=0 count=0\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L024 len=19 [admin-target remove]
+  SER usb=[> admin-target err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L025 len=18 [admin-target reset]
+  SER usb=[> admin-target err needs_confirm\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L026 len=16 [admin-target set]
+  SER usb=[> admin-target err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=44 buf=[{"err":"admin-client","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L027 len=17 [admin-target show]
+  SER usb=[> admin-target err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> admin-target err bad_args\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L028 len=3 [cfg]
+  SER usb=[node_id=0\r\n  radio : freq=869 routing_sf=7 sf_list=- bw=250 kHz cr=5 tx_power=0\r\n  proto : duty=0% beacon_ms=900000 hop_cap=16 team_hop_cap=8 lbt=1 nav=1 intra_relay=0 host_mobiles=1 nav_ignore=0\r\n  aspam : active_fraction=0 ch_min_ms=10000 dm_min_ms=3000\r\n  layer : leaf=0 gateway=0 gateway_only=0 mobile=0\r\n  member: lineage_id=0 config_epoch=0\r\n  ble   : ble_mode=off ble_period=15 ble_pin=123456\r\n  radmin: activation_ms=0 state=impossible_phy cfg=0 floor=4294967295 default=4294967295 ceiling=299999\r\n  loc   : e2e_dm=0 team_channel_crypt=1 intro_attach=1 lat=0 lon=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[node_id=0\r\n  radio : freq=869 routing_sf=7 sf_list=- bw=250 kHz cr=5 tx_power=0\r\n  proto : duty=0% beacon_ms=900000 hop_cap=16 team_hop_cap=8 lbt=1 nav=1 intra_relay=0 host_mobiles=1 nav_ignore=0\r\n  aspam : active_fraction=0 ch_min_ms=10000 dm_min_ms=3000\r\n  layer : leaf=0 gateway=0 gateway_only=0 mobile=0\r\n  member: lineage_id=0 config_epoch=0\r\n  ble   : ble_mode=off ble_period=15 ble_pin=123456\r\n  radmin: activation_ms=0 state=impossible_phy cfg=0 floor=4294967295 default=4294967295 ceiling=299999\r\n  loc   : e2e_dm=0 team_channel_crypt=1 intro_attach=1 lat=0 lon=0\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L029 len=7 [cfg set]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L030 len=23 [cfg set active_fraction]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L031 len=17 [cfg set beacon_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L032 len=16 [cfg set ble_mode]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L033 len=20 [cfg set ble_mode off]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L034 len=19 [cfg set ble_mode on]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L035 len=25 [cfg set ble_mode periodic]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L036 len=18 [cfg set ble_period]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L037 len=15 [cfg set ble_pin]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L038 len=10 [cfg set bw]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L039 len=17 [cfg set ch_min_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L040 len=10 [cfg set cr]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L041 len=17 [cfg set dm_min_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L042 len=12 [cfg set duty]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L043 len=14 [cfg set e2e_dm]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L044 len=12 [cfg set freq]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L045 len=20 [cfg set gateway_only]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L046 len=28 [cfg set gw_announce_interval]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L047 len=23 [cfg set gw_announce_pct]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L048 len=21 [cfg set gw_herd_slack]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L049 len=15 [cfg set hop_cap]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L050 len=20 [cfg set host_mobiles]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L051 len=25 [cfg set intra_layer_relay]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L052 len=20 [cfg set intro_attach]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L053 len=20 [cfg set l0_window_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L054 len=27 [cfg set l0_window_offset_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L055 len=20 [cfg set l1_beacon_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L056 len=13 [cfg set l1_bw]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L057 len=13 [cfg set l1_cr]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L058 len=15 [cfg set l1_freq]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L059 len=19 [cfg set l1_layer_id]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L060 len=18 [cfg set l1_node_id]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L061 len=21 [cfg set l1_routing_sf]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L062 len=18 [cfg set l1_sf_list]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L063 len=20 [cfg set l1_window_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L064 len=27 [cfg set l1_window_offset_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L065 len=24 [cfg set lat (alias: lon)]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L066 len=17 [cfg set layer0_id]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L067 len=11 [cfg set lbt]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L068 len=15 [cfg set leaf_id]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L069 len=17 [cfg set leaf_name]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L070 len=14 [cfg set mobile]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L071 len=27 [cfg set mobile_autoregister]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L072 len=32 [cfg set mobile_autoregister true]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L073 len=16 [cfg set n_layers]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L074 len=12 [cfg set name]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L075 len=11 [cfg set nav]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L076 len=18 [cfg set nav_ignore]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L077 len=15 [cfg set node_id]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L078 len=35 [cfg set remote_action_activation_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L079 len=38 [cfg set routing_sf (alias: control_sf)]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L080 len=15 [cfg set sf_list]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L081 len=26 [cfg set team_channel_crypt]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L082 len=20 [cfg set team_hop_cap]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L083 len=16 [cfg set tx_power]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L084 len=24 [cfg set window_period_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=cfg_set
+LINE L085 len=11 [clear_inbox]
+  SER usb=[{"ack":"clear_inbox","result":"needs_confirm"}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"ack":"clear_inbox","result":"needs_confirm"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L086 len=9 [crashtest]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+LINE L087 len=15 [crashtest fault]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+LINE L088 len=14 [crashtest hang]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+LINE L089 len=16 [crashtest reboot]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=crashtest
+LINE L090 len=6 [create]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L091 len=22 [create active_fraction]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+LINE L092 len=16 [create ch_min_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+LINE L093 len=16 [create dm_min_ms]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+LINE L094 len=11 [create duty]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+LINE L095 len=11 [create name]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+LINE L096 len=14 [create sf_list]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=create
+LINE L097 len=5 [debug]
+  SER usb=[> debug on \xe2\x80\x94 tracing RX/TX frames\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> debug on \xe2\x80\x94 tracing RX/TX frames\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L098 len=20 [debug off (alias: 0)]
+  SER usb=[> debug off \xe2\x80\x94 RX/TX frame trace silenced\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> debug off \xe2\x80\x94 RX/TX frame trace silenced\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L099 len=7 [del_msg]
+  SER usb=[{"err":"del_msg","msg":"kind must be dm|chan"}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"err":"del_msg","msg":"kind must be dm|chan"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L100 len=4 [duty]
+  SER usb=[disabled (no duty limit)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[disabled (no duty limit)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L101 len=13 [factory_reset]
+  SER usb=[> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed.\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed.\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L102 len=21 [factory_reset confirm]
+  SER usb=[> factory reset \xe2\x80\x94 erasing all NV, rebooting\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=reboot
+  BLE ret=0 buf=[] nus=[> factory reset \xe2\x80\x94 erasing all NV, rebooting\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=reboot
+LINE L103 len=6 [faults]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=faults_dump
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=faults_dump
+LINE L104 len=7 [gateway]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L105 len=6 [hashof]
+  SER usb=[> hashof err bad_args (id 1..254 [-t|-s])\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> hashof err bad_args (id 1..254 [-t|-s])\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L106 len=4 [help]
+  SER usb=[admin-key\r\nadmin-target\r\ncfg\r\nclear_inbox\r\ncrashtest\r\ncreate\r\ndebug\r\ndel_msg\r\nduty\r\nfactory_reset\r\nfaults\r\ngateway\r\nhashof\r\nhelp\r\njoin\r\njoinprofile\r\nleave\r\nlimits\r\nlookup\r\nmark_read\r\nmobile\r\nnameof\r\nota\r\npeerkey\r\npeername\r\npeers\r\nprep-restart\r\npull_inbox\r\nreboot\r\nregen\r\nremote\r\nremote-ack\r\nremote-result\r\nremote-retry\r\nreqpubkey\r\nresolve\r\nroute\r\nroutes\r\nsend\r\nsend_channel\r\nsend_layer\r\nsleep\r\nstatus\r\nteam\r\ntestch\r\ntestclear\r\ntestsend\r\nteststatus\r\nversion\r\nwhoami\r\ndocs/manual/command-reference.md\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"help","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L107 len=4 [join]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L108 len=11 [joinprofile]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L109 len=17 [joinprofile clear]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L110 len=16 [joinprofile list]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L111 len=17 [joinprofile reset]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L112 len=25 [joinprofile reset confirm]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L113 len=15 [joinprofile set]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L114 len=20 [joinprofile set name]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=joinprofile
+LINE L115 len=5 [leave]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=leave
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=leave
+LINE L116 len=6 [limits]
+  SER usb=[{"ev":"limits","win_ms":300000,"win_left_ms":300000,"n":0,"ch_sf":0,"ch_cap":20,"ch_used":0,"ch_min_ms":10000,"ch_next_ms":0,"ch_ceiling":0,"dm_min_ms":3000,"dm_next_ms":0,"duty_ms":0,"duty_used_ms":0}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"ev":"limits","win_ms":300000,"win_left_ms":300000,"n":0,"ch_sf":0,"ch_cap":20,"ch_used":0,"ch_min_ms":10000,"ch_next_ms":0,"ch_ceiling":0,"dm_min_ms":3000,"dm_next_ms":0,"duty_ms":0,"duty_used_ms":0}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L117 len=6 [lookup]
+  SER usb=[> lookup err: hash must be 0x-prefixed (e.g. lookup 0x8a3f1c02)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> lookup err: hash must be 0x-prefixed (e.g. lookup 0x8a3f1c02)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L118 len=9 [mark_read]
+  SER usb=[{"err":"mark_read","msg":"kind must be dm|chan"}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"err":"mark_read","msg":"kind must be dm|chan"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L119 len=6 [mobile]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L120 len=15 [mobile gateways]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+LINE L121 len=12 [mobile query]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+LINE L122 len=15 [mobile register]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+LINE L123 len=20 [mobile register scan]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+LINE L124 len=13 [mobile status]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+LINE L125 len=17 [mobile unregister]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=mobile
+LINE L126 len=6 [nameof]
+  SER usb=[> nameof err: hash must be 0x-prefixed (e.g. nameof 0x8a3f1c02)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> nameof err: hash must be 0x-prefixed (e.g. nameof 0x8a3f1c02)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L127 len=3 [ota]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=ota
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=ota
+LINE L128 len=5 [peers]
+  SER usb=[empty\r\n[peers] count=0 (keyed only \xe2\x80\x94 `peers all` adds id-only rows)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[empty\r\n[peers] count=0 (keyed only \xe2\x80\x94 `peers all` adds id-only rows)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L129 len=9 [peers all]
+  SER usb=[empty\r\n[peers] count=0 (all: keyed + id-only)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[empty\r\n[peers] count=0 (all: keyed + id-only)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L130 len=12 [prep-restart]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=prep_restart
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=prep_restart
+LINE L131 len=10 [pull_inbox]
+  SER usb=[{"ev":"inbox_dm","seq":1,"origin":5,"layer_id":0,"ctr":100,"sender_hash":0,"rx_ms":1000,"body":"m"}\n{"ev":"inbox_dm","seq":2,"origin":5,"layer_id":0,"ctr":101,"sender_hash":0,"rx_ms":1001,"body":"m"}\n{"ev":"inbox_dm","seq":3,"origin":5,"layer_id":0,"ctr":102,"sender_hash":0,"rx_ms":1002,"body":"m"}\n{"ev":"inbox_channel","seq":1,"origin":7,"layer_id":0,"channel_id":3,"channel_msg_id":117440512,"rx_ms":2000,"body":"c"}\n{"ev":"inbox_channel","seq":2,"origin":7,"layer_id":0,"channel_id":3,"channel_msg_id":117440513,"rx_ms":2001,"body":"c"}\n{"ev":"inbox_end","dm_seq":3,"chan_seq":2,"epoch":1,"count":5,"now_ms":0}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"ev":"inbox_dm","seq":1,"origin":5,"layer_id":0,"ctr":100,"sender_hash":0,"rx_ms":1000,"body":"m"}\n{"ev":"inbox_dm","seq":2,"origin":5,"layer_id":0,"ctr":101,"sender_hash":0,"rx_ms":1001,"body":"m"}\n{"ev":"inbox_dm","seq":3,"origin":5,"layer_id":0,"ctr":102,"sender_hash":0,"rx_ms":1002,"body":"m"}\n{"ev":"inbox_channel","seq":1,"origin":7,"layer_id":0,"channel_id":3,"channel_msg_id":117440512,"rx_ms":2000,"body":"c"}\n{"ev":"inbox_channel","seq":2,"origin":7,"layer_id":0,"channel_id":3,"channel_msg_id":117440513,"rx_ms":2001,"body":"c"}\n{"ev":"inbox_end","dm_seq":3,"chan_seq":2,"epoch":1,"count":5,"now_ms":0}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=-
+LINE L132 len=6 [reboot]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=reboot
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=3/2 routed=reboot
+LINE L133 len=5 [regen]
+  SER usb=[> regen ok  key_hash32= 0xB12D4983  name="transcript"\r\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> regen ok  key_hash32= 0xB12D4983  name="transcript"\r\n> regen note old self ACL grants do not follow the new key; dedicated keys and targets preserved\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L134 len=6 [remote]
+  SER usb=[> remote err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"err":"remote","msg":"bad_args"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L135 len=10 [remote-ack]
+  SER usb=[> remote err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"err":"remote","msg":"bad_args"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L136 len=13 [remote-result]
+  SER usb=[> remote err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"err":"remote","msg":"bad_args"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L137 len=12 [remote-retry]
+  SER usb=[> remote err bad_args\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[{"err":"remote","msg":"bad_args"}\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L138 len=5 [route]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L139 len=9 [route add]
+  SER usb=[> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L140 len=9 [route del]
+  SER usb=[> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L141 len=6 [routes]
+  SER usb=[empty\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[empty\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L142 len=5 [sleep]
+  SER usb=[> sleep on \xe2\x80\x94 light-sleeping when idle; reconnect to wake the console (still wakes on RX)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> sleep on \xe2\x80\x94 light-sleeping when idle; reconnect to wake the console (still wakes on RX)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L143 len=9 [sleep off]
+  SER usb=[> sleep off \xe2\x80\x94 staying awake while a host is connected\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> sleep off \xe2\x80\x94 staying awake while a host is connected\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L144 len=6 [status]
+  SER usb=[uptime_ms=0 rx=0 tx=0 isr=0 rxbad=0 rxarm=0 txq=0 txdrop=0 txfail=0 txoutdrop=0 fem=none lna=n/a radiohw=1 rfcfg=1 rfok=1 rfmodefail=0 rfbandfail=0 rfout=0 rfchip=0 offerfull=0 offerrej=0 ctrrefuse=0 txto=0 slept=0 wk_gpio=0 wk_ext1=0 wk_tmr=0 wkbusy=0 wkarmfail=0 wkdisarm=0 wksleepfail=0 sleep=auto lbt=1 nf=0 duty_ms=0 routes=0 pending=0 reset=- halted=0 radmin_client_request_table_pressure=0 radmin_client_assembly_failure=0 radmin_client_unmatched_response=0 radmin_client_auth_failure=0 radmin_client_local_result_pressure=0 radmin_client_radio_enqueue_failure=0 radmin_client_pending=0 radmin_client_retained=0 radmin_client_ack_debt=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[uptime_ms=0 rx=0 tx=0 isr=0 rxbad=0 rxarm=0 txq=0 txdrop=0 txfail=0 txoutdrop=0 fem=none lna=n/a radiohw=1 rfcfg=1 rfok=1 rfmodefail=0 rfbandfail=0 rfout=0 rfchip=0 offerfull=0 offerrej=0 ctrrefuse=0 txto=0 slept=0 wk_gpio=0 wk_ext1=0 wk_tmr=0 wkbusy=0 wkarmfail=0 wkdisarm=0 wksleepfail=0 sleep=auto lbt=1 nf=0 duty_ms=0 routes=0 pending=0 reset=- halted=0 radmin_client_request_table_pressure=0 radmin_client_assembly_failure=0 radmin_client_unmatched_response=0 radmin_client_auth_failure=0 radmin_client_local_result_pressure=0 radmin_client_radio_enqueue_failure=0 radmin_client_pending=0 radmin_client_retained=0 radmin_client_ack_debt=0\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L145 len=4 [team]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L146 len=14 [team exportkey]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+LINE L147 len=14 [team forgetkey]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+LINE L148 len=13 [team grantkey]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+LINE L149 len=9 [team keys]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+LINE L150 len=8 [team new]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+LINE L151 len=22 [team forgetkey confirm]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=team
+LINE L152 len=6 [testch]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L153 len=9 [testch -a]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L154 len=9 [testch -e]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L155 len=9 [testch -t]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L156 len=9 [testclear]
+  SER usb=[> testsched cleared\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> testsched cleared\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L157 len=8 [testsend]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L158 len=11 [testsend -a]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L159 len=11 [testsend -e]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L160 len=11 [testsend -t]
+  SER usb=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,\xe2\x80\xa6  |  testch <ch> <run> -t ms1,ms2,\xe2\x80\xa6\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L161 len=10 [teststatus]
+  SER usb=[[teststatus] run=- armed=0 fired=0 deferred=0 dropped=0 next=- state=idle\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[[teststatus] run=- armed=0 fired=0 deferred=0 dropped=0 next=- state=idle\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L162 len=2 [ui]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L163 len=9 [ui preset]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L164 len=15 [ui preset clear]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L165 len=14 [ui preset list]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L166 len=15 [ui preset reset]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L167 len=19 [ui preset reset all]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L168 len=13 [ui preset set]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L169 len=7 [version]
+  SER usb=[MeshRoute fw v0.2 \xc2\xb7 built Jan  1 2000 00:00:00 \xc2\xb7 nogit \xc2\xb7 board=heltec_v3\r\nlast reset: unknown (no fault log)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[MeshRoute fw v0.2 \xc2\xb7 built Jan  1 2000 00:00:00 \xc2\xb7 nogit \xc2\xb7 board=heltec_v3\r\nlast reset: unknown (no fault log)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L170 len=6 [whoami]
+  SER usb=[[whoami] id=0 hash=0x2972535171 name="transcript" leaf=0 gw=0 gwonly=0 mobile=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[[whoami] id=0 hash=0x2972535171 name="transcript" leaf=0 gw=0 gwonly=0 mobile=0\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L171 len=11 [send 5 "hi"]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L172 len=23 [send 0x11223344 "hi" -a]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L173 len=23 [send 0x11223344 "hi" -e]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L174 len=4 [send]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=33 buf=[{"err":"parse","msg":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L175 len=15 [send 5 unquoted]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=33 buf=[{"err":"parse","msg":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L176 len=19 [send_channel 3 "hi"]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L177 len=22 [send_channel 3 "hi" -t]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L178 len=12 [send_channel]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=33 buf=[{"err":"parse","msg":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L179 len=30 [send_layer 0x11223344 2,3 "hi"]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L180 len=21 [send_layer 0x11223344]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=33 buf=[{"err":"parse","msg":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L181 len=72 [peerkey aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+  SER usb=[{"ev":"peerkey_set","hash":2863311530,"pinned":true}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=53 buf=[{"ev":"peerkey_set","hash":2863311530,"pinned":true}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L182 len=78 [peerkey aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "bob"]
+  SER usb=[{"ev":"peerkey_set","hash":2863311530,"pinned":true}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+1 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=53 buf=[{"ev":"peerkey_set","hash":2863311530,"pinned":true}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L183 len=10 [peerkey zz]
+  SER usb=[{"ev":"peerkey_err","reason":"bad_hex"}\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=40 buf=[{"ev":"peerkey_err","reason":"bad_hex"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L184 len=25 [peername 0xaaaaaaaa "bob"]
+  SER usb=[{"ev":"peer_name_set","hash":2863311530,"name":"bob"}\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=54 buf=[{"ev":"peer_name_set","hash":2863311530,"name":"bob"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L185 len=19 [peername 0xaaaaaaaa]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=43 buf=[{"ev":"peer_name_err","reason":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L186 len=20 [reqpubkey 0x11223344]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L187 len=11 [reqpubkey 7]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L188 len=14 [reqpubkey 7 -t]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L189 len=9 [reqpubkey]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=33 buf=[{"err":"parse","msg":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L190 len=18 [resolve 0x11223344]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L191 len=23 [resolve 0x11223344 hard]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L192 len=12 [resolve nope]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=33 buf=[{"err":"parse","msg":"bad_args"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L193 len=11 [peers bogus]
+  SER usb=[> peers err bad_args (usage: peers | peers all)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> peers err bad_args (usage: peers | peers all)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L194 len=15 [route add 5 6 1]
+  SER usb=[> route add dest=5 via=6 hops=1 score=160 \xe2\x80\x94 installed (see `routes`)\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[> route add dest=5 via=6 hops=1 score=160 \xe2\x80\x94 installed (see `routes`)\r\n] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L195 len=0 []
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L196 len=3 [   ]
+  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=0 buf=[] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L197 len=16 [zzz_unknown_verb]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L198 len=14 [help messaging]
+  SER usb=[> help err unsupported_form (only bare `help` or `?`; usage: help | ?)\r\ndocs/manual/command-reference.md\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"help","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L199 len=1 [?]
+  SER usb=[admin-key\r\nadmin-target\r\ncfg\r\nclear_inbox\r\ncrashtest\r\ncreate\r\ndebug\r\ndel_msg\r\nduty\r\nfactory_reset\r\nfaults\r\ngateway\r\nhashof\r\nhelp\r\njoin\r\njoinprofile\r\nleave\r\nlimits\r\nlookup\r\nmark_read\r\nmobile\r\nnameof\r\nota\r\npeerkey\r\npeername\r\npeers\r\nprep-restart\r\npull_inbox\r\nreboot\r\nregen\r\nremote\r\nremote-ack\r\nremote-result\r\nremote-retry\r\nreqpubkey\r\nresolve\r\nroute\r\nroutes\r\nsend\r\nsend_channel\r\nsend_layer\r\nsleep\r\nstatus\r\nteam\r\ntestch\r\ntestclear\r\ntestsend\r\nteststatus\r\nversion\r\nwhoami\r\ndocs/manual/command-reference.md\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"help","msg":"console_only"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L200 len=7 [helpful]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L201 len=4 [HELP]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L202 len=209 [send 5 "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L203 len=269 [send 5 "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+  SER usb=[> err_unprovisioned ctr=0 depth=0\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=57 buf=[{"ack":"err_unprovisioned","ctr":0,"qd":0,"dh":0,"lp":0}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L204 len=300 [zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"bad_line","msg":"too_long"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L205 len=1023 [zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"bad_line","msg":"too_long"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+LINE L206 len=8 [12345678]
+  SER usb=[> parse error\r\n] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+  BLE ret=36 buf=[{"err":"parse","msg":"unknown_cmd"}\n] nus=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=1 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=b12d4983 pend=0 recs=3/2 routed=-
+MR0C-TRANSCRIPT END chk=0 fail=0

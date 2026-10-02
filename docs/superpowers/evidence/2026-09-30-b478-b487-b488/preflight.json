@@ -1,0 +1,183 @@
+{
+ "brief_sha256": "06e415797741412b0a364b7ff21b0a993a39eed85d3e7e40e5b9d8c113799cd1",
+ "failures": [],
+ "fence": {
+  "tools/probe_inbox_verbs/transcript.py": {
+   "base": true,
+   "lines": 424,
+   "sha256": "ffb23ad6cecb3d74859136ce06b237027739ddc8dfcdad5599a9180649b9b000"
+  },
+  "tools/probe_inbox_verbs/transcript_main.cpp": {
+   "base": true,
+   "lines": 148,
+   "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163"
+  },
+  "tools/probe_ui_model_mutations.py": {
+   "base": true,
+   "lines": 12931,
+   "sha256": "b71270ee2ed63d67bfbc4051a8b98cb80ce2e2da49cbba27aa548d781fb13a70"
+  },
+  "tools/test_mutation_unusable_reason.py": {
+   "base": true,
+   "lines": 117,
+   "sha256": "f6ac8119d1f1b585dc6162254747114da08a453387d5a4e5ca7a08409d2838b5"
+  }
+ },
+ "folders": {
+  "precheck": {
+   "exit": 0,
+   "ok": 16
+  },
+  "review": {
+   "exit": 0,
+   "ok": 12
+  }
+ },
+ "git_diff_check": {
+  "exit": 0,
+  "out": ""
+ },
+ "head": "10f333298ffad1098daeec37e756ed79ab0fd97f",
+ "inventory": {
+  "meshroute": {
+   "changed": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "tracker.md"
+   ],
+   "git_visible_now": 2305,
+   "inventoried": 2267,
+   "missing": [],
+   "new": [
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview.md",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/inputs.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/pins.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/preservation.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/raw-files.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review.md",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/b8-empty-ledger.txt",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/b8-one-row-ledger.txt",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/doctest-commands.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/doctest-fatal.cpp",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/doctest-result.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/ledger-counterexamples.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/locale-control.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/pins.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/preservation.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/raw-files.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/review-inputs.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/base-reconciliation.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/baseline.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/decode-measure.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/decode-results.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/evidence-readers.txt",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/inputs.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/mutation-results.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/preservation.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/preservation.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/raw-files.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/runs.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/source-map.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/transcript-diagnostic.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/transcript-results.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/union-census.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/scope.py",
+    "docs/superpowers/plans/2026-09-30-b478-b487-b488-tool-repairs.md"
+   ],
+   "new_hashes": {
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview.md": "f0e9cb1b8848f024f5db31c15da1391d57a30058b16aa87252398ed363b4639c",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/SHA256SUMS": "9f38b46e647d715117a5b8049c4883f2cb445972e732b0cbd5531c1165a5076b",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/inputs.json": "69a835d71349067b0c0ac4afa69e42039c0360281f90788768cf817dc52919f7",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/pins.json": "4219df4f7d01529e51a3f5b374304bdf630bbd588bc16ca08a033087fdefa379",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/preservation.json": "8801a2b6b1a635d2e9fd75af3818faebc250902c674fb0fa713f33100b8f1bb9",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/raw-files.json": "ff85b1811742a2c910752ff89a78fd361384a51324e011e16b37840c1ff98440",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review.md": "bc0d680c8822496976163988726158fc28b2ad74aa1f631f1e92053f93ab5d03",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/SHA256SUMS": "1e9186f050424caf9e7a47256dcb660f842a5b0662cd145ddb81d5ddd937b52b",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/b8-empty-ledger.txt": "fbc3fdc0a5629d271201ec83f90a200b14331b5b19ed3bbb2903ebc1c51bb3e1",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/b8-one-row-ledger.txt": "5c55bd6983344efedf90e4c52c43e83bd20ede8e82e4fb893b9cacbb513fd93e",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/doctest-commands.json": "2a311471cf4bf21b221031b4b82623f86a1a0a873efbba190255a5d2f9dc15c7",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/doctest-fatal.cpp": "b36d50af2dba9d5e1d4256471a249f0c97d3326fc12f395ee2137db421aab670",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/doctest-result.json": "107def19b331a3ca9d8b0a502c57eb20f29af4526a977134f16606221a857ffc",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/ledger-counterexamples.json": "93aa87a5ee2ecff44fc5ad94700b26dd6a5b6a97bc18bc098073bb9a8e7fc3ed",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/locale-control.json": "e1ed01d14a5a0e3145185391e0db6de1e9f16837e50b4564be355c8317f5c973",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/pins.json": "cea23a025d7f747d2d40ce7897a5784040d325335b8ed2ef7422ea1f1f9a65c0",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/preservation.json": "665bf04c991228c258b70d5371fffc668308435f6ffe8402b2a771126c1fdee6",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/raw-files.json": "10cf9f71754adb57c1164a3dc2326fc6e60f21aaea7d1b0b8b63b730e3fec254",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/review-inputs.json": "71494be31cf77c4213dc8b7760d45eee4ef504cadc7e19f3458bb01a17038872",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md": "7a32af65fb6f68d78614a2df78f7340b3cd7b3269409a0e9d14a5fe19896a7c7",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/SHA256SUMS": "b790bd21b8b80cd77f85aa50e072801402d4566a3839ffdc544f92ba07c2b64a",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/base-reconciliation.json": "1d1aed6cfc1c602ff87e8588c239b43da3c08dedc606d3f5a2bed494f6cbedc0",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/baseline.py": "67342fb947d03669ce50c029348e1f6a0544bdb6419682be2b47f7a2c5899642",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/decode-measure.py": "05804e30f3523162e30d47336200ba230183bd806dc10a8d7dda2d3ddc35bdf9",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/decode-results.json": "f7c76b4c0c4f7bb77afab0dcddc070f0ac616f2d0af211f01ab44390ba9645d8",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/evidence-readers.txt": "cbe8df24be59303964aba12c516e3acae62d762e0d447944458ec5f9b9dd82a4",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/inputs.json": "1226a25e567fcb38cab3c79df38cf4dda00829982b67c9116722a22d3f2246ff",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/mutation-results.json": "e8be9c82b332ec44e4ef8b196735cb4aef0aac0934aa9e9c065f06652c772aa4",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/preservation.json": "ed78522c49dfe2fdae4768e7846e26215a937ab767b5e146d965c3877ca220b9",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/preservation.py": "dae3f429bebbde319822fec06c3ca141f13e3856296206db4ea45028cf867a2c",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/raw-files.json": "d581a7517ad28d5c594a20a621e076dc201477fdd1c1c8d25789522fe7ff0c71",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/runs.json": "98d2a30b2799319e6406fb61475da75b8339a534dbf2a394e85d30a30e6aafae",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/source-map.json": "7381d162706680fe380b4d91526cf9f86046455f70c364f8e95606302c5750a0",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/transcript-diagnostic.py": "5a2966947314188151564a406809a4d5c375e1f1543452f4d39568e778ff3003",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/transcript-results.json": "477aa5351533c82ea99643a208850dc1945eae3261f8b521cb317d92710808c4",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/union-census.json": "7f89fd690d7832dea246f1e033af54540806f9aa58596cf647014fac976771d8",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/scope.py": "f76ae9a811f70cef7159a1d3981f2d2ffbcc3debfc06557e29016c5ce53cf406",
+    "docs/superpowers/plans/2026-09-30-b478-b487-b488-tool-repairs.md": "06e415797741412b0a364b7ff21b0a993a39eed85d3e7e40e5b9d8c113799cd1"
+   },
+   "unexplained_changed": [],
+   "unexplained_new": []
+  },
+  "simulator": {
+   "changed": [],
+   "git_visible_now": 285,
+   "inventoried": 285,
+   "missing": [],
+   "new": [],
+   "new_hashes": {},
+   "unexplained_changed": [],
+   "unexplained_new": []
+  }
+ },
+ "new_fence": {
+  "tools/test_probe_inbox_transcript.py": null
+ },
+ "phase": "preflight",
+ "preparation": {
+  "MEMORY.md": "61b9d8fb83546dc3af1a68902df0d82244390c8fe7a04313411801f52b02269f",
+  "docs/2026-07-30-open-bug-register.md": "ca93842ab9e10fb915d210fa4c01c9f261c791420018126f592881b6ce6c7ab3",
+  "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review.md": "bc0d680c8822496976163988726158fc28b2ad74aa1f631f1e92053f93ab5d03",
+  "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-review/SHA256SUMS": "1e9186f050424caf9e7a47256dcb660f842a5b0662cd145ddb81d5ddd937b52b",
+  "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md": "7a32af65fb6f68d78614a2df78f7340b3cd7b3269409a0e9d14a5fe19896a7c7",
+  "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/SHA256SUMS": "b790bd21b8b80cd77f85aa50e072801402d4566a3839ffdc544f92ba07c2b64a",
+  "tracker.md": "ef643006629f5983220b9cdd1a5373fde211eccb1189fca747c03c1c39af63d3"
+ },
+ "readonly": {
+  "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md": "c320046822c0cb47bb38ca76f4c1ea8ebd42c7f2346bb50791a35e05d74ae807",
+  "lib/console/console_line.h": "640e4886ef9b0708828d2679cbc993853158475b6d100118bcc08bcf0f7c85a9",
+  "src/device_ble.h": "56d68dd9270f670451115854e4861dceab8b25c7d81b1f923f73aa5a3f941ac5",
+  "src/firmware_commands.cpp": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+  "src/firmware_remote_actions.cpp": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+  "src/firmware_remote_client.cpp": "d1156cf963a4e3aed534f0e32f671864fb6cbbef4f279800beb665b4a8b98bda",
+  "src/firmware_ui_model.h": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+  "src/fw_main.cpp": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+  "tools/gen_command_inventory.py": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+  "tools/probe_board_ui/fakes/Arduino.h": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+  "tools/probe_console_sink/structural.py": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19",
+  "tools/probe_deferred_actions/probe.cpp": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+  "tools/probe_deferred_actions/run.py": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+  "tools/probe_inbox_verbs/fakes/Preferences.h": "bd57ac322eafe89e4e882c35b8bc02b9fda60f4738e11bfe1dacb0699b617346",
+  "tools/probe_inbox_verbs/probe_main.cpp": "69cc26c59f0be12952421501fb0365e85195ff9343995cd4056068e20f0f7650",
+  "tools/probe_inbox_verbs/run.sh": "db7add6c5fb335097bc84a192b925b43604f638f7951e422cd926f7ab6292948",
+  "tools/test_worker_formula_derived.py": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176"
+ },
+ "simulator": {
+  "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "status": ""
+ },
+ "staged": "",
+ "verdict": "PASS"
+}

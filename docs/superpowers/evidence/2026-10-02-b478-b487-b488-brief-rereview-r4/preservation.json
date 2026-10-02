@@ -1,0 +1,23 @@
+{
+  "entry_paths": 2387,
+  "changed": [],
+  "missing": [],
+  "added_qa_evidence": [
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4.md",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/SHA256SUMS",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/brief-delta.diff",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/inputs.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/pins.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/preservation.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/raw-files.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/reconciliation.json",
+    "docs/superpowers/evidence/2026-10-02-b478-b487-b488-brief-rereview-r4/review_inputs.py"
+  ],
+  "final_paths": 2396,
+  "all_entry_inputs_unchanged": true,
+  "simulator_paths": 285,
+  "simulator_unchanged_and_clean": true,
+  "heads_unchanged": true,
+  "index_empty": true,
+  "whitespace_clean": true
+}

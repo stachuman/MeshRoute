@@ -1,0 +1,28 @@
+# F07 mutant binary sha256 b650e977b927a2bc3eefd3c0eae8f3cd07810b9af6984e5150233ba819bb1b51 — objdump -d -C excerpts (full listings under artifacts/…/tq2/)
+## mrui::ui_review_header — frame: label = 0x8(%rsp), 8 bytes; 0x10(%rsp) = the pushed %rbx
+  3b7488:	push   %r12
+  3b748a:	push   %rbp
+  3b748b:	push   %rbx
+  3b748c:	sub    $0x10,%rsp
+  3b74f8:	add    $0x10,%rsp
+  3b74fc:	pop    %rbx
+  3b74fd:	pop    %rbp
+  3b7500:	ret
+  3b7501:	movzbl %r8b,%ecx
+  3b7505:	lea    0x8(%rsp),%rdi
+  3b750a:	mov    $0x7,%r9d
+  3b7510:	mov    0xc(%r12),%r8d
+  3b7515:	mov    $0x8,%esi
+  3b751a:	call   3b3575 <mrui::ui_fmt_identity(char*, unsigned long, char const*, unsigned char, unsigned int, unsigned char)>
+## mrui::ui_review_capture — %rbx = &m (UiModel&, arg 1) for the whole function; reused as `this` right after the call
+  3b7570:	push   %r15
+  3b7579:	push   %rbx
+  3b759d:	mov    %rdi,%rbx
+  3b764a:	mov    %r12,%rdi
+  3b764d:	call   3b7488 <mrui::ui_review_header(char*, unsigned long, mrui::SendReq const&, char const*, unsigned char)>
+  3b7686:	mov    %rbx,%rdi
+  3b7689:	call   3b5a64 <mrui::UiModel::on_review_captured(bool, unsigned int, char const*, char const*, unsigned char, bool, unsigned int)>
+  3b76a1:	pop    %rbx
+## every write to %rbx inside ui_review_capture (3b7570..3b76ab)
+  3b759d:	mov    %rdi,%rbx
+  3b76a1:	pop    %rbx

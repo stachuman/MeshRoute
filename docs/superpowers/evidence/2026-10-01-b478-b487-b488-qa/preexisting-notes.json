@@ -1,0 +1,8 @@
+{
+  "synthetic": "exact locale-text source read; no battery or production mutation",
+  "source_line": "orig = open(H).read()",
+  "same_at_base": true,
+  "rc": 1,
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/usr/lib/python3.11/encodings/ascii.py\", line 26, in decode\n    return codecs.ascii_decode(input, self.errors)[0]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nUnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 13: ordinal not in range(128)\n",
+  "doc_drift_at_base": true
+}

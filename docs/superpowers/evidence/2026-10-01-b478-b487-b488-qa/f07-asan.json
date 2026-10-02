@@ -1,0 +1,102 @@
+[
+  {
+    "arm": "clean",
+    "mode": "home",
+    "build_command": [
+      "g++",
+      "-std=c++20",
+      "-g",
+      "-O0",
+      "-fsanitize=address",
+      "-fno-omit-frame-pointer",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/mr-tool-qa-059bo2lh/f07-asan/clean",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/clean/main.cpp",
+      "-o",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/clean/check"
+    ],
+    "exit": 0,
+    "stack_buffer_overflow": false,
+    "diagnostic": ""
+  },
+  {
+    "arm": "clean",
+    "mode": "review",
+    "build_command": [
+      "g++",
+      "-std=c++20",
+      "-g",
+      "-O0",
+      "-fsanitize=address",
+      "-fno-omit-frame-pointer",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/mr-tool-qa-059bo2lh/f07-asan/clean",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/clean/main.cpp",
+      "-o",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/clean/check"
+    ],
+    "exit": 0,
+    "stack_buffer_overflow": false,
+    "diagnostic": ""
+  },
+  {
+    "arm": "F07",
+    "mode": "home",
+    "build_command": [
+      "g++",
+      "-std=c++20",
+      "-g",
+      "-O0",
+      "-fsanitize=address",
+      "-fno-omit-frame-pointer",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/mr-tool-qa-059bo2lh/f07-asan/F07",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/F07/main.cpp",
+      "-o",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/F07/check"
+    ],
+    "exit": -15,
+    "stack_buffer_overflow": false,
+    "diagnostic": "AddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\n"
+  },
+  {
+    "arm": "F07",
+    "mode": "review",
+    "build_command": [
+      "g++",
+      "-std=c++20",
+      "-g",
+      "-O0",
+      "-fsanitize=address",
+      "-fno-omit-frame-pointer",
+      "-DMESHROUTE_NATIVE=1",
+      "-DMR_N_LAYERS=2",
+      "-I/tmp/mr-tool-qa-059bo2lh/f07-asan/F07",
+      "-I/home/staszek/MeshRoute/lib/core",
+      "-I/home/staszek/MeshRoute/lib/hal",
+      "-I/home/staszek/MeshRoute/lib/console",
+      "-I/home/staszek/MeshRoute/lib/monocypher/src",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/F07/main.cpp",
+      "-o",
+      "/tmp/mr-tool-qa-059bo2lh/f07-asan/F07/check"
+    ],
+    "exit": -15,
+    "stack_buffer_overflow": false,
+    "diagnostic": "AddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\nAddressSanitizer:DEADLYSIGNAL\n"
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-rereview/authorized-brief.txt",
+    "bytes": 55859,
+    "sha256": "06e415797741412b0a364b7ff21b0a993a39eed85d3e7e40e5b9d8c113799cd1"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-rereview/inputs.json",
+    "bytes": 437315,
+    "sha256": "69a835d71349067b0c0ac4afa69e42039c0360281f90788768cf817dc52919f7"
+  },
+  {
+    "path": "artifacts/2026-09-30-b478-b487-b488-brief-rereview/pins.json",
+    "bytes": 7004,
+    "sha256": "4219df4f7d01529e51a3f5b374304bdf630bbd588bc16ca08a033087fdefa379"
+  }
+]

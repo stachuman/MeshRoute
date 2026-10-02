@@ -1,0 +1,47 @@
+[
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/2026-07-30-open-bug-register.md.base-delta.diff",
+    "sha256": "c391e9c5104a25c51555b0855ad442a8760d1689ddfe0cb0112f1b624667c707",
+    "bytes": 34076
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/MEMORY.md.base-delta.diff",
+    "sha256": "a5d5623c6a06aea4d0049561372c803e030a3845fb2cd94da2d63faa6a1c3071",
+    "bytes": 2627
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/brief-delta.diff",
+    "sha256": "23f8538c5b539106ee746a516eb32524325d50af4523f04c850762bf86de24b8",
+    "bytes": 15926
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/brief-r4.md",
+    "sha256": "4e6961662a3f38c039be5c069de8192f2049e8212f27cfd20e1c1fb5bc85c06d",
+    "bytes": 71879
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/inputs.json",
+    "sha256": "789bf9e8a06130c3865b9ff3ad9a0dc3eb20a2845dfc668b158e520350aad9ba",
+    "bytes": 502865
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/pins.json",
+    "sha256": "6e3b176befaac474587959ff3e371f27f53e14c940222f0f59ea27ccc461e89e",
+    "bytes": 20993
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/reconciliation.json",
+    "sha256": "ae767c7a919b5ca69b9a36ae4292d5cd9031cc423cb20d6a5664a3a6273781ea",
+    "bytes": 1860
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/review_inputs.py",
+    "sha256": "0d639f2f494a48f1a6867f2f19640103ddbdd39b9cf1f806e8ec5d682e7ea7a1",
+    "bytes": 5283
+  },
+  {
+    "path": "artifacts/2026-10-02-b478-b487-b488-brief-rereview-r4/tracker.md.base-delta.diff",
+    "sha256": "87d7be47b9bdcfb04cc3d2c251d7467efbf0e9608a3284c261f1c12e1fb2a628",
+    "bytes": 2235
+  }
+]

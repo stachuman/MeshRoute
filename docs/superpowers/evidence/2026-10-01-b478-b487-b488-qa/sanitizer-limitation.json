@@ -1,0 +1,16 @@
+[
+  {
+    "raw_name": "asan-F07-home.log",
+    "raw_bytes": 396606090,
+    "raw_sha256": "dceb6c7c3f92f8ec5bc08bf71dcaba7b7b50f88a6c412e13c8ea3c623640c0e3",
+    "lossless_archive": "asan-F07-home.log.gz",
+    "reason": "inconclusive ASan DEADLYSIGNAL loop, QA terminated its own diagnostic children"
+  },
+  {
+    "raw_name": "asan-F07-review.log",
+    "raw_bytes": 125240820,
+    "raw_sha256": "506193e311e372f0e3d5aed8767d4d96bdac18cceaeb278b06485f7a90e5b84f",
+    "lossless_archive": "asan-F07-review.log.gz",
+    "reason": "inconclusive ASan DEADLYSIGNAL loop, QA terminated its own diagnostic children"
+  }
+]

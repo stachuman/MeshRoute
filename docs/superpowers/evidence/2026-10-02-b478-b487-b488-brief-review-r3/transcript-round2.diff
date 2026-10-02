@@ -1,0 +1,50 @@
+--- QA-freeze/tools/probe_inbox_verbs/transcript.py
++++ round2/tools/probe_inbox_verbs/transcript.py
+@@ -587,6 +587,13 @@
+     def fail(n, why):
+         raise LedgerError("%s, line %d: %s" % (origin, n, why))
+ 
++    def count(n, digits, what):
++        # ⛔ QA TQ-1 ([[B491]]): a count is read only once it is SHAPED like one. An unbounded digit run reached
++        #   Python's int-conversion limit and escaped as a ValueError (exit 1) instead of this named refusal.
++        if len(digits) > 9:
++            fail(n, "%s has %d digits — not a count a ledger can carry" % (what, len(digits)))
++        return int(digits)
++
+     if not text.endswith("\n") or "\r" in text:
+         fail(text.count("\n") + 1, "a ledger is LF-terminated lines with no carriage return")
+     lines = text[:-1].split("\n")
+@@ -604,6 +611,11 @@
+              % (_describe(lines[1]) if len(lines) > 1 else "the end of the ledger"))
+     if len(lines) < 3 or not lines[2].startswith("MR0C-PROFILE "):
+         fail(3, "expected the MR0C-PROFILE line, found %s" % (_describe(lines[2]) if len(lines) > 2 else "nothing"))
++    # ⛔ QA TQ-1 ([[B491]]): `verify_profile` (unchanged) reads every field as `name=value`; a field without `=` is
++    #   refused HERE, by name, rather than escaping it as a ValueError. Which names and values are right stays its call.
++    bare = [field for field in lines[2].split()[1:] if "=" not in field]
++    if bare:
++        fail(3, "the MR0C-PROFILE line carries a field that is not `name=value`: %r" % bare[0][:60])
+     try:
+         verify_profile(lines[2], profiles[0])
+     except ExtractError as exc:
+@@ -622,16 +634,17 @@
+             fail(n + 3, "expected the BLE record of %s with every field (ret, buf, nus, usb, fp), found %s"
+                  % (m.group(1), _describe(lines[n + 2]) if n + 2 < len(lines) else "nothing"))
+         command = unescape_ledger(m.group(3))
+-        if int(m.group(2)) != len(command):
+-            fail(n + 1, "LINE %s declares len=%s but carries %d byte(s)" % (m.group(1), m.group(2), len(command)))
+-        rows.append(Row(m.group(1), int(m.group(2)), command, m.group(3), ser.groups(), ble.groups()))
++        length = count(n + 1, m.group(2), "LINE %s's len" % m.group(1))
++        if length != len(command):
++            fail(n + 1, "LINE %s declares len=%d but carries %d byte(s)" % (m.group(1), length, len(command)))
++        rows.append(Row(m.group(1), length, command, m.group(3), ser.groups(), ble.groups()))
+         n += 3
+     if n >= len(lines) or not END_RE.fullmatch(lines[n]):
+         fail(n + 1, "expected `MR0C-TRANSCRIPT END chk=<n> fail=<n>` after the last row, found %s"
+              % (_describe(lines[n]) if n < len(lines) else "the end of the ledger"))
+     if n != len(lines) - 1:
+         fail(n + 2, "END must be the last line, but %s follows it" % _describe(lines[n + 1]))
+-    return Ledger(profiles[0], lines[0], lines[1], int(ident.group(1)), rows, lines[n])
++    return Ledger(profiles[0], lines[0], lines[1], count(2, ident.group(1), "the identity's lines="), rows, lines[n])
+ 
+ 
+ _EXPECTED = {}

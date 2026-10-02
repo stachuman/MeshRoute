@@ -1,0 +1,186 @@
+{
+  "meshroute": {
+    "head": "10f333298ffad1098daeec37e756ed79ab0fd97f",
+    "paths": 2267,
+    "changed": [
+      "MEMORY.md",
+      "docs/2026-07-30-open-bug-register.md",
+      "tracker.md"
+    ],
+    "missing": [],
+    "status": " M MEMORY.md\n M docs/2026-07-30-open-bug-register.md\n M tracker.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md\n?? docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/\n?? docs/superpowers/plans/2026-09-30-b478-b487-b488-tool-repairs.md\n"
+  },
+  "simulator": {
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "paths": 285,
+    "changed": [],
+    "missing": [],
+    "status": ""
+  },
+  "brief": {
+    "sha256": "8ac1bb73419d5fb44d66ebe96242d8e53bf003d1e831077c731d4f297d121dcc",
+    "lines": 646
+  },
+  "explicit_pins": [
+    {
+      "sha256": "b71270ee2ed63d67bfbc4051a8b98cb80ce2e2da49cbba27aa548d781fb13a70",
+      "matching_paths": [
+        "tools/probe_ui_model_mutations.py"
+      ]
+    },
+    {
+      "sha256": "f6ac8119d1f1b585dc6162254747114da08a453387d5a4e5ca7a08409d2838b5",
+      "matching_paths": [
+        "tools/test_mutation_unusable_reason.py"
+      ]
+    },
+    {
+      "sha256": "ffb23ad6cecb3d74859136ce06b237027739ddc8dfcdad5599a9180649b9b000",
+      "matching_paths": [
+        "tools/probe_inbox_verbs/transcript.py"
+      ]
+    },
+    {
+      "sha256": "3914de10acddb6a6e39384fa4f512461133e1d7ca538f50cb66939a8cd828163",
+      "matching_paths": [
+        "tools/probe_inbox_verbs/transcript_main.cpp"
+      ]
+    },
+    {
+      "sha256": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+      "matching_paths": [
+        "tools/test_worker_formula_derived.py"
+      ]
+    },
+    {
+      "sha256": "db7add6c5fb335097bc84a192b925b43604f638f7951e422cd926f7ab6292948",
+      "matching_paths": [
+        "tools/probe_inbox_verbs/run.sh"
+      ]
+    },
+    {
+      "sha256": "69cc26c59f0be12952421501fb0365e85195ff9343995cd4056068e20f0f7650",
+      "matching_paths": [
+        "tools/probe_inbox_verbs/probe_main.cpp"
+      ]
+    },
+    {
+      "sha256": "bd57ac322eafe89e4e882c35b8bc02b9fda60f4738e11bfe1dacb0699b617346",
+      "matching_paths": [
+        "tools/probe_inbox_verbs/fakes/Preferences.h"
+      ]
+    },
+    {
+      "sha256": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+      "matching_paths": [
+        "tools/probe_board_ui/fakes/Arduino.h"
+      ]
+    },
+    {
+      "sha256": "694387bd6fe1baa1671ff23e1fc0e2002eb844b6af7dd2538ab8de24dfb3b55f",
+      "matching_paths": [
+        "tools/probe_deferred_actions/run.py"
+      ]
+    },
+    {
+      "sha256": "57364be0188f908c62f1a4659c7625def338bf3b6cc9bc09865a2ad7a44ae587",
+      "matching_paths": [
+        "tools/probe_deferred_actions/probe.cpp"
+      ]
+    },
+    {
+      "sha256": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+      "matching_paths": [
+        "tools/gen_command_inventory.py"
+      ]
+    },
+    {
+      "sha256": "c320046822c0cb47bb38ca76f4c1ea8ebd42c7f2346bb50791a35e05d74ae807",
+      "matching_paths": [
+        "docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md"
+      ]
+    },
+    {
+      "sha256": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+      "matching_paths": [
+        "src/fw_main.cpp"
+      ]
+    },
+    {
+      "sha256": "640e4886ef9b0708828d2679cbc993853158475b6d100118bcc08bcf0f7c85a9",
+      "matching_paths": [
+        "lib/console/console_line.h"
+      ]
+    },
+    {
+      "sha256": "56d68dd9270f670451115854e4861dceab8b25c7d81b1f923f73aa5a3f941ac5",
+      "matching_paths": [
+        "src/device_ble.h"
+      ]
+    },
+    {
+      "sha256": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+      "matching_paths": [
+        "src/firmware_commands.cpp"
+      ]
+    },
+    {
+      "sha256": "5d112359ee52dc991519dae3fa20ec48d988fa8aafec0341590e18901c2b682e",
+      "matching_paths": [
+        "src/firmware_remote_actions.cpp"
+      ]
+    },
+    {
+      "sha256": "d1156cf963a4e3aed534f0e32f671864fb6cbbef4f279800beb665b4a8b98bda",
+      "matching_paths": [
+        "src/firmware_remote_client.cpp"
+      ]
+    },
+    {
+      "sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+      "matching_paths": [
+        "src/firmware_ui_model.h"
+      ]
+    },
+    {
+      "sha256": "753c2477e256a49a220565cddf419103faefeb1dbfbea61b1e55342368d36c19",
+      "matching_paths": [
+        "tools/probe_console_sink/structural.py"
+      ]
+    },
+    {
+      "sha256": "dcb333358a3990de2073cc24a0e3bd58719f33e57ed775ac51d92de06d3565a2",
+      "matching_paths": [
+        "docs/2026-07-30-open-bug-register.md"
+      ]
+    },
+    {
+      "sha256": "7a32af65fb6f68d78614a2df78f7340b3cd7b3269409a0e9d14a5fe19896a7c7",
+      "matching_paths": [
+        "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck.md"
+      ]
+    },
+    {
+      "sha256": "b790bd21b8b80cd77f85aa50e072801402d4566a3839ffdc544f92ba07c2b64a",
+      "matching_paths": [
+        "docs/superpowers/evidence/2026-09-30-b478-b487-b488-precheck/SHA256SUMS"
+      ]
+    },
+    {
+      "sha256": "a4a3f8c465d4a73ac153e22c879a5d1549d861e5b1f6349bd3101613f127ee6d",
+      "matching_paths": [
+        "tracker.md"
+      ]
+    },
+    {
+      "sha256": "abb8612b99bbafbfd1ef77fb93ceb81970f4a6e3161f9465cd9cfd3acc450e6e",
+      "matching_paths": [
+        "MEMORY.md"
+      ]
+    }
+  ],
+  "precheck_seal_entries": 16,
+  "doctest_header": {
+    "sha256": "94029a7d32da24a56249658147dbd2b33ff0b9ed665295cbbaf19aafff5b0ced"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "head": "10f333298ffad1098daeec37e756ed79ab0fd97f",
+  "fenced": {
+    "tools/probe_ui_model_mutations.py": "72a62ae82d8db5528afd508b3ace932a7cb4559f4a1b5a5da5a5a1f5fd41dfe2",
+    "tools/test_mutation_unusable_reason.py": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+    "tools/probe_inbox_verbs/transcript.py": "89ff8a07f61e5122f564d93e016c038c7774c616121fab1aff3f6f686da52c49",
+    "tools/probe_inbox_verbs/transcript_main.cpp": "e5b5b51c709a5f379908f2f048f558251cf8a2ee57b9b79e8030bbbedf787863",
+    "tools/test_probe_inbox_transcript.py": "6be422e28d845206175367c6846d7dc02bc6c31d37fc372fb21a8c4475ce9bd1"
+  },
+  "preparation_unchanged": true,
+  "changed": [
+    "tools/probe_inbox_verbs/transcript.py",
+    "tools/probe_inbox_verbs/transcript_main.cpp",
+    "tools/probe_ui_model_mutations.py",
+    "tools/test_mutation_unusable_reason.py"
+  ],
+  "explained_new_paths": [
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview.md",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/inputs.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/pins.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/preservation.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488-brief-rereview/raw-files.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488.md",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/SHA256SUMS",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/baselines.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/census-base.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/census-final.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/census.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/defect-baseline.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/defect-baseline.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/final-chain.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/freeze-scope.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/ledger-full_headless.txt",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/ledger-mobile.txt",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/part-a-evidence.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/part-a-evidence.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/part-b-evidence.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/part-b-evidence.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/preflight.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/reader-audit.sh",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/reader-audit.txt",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/scope-final.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/scope.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/stability.py",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/w4aident-base.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/w4aident-final-default.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/w4aident-final-w1.json",
+    "docs/superpowers/evidence/2026-09-30-b478-b487-b488/w4aident-summary.py",
+    "tools/test_probe_inbox_transcript.py"
+  ],
+  "seals": [
+    {
+      "name": "precheck",
+      "entries": 16,
+      "sha256": "b790bd21b8b80cd77f85aa50e072801402d4566a3839ffdc544f92ba07c2b64a"
+    },
+    {
+      "name": "brief-review",
+      "entries": 12,
+      "sha256": "1e9186f050424caf9e7a47256dcb660f842a5b0662cd145ddb81d5ddd937b52b"
+    },
+    {
+      "name": "brief-rereview",
+      "entries": 5,
+      "sha256": "9f38b46e647d715117a5b8049c4883f2cb445972e732b0cbd5531c1165a5076b"
+    },
+    {
+      "name": "coder",
+      "entries": 24,
+      "sha256": "53cdf001450002d6b2199bcb2234a595797cfc4ecb9de292d55d76ba8216d51a"
+    }
+  ],
+  "paths": 2331,
+  "simulator_paths": 285,
+  "syntax_python_files": 4,
+  "coder_report_sha256": "3df6c8513ae1d964a1574ccc4936015bee1d8b6a1b329aa66511de6e3736aa16"
+}

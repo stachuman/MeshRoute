@@ -1,0 +1,47 @@
+{
+ "finding": "QA TQ-1 (B491): malformed ledgers escaped as an uncaught ValueError (exit 1)",
+ "cause": "parse_ledger handed a profile field without `=` to the unchanged verify_profile (whose dict() raised ValueError), and int()-converted unbounded digit runs (Python 3.11 refuses > 4,300 digits); compare_ledgers caught only LedgerError/OSError",
+ "fix": [
+  "parse_ledger refuses, by name, a MR0C-PROFILE field that is not `name=value` before verify_profile reads it (verify_profile itself unchanged: duplicates/extras stay its contract)",
+  "parse_ledger reads the identity's lines= and each LINE's len= through count(), which refuses more than 9 digits by name before int()",
+  "no exception handling was broadened: compare_ledgers still catches only LedgerError and OSError; the run path still only LedgerError"
+ ],
+ "regressions_red_first": "the three new cases were run before the fix: 6 CLI failures (exit 1, traceback) + 3 shared-validator errors (ValueError); after: all pass",
+ "b10_after": {
+  "ran": 24,
+  "result": "OK",
+  "new_cases": [
+   "test_malformed_numbers_and_profile_fields_are_named_refusals_in_either_position (stock CLI, A and B positions; valid pairs stay 0/1)",
+   "test_malformed_ledgers_are_named_refusals_of_the_shared_validator (validate_ledger raises only LedgerError, with each case's own message)",
+   "test_a_malformed_fresh_profile_line_is_a_named_refusal_of_the_run_path (a driver copy printing a bare profile token: run_profile exit 2, named)"
+  ]
+ },
+ "qa_reproducer_after": [
+  {
+   "case": "profile-bare-token",
+   "exit": 2,
+   "contract_met": true,
+   "refusal": "COMPARE REFUSED: A (/tmp/mr-qa-invalid-ledger-x_r3i33_/profile-bare-token.txt), line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'"
+  },
+  {
+   "case": "count-5000-digits",
+   "exit": 2,
+   "contract_met": true,
+   "refusal": "COMPARE REFUSED: A (/tmp/mr-qa-invalid-ledger-x_r3i33_/count-5000-digits.txt), line 2: the identity's lines= has 5000 digits — not a count a ledger can carry"
+  },
+  {
+   "case": "length-5000-digits",
+   "exit": 2,
+   "contract_met": true,
+   "refusal": "COMPARE REFUSED: A (/tmp/mr-qa-invalid-ledger-x_r3i33_/length-5000-digits.txt), line 4: LINE L001's len has 5000 digits — not a count a ledger can carry"
+  }
+ ],
+ "seeded_fuzz": {
+  "cases": 4000,
+  "refused": 3596,
+  "accepted_valid": 404,
+  "escapes": 0,
+  "first": [],
+  "how": "tq1-fuzz.py: 4,000 seeded single-line corruptions (insert/delete/replace/dup/drop/huge digits/appended fields) of QA's valid full_headless ledger through validate_ledger; an escape = any exception other than LedgerError"
+ }
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "profile": "full_headless",
+    "run": 1,
+    "rows": 202,
+    "precheck_example_rows_identical": 5,
+    "record_sha256": "c9ec93b88f8ef5bf3c46a6371ec652c4fd8cdb87be9eb99931bc8aa8f7a28247",
+    "caller_regions_verbatim": true,
+    "builder_prefix_sha256": "d9214ae16f54e3531db90c841e3dcc9c97a4f4b8e5a124d3bead890e6396fb2a",
+    "appended_builder_lines": [
+      "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+      "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /tmp/mr-tool-qa-059bo2lh/full_headless-1/mr0c-shadow-k212dni1 \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+      "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/tmp/mr-tool-qa-059bo2lh/full_headless-1/mr0c-shadow-k212dni1 \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+      "cp \"$OUT/transcript\" /tmp/mr-tool-qa-059bo2lh/full_headless-1/transcript.bin || exit 2"
+    ]
+  },
+  {
+    "profile": "full_headless",
+    "run": 2,
+    "rows": 202,
+    "precheck_example_rows_identical": 5,
+    "record_sha256": "c9ec93b88f8ef5bf3c46a6371ec652c4fd8cdb87be9eb99931bc8aa8f7a28247",
+    "caller_regions_verbatim": true,
+    "builder_prefix_sha256": "d9214ae16f54e3531db90c841e3dcc9c97a4f4b8e5a124d3bead890e6396fb2a",
+    "appended_builder_lines": [
+      "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+      "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /tmp/mr-tool-qa-059bo2lh/full_headless-2/mr0c-shadow-ugsx8eyv \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+      "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/tmp/mr-tool-qa-059bo2lh/full_headless-2/mr0c-shadow-ugsx8eyv \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+      "cp \"$OUT/transcript\" /tmp/mr-tool-qa-059bo2lh/full_headless-2/transcript.bin || exit 2"
+    ]
+  },
+  {
+    "profile": "mobile",
+    "run": 1,
+    "rows": 206,
+    "precheck_example_rows_identical": 5,
+    "record_sha256": "2985b25702da62d8ba84b62fddcd2092b215cbd9a5a2b1e70d9aaca085252893",
+    "caller_regions_verbatim": true,
+    "builder_prefix_sha256": "d9214ae16f54e3531db90c841e3dcc9c97a4f4b8e5a124d3bead890e6396fb2a",
+    "appended_builder_lines": [
+      "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+      "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /tmp/mr-tool-qa-059bo2lh/mobile-1/mr0c-shadow-yxshp2jm \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+      "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/tmp/mr-tool-qa-059bo2lh/mobile-1/mr0c-shadow-yxshp2jm \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+      "cp \"$OUT/transcript\" /tmp/mr-tool-qa-059bo2lh/mobile-1/transcript.bin || exit 2"
+    ]
+  },
+  {
+    "profile": "mobile",
+    "run": 2,
+    "rows": 206,
+    "precheck_example_rows_identical": 5,
+    "record_sha256": "2985b25702da62d8ba84b62fddcd2092b215cbd9a5a2b1e70d9aaca085252893",
+    "caller_regions_verbatim": true,
+    "builder_prefix_sha256": "d9214ae16f54e3531db90c841e3dcc9c97a4f4b8e5a124d3bead890e6396fb2a",
+    "appended_builder_lines": [
+      "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+      "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /tmp/mr-tool-qa-059bo2lh/mobile-2/mr0c-shadow-hh8ahb0n \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+      "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/tmp/mr-tool-qa-059bo2lh/mobile-2/mr0c-shadow-hh8ahb0n \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+      "cp \"$OUT/transcript\" /tmp/mr-tool-qa-059bo2lh/mobile-2/transcript.bin || exit 2"
+    ]
+  }
+]

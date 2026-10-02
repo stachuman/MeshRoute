@@ -1,0 +1,201 @@
+[
+  {
+    "step": "part-a",
+    "command": [
+      "python3",
+      "-B",
+      "tools/test_mutation_unusable_reason.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 10.525,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/part-a.log",
+    "sha256": "23dd9a442c9c650edfc238e6f3f68b20033b6fe55a0ae479abb48bd6b4a0e7b9"
+  },
+  {
+    "step": "selftest",
+    "command": [
+      "/usr/bin/python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--selftest-unusable"
+    ],
+    "exit": 0,
+    "seconds": 0.085,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/selftest.log",
+    "sha256": "3cf088097a88bab5da142387d9673de7eface5a3702c9a3bb974834725944179"
+  },
+  {
+    "step": "mut-default",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w4aident"
+    ],
+    "exit": 0,
+    "seconds": 170.344,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/mut-default.log",
+    "sha256": "5a2aca3030ee46b666874fe142ede415306b92511d233a73aeabffeec6de88e5"
+  },
+  {
+    "step": "mut-w1",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w4aident",
+      "--workers=1"
+    ],
+    "exit": 0,
+    "seconds": 42.196,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/mut-w1.log",
+    "sha256": "db4240d98b57364da4d8bfcea1b706431790e1bdb8eb654ce0e302ed4604eeb2"
+  },
+  {
+    "step": "transcript-full_headless-1",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "full_headless",
+      "--out",
+      "/tmp/mr-tool-qa-059bo2lh/full_headless-1",
+      "--emit",
+      "/tmp/mr-tool-qa-059bo2lh/full_headless-1/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 24.088,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/transcript-full_headless-1.log",
+    "sha256": "1ec2ad08914cedd54795bac41608212a43641d27d9d32f7824b7dbe3bd381bd0"
+  },
+  {
+    "step": "transcript-full_headless-2",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "full_headless",
+      "--out",
+      "/tmp/mr-tool-qa-059bo2lh/full_headless-2",
+      "--emit",
+      "/tmp/mr-tool-qa-059bo2lh/full_headless-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 24.158,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/transcript-full_headless-2.log",
+    "sha256": "9e8ade20518f5f392540efd9cf26f8833e0ee9812542cf7f873bdc8e29620ac9"
+  },
+  {
+    "step": "compare-full_headless",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--compare",
+      "/tmp/mr-tool-qa-059bo2lh/full_headless-1/ledger.txt",
+      "/tmp/mr-tool-qa-059bo2lh/full_headless-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 2.274,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/compare-full_headless.log",
+    "sha256": "1e2dbdccc738d334dbbf2b4e922ea3d7a7fd3b829daa9936cc9092a07a31f255"
+  },
+  {
+    "step": "transcript-mobile-1",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "mobile",
+      "--out",
+      "/tmp/mr-tool-qa-059bo2lh/mobile-1",
+      "--emit",
+      "/tmp/mr-tool-qa-059bo2lh/mobile-1/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 23.67,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/transcript-mobile-1.log",
+    "sha256": "0176b9c80e7a5dee40a604cb9b74185af3e7609df3174095823ec4458c49a9e9"
+  },
+  {
+    "step": "transcript-mobile-2",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "mobile",
+      "--out",
+      "/tmp/mr-tool-qa-059bo2lh/mobile-2",
+      "--emit",
+      "/tmp/mr-tool-qa-059bo2lh/mobile-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 23.647,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/transcript-mobile-2.log",
+    "sha256": "c55e4b1d74eaa423eb3d103ea7f421f2b4e01276dccc4a3484e028e88b4ff85a"
+  },
+  {
+    "step": "compare-mobile",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--compare",
+      "/tmp/mr-tool-qa-059bo2lh/mobile-1/ledger.txt",
+      "/tmp/mr-tool-qa-059bo2lh/mobile-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 2.255,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/compare-mobile.log",
+    "sha256": "a2fc1e8e66032657d8446bbbd5dcb685c71dca3b531a0d5750ce239e5dfe325d"
+  },
+  {
+    "step": "part-b",
+    "command": [
+      "python3",
+      "-B",
+      "tools/test_probe_inbox_transcript.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 53.213,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/part-b.log",
+    "sha256": "7ad52e9b9c20dbe217a7409328ce4f6806a96bf2ae17777b51a0ed63d7241803"
+  },
+  {
+    "step": "discovery",
+    "command": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "exit": 0,
+    "seconds": 873.23,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/discovery.log",
+    "sha256": "ec00e7118878e0896427a13fc1424bded9c3c0932fe968987de62e567e1b7b8b"
+  },
+  {
+    "step": "inventory",
+    "command": [
+      "python3",
+      "-B",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 2.222,
+    "log": "artifacts/2026-10-01-b478-b487-b488-qa/inventory.log",
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  }
+]
