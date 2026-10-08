@@ -1,0 +1,42 @@
+{
+  "scratch": "/tmp/mr-qa-a10-2dnnu512",
+  "pattern": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);",
+  "new": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - (cap > std::size_t(cols) + 1u ? 0u : 1u));",
+  "old": "        const uint8_t keep = (len <= cols) ? len : cols;",
+  "arms": {
+    "clean": {
+      "calls": 106722,
+      "cap0_touched": 0,
+      "positive_without_nul": 0,
+      "outside": 0,
+      "furthest": 0,
+      "exit": 0,
+      "header_sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf"
+    },
+    "new": {
+      "calls": 106722,
+      "cap0_touched": 0,
+      "positive_without_nul": 0,
+      "outside": 0,
+      "furthest": 0,
+      "exit": 0,
+      "header_sha256": "39402c91f2b3701e47461a953c462d9de4ab20460fb56e4f7a8ad9d8a744d2e7",
+      "changed": 35712,
+      "roomy_changes": 35712,
+      "exact_changes": 0
+    },
+    "old": {
+      "calls": 106722,
+      "cap0_touched": 0,
+      "positive_without_nul": 992,
+      "outside": 992,
+      "furthest": 1,
+      "exit": 0,
+      "header_sha256": "0e775b220c24e317b7129ecc8ac6bd0dd0c89b0315ef5b3f81e8b64894ddeaab",
+      "changed": 36704,
+      "roomy_changes": 35712,
+      "exact_changes": 992
+    }
+  },
+  "verdict": "PASS"
+}

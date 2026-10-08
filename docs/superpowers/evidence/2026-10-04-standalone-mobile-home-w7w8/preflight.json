@@ -1,0 +1,252 @@
+{
+ "brief": {
+  "lines": 732,
+  "sha256": "47cb5a461d07cc3cbaf0ab6ae81fe535e206eda996201885f4dbe878dd11cb8e"
+ },
+ "failures": [],
+ "fence": {
+  "src/firmware_ui.cpp": {
+   "base": true,
+   "lines": 2936,
+   "sha256": "11789f4392624b2e312492ad19c221659df9ccd01276070ef145f1c9fa8a32b1"
+  },
+  "src/firmware_ui_chrome.h": {
+   "base": true,
+   "lines": 621,
+   "sha256": "b4c1ff24451725a03d2e966fd1da3a8102c61815b74cc995f1fd8f2c0ee6a181"
+  },
+  "src/firmware_ui_model.h": {
+   "base": true,
+   "lines": 6478,
+   "sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf"
+  },
+  "src/firmware_ui_send.h": {
+   "base": true,
+   "lines": 787,
+   "sha256": "2d6b09354adf590f48972013a1e47e3a933614f9ed837d83178a9d5ab18c5563"
+  },
+  "test/test_firmware_ui_chrome.cpp": {
+   "base": true,
+   "lines": 1389,
+   "sha256": "b19c08ad5a4e2e841d92f1a1b9972e6f1ec46cdadb7d58ed12d09db2d4b2e478"
+  },
+  "test/test_firmware_ui_model.cpp": {
+   "base": true,
+   "lines": 12527,
+   "sha256": "5f7d61cadf1b50a66cd07e2f229c9478c8c27c5e1f66a0597ff580a1b8397287"
+  },
+  "test/test_firmware_ui_send.cpp": {
+   "base": true,
+   "lines": 2994,
+   "sha256": "a79e804ac53cd714455232e4cfdc92ec27f599dd262119e52f5ce7ec9bfbe736"
+  },
+  "tools/probe_board_abi.py": {
+   "base": true,
+   "lines": 1087,
+   "sha256": "fabd78ac4f48177cb27d21181c724dd7a9898d6c062c58c721ca3522f0bd9e2f"
+  },
+  "tools/probe_board_ui/accounting.py": {
+   "base": true,
+   "lines": 256,
+   "sha256": "2a23f7521805f38c6a48cd24008cd9eeeac1e8ad7b0b2aa8e3a85e38398f1e09"
+  },
+  "tools/probe_board_ui/expected.tsv": {
+   "base": true,
+   "lines": 598,
+   "sha256": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196"
+  },
+  "tools/probe_board_ui/run.sh": {
+   "base": true,
+   "lines": 1665,
+   "sha256": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf"
+  },
+  "tools/probe_firmware_ui/probe_main.cpp": {
+   "base": true,
+   "lines": 7886,
+   "sha256": "188bb4eab5128de44536dd7897180bdf2bf29227093466f92e44c7e593a6776d"
+  },
+  "tools/probe_firmware_ui/run.sh": {
+   "base": true,
+   "lines": 2116,
+   "sha256": "ffcb62af6655a1a3a5eec8164f0152cc2136e2ad13b5adee922e75436afcaab5"
+  },
+  "tools/probe_ui_model_mutations.py": {
+   "base": true,
+   "lines": 13163,
+   "sha256": "27807b320427fb090840e927bf559bfff909f78761d98b29e3aff8b3cb4d177d"
+  }
+ },
+ "folders": {
+  "W7 pre-check": {
+   "exit": 0,
+   "ok": 26
+  },
+  "W8 pre-check": {
+   "exit": 0,
+   "ok": 30
+  },
+  "brief review": {
+   "exit": 0,
+   "ok": 10
+  },
+  "re-gate": {
+   "exit": 0,
+   "ok": 40
+  },
+  "re-review (QA addition after the brief)": {
+   "exit": 0,
+   "ok": 6
+  }
+ },
+ "git_diff_check": {
+  "exit": 0,
+  "out": ""
+ },
+ "head": "4c1a000bc71706ac438e64161a9452966a66615f",
+ "inventory": {
+  "meshroute": {
+   "changed": [
+    "MEMORY.md",
+    "docs/2026-07-30-open-bug-register.md",
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "tracker.md"
+   ],
+   "git_visible_now": 2546,
+   "inventoried": 2495,
+   "missing": [],
+   "new": 51,
+   "new_by_prefix": {
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck": 31,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview": 7,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review": 11,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8.md": 0,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/": 1,
+    "docs/superpowers/plans/2026-10-04-standalone-mobile-home-w7w8-editor-rename-messages.md": 1
+   },
+   "new_hashes": {
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck.md": "2598f88c2894f3b6896e62ce6e9a2a2f83357e7b7d93afd0f6baa696e9e79a13",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/SHA256SUMS": "7b51d522015834bdc906f0f534c8b3df0b23a3f0eaf593e84b7cf50a1933db55",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/baseline-summary.json": "188e201e37e2a9f794de02271c78a60d6ff71333ebbfa4a521b6e46603526e44",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/baselines.py": "09f1a3f7d61d7ca7b38c85d73ab7d39196310b300f0b3c45d8e11700201bdd35",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/census.py": "3c54831880ea9e074e453e9a6a7d7968f169bb027363e4b43ae48c27e2c0ab03",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/control-reconciliation.json": "cb5c9db9150c6a8281cc64c9c041fd8848409b651d8afbc429d738d195fc3073",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/corpus-manifest.json": "ef057d5b969c2d3b513a0bb55e88b8ae1e55acb413718c5a6f4949e9216976ae",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/failure-classification.json": "4dee18c39655e597d77cdc565ab99392e07171e3466ba87300eca8729b91027b",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/failure-producers.txt": "d8251f6d9b9b339d84e4c00ea5fb163bf46382ecf534bbdb65501d21d9c4b7ba",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/failure_classification.py": "0305090f65c51479036f53d0f62c9aea93aab5f742e82c32af6afe7e8ac15047",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/finalize.py": "abccd485bdaab52500260a359b08041b2fee89558724a6834e62c358e63adaee",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/inputs.json": "d83755aeadd4bcfce0702297ae820eee34f90dcc17a567ef6f1c8decbe3f4ba5",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/layout-measure.json": "59b526c396b198a335edfb47a0e84cd9cf81709db87fbf94f5844fe15dcf7c67",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/layout_measure.py": "ed0f9a194bc560d087aa85853e946c31799dc39fb22f4bb01d9d2159fd2e72fd",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/mutation-census.json": "d052da3f19662e3563ea51e3bcdf95a969f870ce916ff508c16f27b83f848e15",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/native-cases.json": "d87532a1051fbd6e04babbe8aa9e50db90a5fbc1c9b436f6512de41075095379",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/preflight.json": "bc0492c01e6fd4f21cb28ae494d7da8ffe895ac28ed1e7246729c24441cb85dc",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/preservation-final.json": "9b8dba9b71714aa5bb8021c431ebeaf343899afe9cfdde22e50a8cb0d90b4447",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/probe-control-candidates.json": "e7863adb06f145e4f922477609d806c74dfd75bbdc9a7801ee0017fac296553a",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/raw-files.json": "69c9bc8d04d304e27c59010df89221d92f7414e9ba25caafb0a8bc28bc626a55",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reachability.json": "ce31d15e4dff18d39ff6d9ea9e11e363a47b5ea995d4e1b1c4a3f7f5be951d1a",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reachability.py": "891910279d590adba6ea8ce5ea16c36680f166aa78aa905a585d9942b9fce0ab",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reader-summary.json": "e3f6d322e14231cf2f9f1ea9fea6f030a54e39586526c90d61eed719dc925f37",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/recommended-union.json": "2762bee467c50a5b5572b3c024578ddfcbf6e7a24267d6fbdb8fd3e51d53f2e3",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reconcile.py": "6f3a9a85be03d40168db8baca199a433a8899a378e81130ae9cb34e4f8abe15d",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/register-finding.json": "02f46f0a75ea2f3d1117276645a4e5a12f5a73eb4556e61ab1a656e0f0cc7c8f",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/runs.json": "189c67e16f30d4106642aa21aa6f7e5d5addcc88ecdcafd1a725ee5ab3063a9e",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/scratch.json": "6519603e6094bfd1c637faa2dbe9919807c531034cb4dd68e148d2a80e679dbb",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/send-core-readers.txt": "8de67f70ff3dc8968f4e07786dee4fd96276ce8b71d0a6b7b8c50b8589778d5e",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/send-probe-controls.json": "0de174ee2b6421eec286fcbcb5ce38fb516306cf39972cb7dd92e5e9a65029ae",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/symbol-readers.json": "5c238b31e71cbacf6f646abb156569e05d643f517b9f00e3d2c7809dfd434b36",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview.md": "ee55560aa7134402b80747da26789487409c2f7c3e9473ff57374e735c46ce52",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/SHA256SUMS": "67f8258723b04ff27e962faf6c65eeda1c70599c9ee69c65fbe8f6ded7d7a6e2",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/inputs.json": "d985c07538fa0678ea13f00df4153da6d6a9f189988d3b5866fb8b597a1f8742",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/preflight.json": "578838ff4e8a948c2510955a4b520eb32eeb291a1883172cc9568f64c31f1dee",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/preservation.json": "4cda02a8e12b8b79bf600c60ce90a8406abee41d0fdd13569b6ac25295fa72c9",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/reviewed-brief.md": "47cb5a461d07cc3cbaf0ab6ae81fe535e206eda996201885f4dbe878dd11cb8e",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/source-recheck.json": "6431d68d7ab0be243729cf78fb563f129f57c45668863712f8c37229089c3739",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review.md": "3eb6c846f395257257df8ae7617d2919cc5174b4df888885c6a52d6b6b6ce877",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/SHA256SUMS": "ca6e3c27292220e00f99721308a3d1f18bc5ef608b9a9684c0f93065583cdd88",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/dependency-pins.json": "99fcbd706e567c672c815a1e2aa792bc02502b439ad4cd63d5c7d997a7cd6cef",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/entry-inputs.json": "11fd394898d9b9afe4d9f76467c69e1e3126595d8b980be27f471847ebffee11",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout-measure.json": "a0bd5765128e511e6863780806575ed0d7f65b601f3de4f5940d22f08fe6d9f3",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout_measure.py": "d3e4b80e003646e44ea2283c34397318d8e579d93c22b5e5bfa3e647178f443f",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/mutation-selection.json": "c2ed0323a841616ef2228750b6f78ae289f554266a33f36b91c7b525718654a0",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preflight.json": "320cf9a6c02b2a1d18bdd91cf2f639b3283e3aabca19466e0cabdd0a049c4a9f",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preservation.json": "392f18f3ad254a76535b9bf58a5fa6686e474428670c923164466aca90f07127",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/row-width-measurement.json": "7dd3da70ef78f3e80e7437fe2b770ab9295a1ab778714e4e7f4b960e2d50d554",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/source-review.json": "0e4254d276177a901f56369570041b75b59e056678f4e744d55ba06119e3c7e0",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/scope.py": "0a233d32fe03d3540533ef9e5b3fb9afac9e1797036235533c37dcb24a49bb35",
+    "docs/superpowers/plans/2026-10-04-standalone-mobile-home-w7w8-editor-rename-messages.md": "47cb5a461d07cc3cbaf0ab6ae81fe535e206eda996201885f4dbe878dd11cb8e"
+   },
+   "unexplained_changed": [],
+   "unexplained_new": []
+  },
+  "simulator": {
+   "changed": [],
+   "git_visible_now": 285,
+   "inventoried": 285,
+   "missing": [],
+   "new": 0,
+   "new_by_prefix": {
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck": 0,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview": 0,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review": 0,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8.md": 0,
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/": 0,
+    "docs/superpowers/plans/2026-10-04-standalone-mobile-home-w7w8-editor-rename-messages.md": 0
+   },
+   "new_hashes": {},
+   "unexplained_changed": [],
+   "unexplained_new": []
+  }
+ },
+ "new_fence": {
+  "src/firmware_ui_editor.h": null,
+  "test/test_firmware_ui_editor.cpp": null
+ },
+ "phase": "preflight",
+ "preparation": {
+  "MEMORY.md": "f8c41ba28bf903a3c66fd98bce740d50af0c59024922688f2dfec70729a740ad",
+  "docs/2026-07-30-open-bug-register.md": "b3ac76d9a49793a256b53d678b729138cd959ae895bcd8ccc6f2686c6919a3ef",
+  "docs/superpowers/evidence/2026-10-02-b478-b487-b488-qa-regate.md": "f5490a4fe7e1df92a3c8dd12e6295e5405b7af5622f16c9806bf8045013c1fbd",
+  "docs/superpowers/evidence/2026-10-02-b478-b487-b488-qa-regate/SHA256SUMS": "c0e3b26fd893ee5d35f22f92eba726e829737a25f5f56b5ca1c17d0808e8907d",
+  "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck.md": "e4148d274271addf9e0ff1535b4fce6a9db8155ce54df4b73f929e1d9524be1e",
+  "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/SHA256SUMS": "037b975bd3737808627ff90fb389ed0fea649121b5e0f1d60dd434c564b5af6f",
+  "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck.md": "2598f88c2894f3b6896e62ce6e9a2a2f83357e7b7d93afd0f6baa696e9e79a13",
+  "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/SHA256SUMS": "7b51d522015834bdc906f0f534c8b3df0b23a3f0eaf593e84b7cf50a1933db55",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review.md": "3eb6c846f395257257df8ae7617d2919cc5174b4df888885c6a52d6b6b6ce877",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/SHA256SUMS": "ca6e3c27292220e00f99721308a3d1f18bc5ef608b9a9684c0f93065583cdd88",
+  "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": "7ed161d6e777f1eb98fa65319de9bed2f7864bcb532004eeb00efc912a2325f6",
+  "tracker.md": "a0b5231a8c5a12a3f1b895a4a5c06b418a835b3a8ee4ce1f24fb4cf6d5844be9"
+ },
+ "readonly": {
+  "lib/core/command.h": "f537b1cc28d5ac6ff22f8243913933455aa371a2e50989a88a6bc1d28c9c612d",
+  "src/device_nv.h": "36296bcbc1c6975a6cf0bea2caf1ca5eebd182832f2550c12de1a7185429fffa",
+  "src/firmware_commands.cpp": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+  "src/firmware_config.cpp": "accb667703290ba57e590b4ec07d20ab6bf21dc8ae7d8b9ae1840e2bf3dfdc18",
+  "src/firmware_config.h": "c72d59600745da4d7b65b8cbd37d3da5b9f5a74da33cc5a71a98a4fa8aac8bd6",
+  "src/firmware_ui_input.h": "30c74299c9bb580e016ed7efa847f1e6af29b5b560891cdbd2bb732d0ce4ecc0",
+  "src/firmware_ui_invite.h": "f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c",
+  "src/firmware_ui_presets.h": "1d67253f74490dbb43d83eae06b7bb5389151d4256da37b3c97e114000aebe23",
+  "src/firmware_ui_status.h": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd",
+  "src/firmware_ui_team.h": "63f9074be7ba73072816ba3a3d3654853da1a721b8dfeff7db57e854e9c72cdf",
+  "src/fw_main.cpp": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+  "test/test_firmware_ui_input.cpp": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed",
+  "test/test_firmware_ui_status.cpp": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8",
+  "test/test_firmware_ui_team.cpp": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8",
+  "tools/gen_command_inventory.py": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+  "tools/probe_accounting.sh": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+  "tools/probe_board_ui/fakes/Arduino.h": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+  "tools/probe_board_ui/negctl.py": "7634d66b9391b6fc90f293f51ef2b9376324c83da521fc8ba6abbcc0e1ff54c4",
+  "tools/probe_board_ui/probe_main.cpp": "a06c448fb7bb28e25cb2f86fa2fd18a12bd57aadfc0d2bed3ae157389e67b204",
+  "tools/test_mutation_unusable_reason.py": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+  "tools/test_probe_board_ui.py": "82a344994d963adc80b02d1758b9a3c81a73cb3af7834f5df06cf66fbf7c51e2",
+  "tools/test_probe_firmware_ui.py": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047",
+  "tools/test_worker_formula_derived.py": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+  "variants/heltec_common/board_ui.cpp": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46"
+ },
+ "simulator": {
+  "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "status": ""
+ },
+ "staged": "",
+ "verdict": "PASS"
+}

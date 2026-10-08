@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com>; r1 draft: OpenAI Codex (2026-09-06/07); r2/r2.1: Claude, specification author (2026-09-22/23) -->
 # Standalone mobile — identity, dynamic Home and team messaging
 
-**Revision 2.24 · 2026-09-29 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W0, W1, W3, W4a, W4b and W6 scoped by their QA pre-checks; the W4b and W6 allocations owner-ruled (§11.1); one W4b transition settled at its coder STOP; W6's reply shape owner-ruled (D14, §7.7) (§16).** Every decision in
+**Revision 2.27 · 2026-10-04 · REVIEWED — independent review PASS with fold-ins (2026-09-24); packages W0, W1, W3, W4a, W4b, W6, W7 and W8 scoped by their QA pre-checks; the W4b, W6 and W7+W8 allocations owner-ruled (§11.1); one W4b transition settled at its coder STOP; W6's reply shape owner-ruled (D14, §7.7); W7 paired with W8 (D16–D18); the panel's pre-ID team post refused (D19) (§16).** Every decision in
 §12 is ruled by the owner (2026-09-23/24): navigation (D1), Home rows and lists (D2, D2a–D2c), the boot splash (D3),
 the editor alphabet (D4), review before every send or save (D5), written-message size and location (D6), phrase
 size (D7), the phrase-record reset (D8), default phrases (D9), names (D10), setup from Home (D11), the Home card of
@@ -242,6 +242,29 @@ from a record that failed to load. The durable record is read only to recognise 
 then costs no write but still makes the requested name live; an absent, invalid or different record is repaired
 even when the requested name is unchanged ([W0 pre-check](../evidence/2026-09-29-standalone-mobile-home-w0-precheck.md) §4).
 
+**Review, result and request [settled r2.25 from the [W7 pre-check](../evidence/2026-10-03-standalone-mobile-home-w7-precheck.md) §3]:**
+
+```
+SAVE NAME?              row 0
+STANISLAW KOZICKI W     rows 1–2: the new name in full, 19 + at most 13 bytes (no wrap, no page)
+ROCLAW
+WAS STAN                row 3: `WAS ` + the old name at 15 columns (`»` past 15), or `WAS NO NAME SET`
+ SAVE >EDIT             row 4: EDIT preselected
+```
+
+- **`WAS` is captured when the review opens**, from that tick's snapshot, and frozen with the review. A console
+  rename made while the editor was open therefore shows up in `WAS`; one made while the review is open does not, and
+  the save replaces whatever name is live — W0's service gathers the seed and position at the save. No conflict
+  transaction is added. (The pre-check proposed capturing at the editor's opening; the review is the confirmation,
+  so it shows the name `SAVE` actually replaces.)
+- **Results:** `saved` and `unchanged` → `NAME SAVED`; `nv_save_failed` → `NAME NOT SAVED` / `NV WRITE FAILED`;
+  `too_long` → `NAME NOT SAVED` / `NAME TOO LONG`; `bad_args` → `NAME NOT SAVED` / `BAD NAME`. A valid draft (1–32
+  bytes, not all spaces) cannot produce the last two, but the panel still shows them, never as an NV failure, and
+  keeps the draft (C2).
+- **The request:** `SAVE` raises one name request; the UI tick drains it once, calls `rename_node` exactly once and
+  hands back a typed answer. It uses no send slot and no `SendReq`, sits outside the normal send busy gate (a pending
+  DM never blocks a save), and nothing else — a redraw, wake, cancellation or acknowledgement — saves.
+
 ### 4.4 Name prompt before setup [AGREED D10]
 
 When the device is unnamed, JOIN TEAM and CREATE TEAM from Home show `NO NAME SET` / ` SET NAME` / `>SKIP` once
@@ -251,6 +274,16 @@ opens the rename flow (§4.3); acknowledging `NAME SAVED` continues into the cho
 settings gate again (§6.6 — a gate that now refuses shows its note, and acknowledging that note returns to Home),
 and leaving the editor without saving returns to this prompt. A named device goes straight on. Setting a name never blocks setup.
 This revises UI-16 R-1 (JOIN TEAM opens NEARBY directly) for unnamed devices only (§10).
+
+**Placement and edges [settled r2.25 from the W7 pre-check §4]:**
+- The prompt is a **Home sub-view, rail on STATUS**, shown after the gate admits and only when the counted own name
+  is empty. No provisioning sub-view is open behind it.
+- The name flow's origin is a typed `NameOrigin` (`my_device`, `setup_join`, `setup_create`), kept apart from the
+  setup origin, which leaving SETTINGS retires (§6.6).
+- `SKIP` asks the settings gate again before entering setup, so a console change made while the prompt was open is
+  caught; a refusal shows the setup-block note, and acknowledging it returns to Home.
+- `long_fire` at the prompt returns to Home after the alarm; the pending setup is dropped, never resumed.
+- `NAME SAVED` asks the gate again and enters the chosen step with the setup origin `home` (§7.4.1).
 
 ### 4.5 Identity at the moment of sending
 
@@ -357,6 +390,20 @@ The group ring shows the highlighted item and the next three (`>_.,?!- EDIT` / `
 is drawn `_` only in the ring rows and announced `ADD SPACE`; with `BACK` highlighted row 4 reads
 `BACK TO GROUPS`). Widths: 14, 17 and 18 columns worst case. A DM header's label has 8 columns (`»` included).
 
+**Window and notes [settled r2.25 from the W7 pre-check §2, §9]:**
+- The two draft rows show grid rows *r* and *r* + 1, with *r* = max(0, ⌊cursor / 19⌋ − 1): the cursor's row is the
+  lower one, except on the first row. A cursor at a multiple of 19 sits in column 0 of the next row, so the next empty
+  cell is always visible. A name (at most 32 bytes) always shows rows 0–1.
+- The visible bytes, the cursor's row and its column are frozen per frame. The 6×1 underline sits one pixel below
+  the cursor cell's baseline.
+- A note (`FULL`, `EMPTY`, `BUSY`, `TEAM CHANGED`, `RECIPIENT CHANGED`) clears at the next **eligible** press — a lit
+  short or double that the emergency overlay does not absorb — and that press still performs its normal action: a
+  note never consumes a press (unlike `OPTIONS CHANGED`, §6.4). The first press on a dark panel only wakes it
+  (R-1) and leaves the note; long gestures keep the emergency's priority.
+- **[r2.27] While a note shows, it owns row 0 alone,** left-aligned, and the used/cap counter is hidden: the
+  longest note, `RECIPIENT CHANGED`, is 17 cells, and no note fits beside `163/163`. The press that clears the note
+  restores the normal header.
+
 ### 5.4 States
 
 | State | short | double |
@@ -368,7 +415,13 @@ is drawn `_` only in the ring rows and announced `ADD SPACE`; with `BACK` highli
 | R review (§7.3) | toggle between its two actions | primary action (`SAVE`/`SEND`) or `EDIT`/`BACK` |
 
 Cursor bounds are 0..len; `DEL` at 0 and moves past either end do nothing. The rail follows the body (R-4): a
-message editor boxes SEND, a name editor boxes STATUS.
+message editor, its review and its result box SEND — a DM one too, even when opened from TEAM → person (the
+chrome already maps DM compose there to SEND) — and a name editor, its review and its result box STATUS.
+
+**Landings [settled r2.25; r2.26 qualifies the alarm case]:** entering a ring highlights its first item, so E4's
+`BACK` re-enters the control ring on `DEL`. Returning to the editor — from the review's `EDIT`, from a refused or
+not-saved result, or after an alarm that closed a review or a result — lands on group 1. An alarm armed, cancelled
+or fired over an editor already open (E1–E4) keeps its ring position (§5.5). The cursor is kept on every return.
 
 ### 5.5 Event priority
 
@@ -391,7 +444,10 @@ message editor boxes SEND, a name editor boxes STATUS.
 ### 5.6 Draft ownership, lifetime and capacity
 
 `UiModel` owns **one** draft: `bytes[kDraftMax]`, `len`, `cursor`, caller, cap, `draft_id`, `locked`.
-`kDraftMax` is derived as the largest caller cap (163, §7.1). Caller caps: name 32; team and DM messages 163
+`kDraftMax` is derived as the largest caller cap (163, §7.1); the paired W7+W8 package allocates this shared draft,
+with `draft_id` and `locked`, from the start (D16). `draft_id` is a u32 advanced (mod 2^32) each time a review
+freezes the draft — clearing the text never resets it — and it is compared only for equality: with one draft,
+a request carries the ID it froze, so a wrap is harmless. Caller caps: name 32; team and DM messages 163
 (owner-ruled D6). The draft is created empty or preloaded (§4.3) and frozen with a new `draft_id` when a review
 opens. Two separate things then hold it; the per-caller rules are §7.4.1:
 
@@ -557,7 +613,7 @@ every later item one step further).]
 | `SEND TO TEAM` | Send in list focus: team phrases, `WRITE MESSAGE`, `MENU` (§7.5) | SEND | `MENU`, then double |
 | `TEAM` | Team in list focus: people, `MENU`; a person opens their compose list | TEAM | `MENU`, then double |
 | `INVITE MEMBER` | the existing invitation window, opened directly with no settings gate (it also announces the team, B249; D11) | SETTINGS | its BACK → Home |
-| `JOIN TEAM` / `CREATE TEAM` | the settings gate (§6.6) → [name prompt when unnamed, §4.4] → NEARBY / `CREATE NEW TEAM` confirmation (BACK first) | SETTINGS | exits that return to the PROVISION menu today return to Home; an acknowledged result is not undone (D11) |
+| `JOIN TEAM` / `CREATE TEAM` | the settings gate (§6.6) → [name prompt when unnamed, §4.4] → NEARBY / `CREATE NEW TEAM` confirmation (BACK first) | SETTINGS; the name prompt and its editor STATUS (§4.4) | exits that return to the PROVISION menu today return to Home; an acknowledged result is not undone (D11) |
 | `NO TEAM KEY - HELP` | note `NO TEAM KEY` / `A MEMBER WHO HAS IT` / `MUST GRANT IT TO` / `THIS DEVICE` / `press = back` — the existing procedure (a key holder uses INVITE MEMBER or TEAM → GRANT KEY); no automatic key request | STATUS | either press → Home |
 | `MY DEVICE` | §6.7 | STATUS | its BACK → Home |
 | `MENU` | menu mode on the Home slot | STATUS | double → Home |
@@ -723,16 +779,34 @@ list, this review is also what stops two stray doubles from sending a phrase.
 
 ### 7.4 Submission [PROPOSED]
 
-- `SendKind` gains `dm_text` and `channel_text`; `SendReq` gains `draft_id`, `team_id` and `peer_hash`
-  (≈ 20 B host). Manual text is never a fake slot or generation.
+- `SendKind` gains `dm_text` and `channel_text`. W6 already added `team_id`, `peer_known` and `peer_hash` (16 B);
+  W8 adds only `draft_id` — **20 B on all three ABIs**, in both carriers (`_req` and the review binding `_review`,
+  D18). Manual text is never a fake slot or generation.
 - `send_gate_of` asks each kind only the questions that apply, each its own refusal with zero core submission:
   - written messages (`dm_text`, `channel_text`): the draft is still locked with the same `draft_id`;
   - saved phrases (`dm`, `channel_canned`): today's slot, generation, enabled and kind checks, unchanged;
   - all four ordinary kinds: `team_id` is still the live team (for phrases this closes the same gap — a named
     change);
-  - both DM kinds, when a `peer_hash` was known at selection: the ID still resolves to that hash.
+  - both DM kinds, when a `peer_hash` was known at selection: the ID still resolves to that hash;
+  - both ordinary team-post kinds (`channel_canned`, `channel_text`): the team-local ID exists — refused before
+    team-DAD with `NOT SENT` / `NO TEAM ID YET`, a named change to today's phrase behaviour (D19, B444's panel
+    path; the Send screen stays navigable). **[r2.27]** This check belongs to execution only: a valid saved team
+    phrase still opens its review before the ID exists, as a written message opens its review; the existing
+    catalog, team and recipient checks keep running at review admission, unchanged.
 
   The emergency kind stays ungated.
+- **Settled r2.26 from the [W8 pre-check](../evidence/2026-10-03-standalone-mobile-home-w8-precheck.md):**
+  - A written DM's known bit and hash are resolved once, at `WRITE MESSAGE`, and later answers are compared with
+    that binding — never re-resolved at `DONE`.
+  - A broken binding is never repaired silently: while it is broken, `DONE` shows the note again and opens no
+    review, the draft is kept, and `DISCARD` followed by `WRITE MESSAGE` from the new context is the way to send
+    elsewhere. A catalog change has no effect on written text.
+  - A written request whose draft is no longer locked with its `draft_id` at execution is refused with zero
+    submission: `NOT SENT` / `DRAFT CHANGED`.
+  - `SEND` never overwrites owed ordinary work: while an ordinary request is still pending, `SEND` queues nothing,
+    the review stays open, and the note `BUSY` shows until the next eligible press.
+  - The composer branches on the written kinds before any catalog indexing and reads a borrowed counted view of the
+    locked draft (no NUL is required at 163 bytes). The worst written line fits W6's static 199-byte send line.
 - The composer uses the existing forms (U1): `send <id> "<draft>" -t -a` and
   `send_channel <ch> "<draft>" -t -e`, bytes read from the locked draft with `%.*s`. Written messages never add
   `-l` (owner-ruled D6). The GPS design requires every new on-device sender to be classified for location (its
@@ -809,6 +883,9 @@ the existing drain priority, not a new timer or a wait for the overlay to close.
   `WRITE MESSAGE` → K7's `GRANT KEY` when offered → `back, don't send` (a sub-view keeps its exit; K7's semantics
   unchanged; its position moves by one — named revision of preset spec R-1).
 - `WRITE MESSAGE` opens the editor with the destination already bound; a manual message is never retargeted.
+- **Settled r2.26:** `WRITE MESSAGE` is a typed action row, not a text row: it carries no location marker and never
+  yields a phrase slot. An empty catalog still shows `WRITE MESSAGE` and the exit (and `GRANT KEY` when offered).
+  Every positional reader derives from the one row authority; `GRANT KEY`'s semantics are unchanged.
 
 ### 7.6 Outcome wording [FACT reused]
 
@@ -1051,13 +1128,30 @@ beyond the catalog, in the QA-measured shape ([W6 pre-check](../evidence/2026-09
 The catalog measures exactly +7440 B (D7). Together that is +7743 B of board objects, before linked-section
 effects, which the brief measures. Any further retained state returns to the owner.
 
+**W7+W8 allocation, owner-ruled 2026-10-03 (D16):** +192 B of board objects (+200 on the host) for the editor, in
+the shape the [W7 pre-check](../evidence/2026-10-03-standalone-mobile-home-w7-precheck.md) §3 measured:
+- `UiModel` 1000→1184 on the boards (1016→1208 host): one counted `Draft` of 176 B — `bytes[163]`, length, cursor,
+  caller, cap, `draft_id` and `locked`, with no terminating byte — and a one-byte `NameOrigin`.
+- `UiState` 560→568 on the boards (568→576 host): a 10-byte frozen editor descriptor (phase, group, ring item, used
+  length, cap, visible cursor row and column, note, panel result, selection), counted twice — the model's copy and
+  the frozen frame's. The editor's two visible rows alias the existing review/detail union, and `WAS` reuses the
+  20-byte `review_header`.
+- `UiSnapshot` and `UiChrome` do not grow. W8's further structures — `SendReq`'s draft ID and the new send kinds —
+  are measured at its pre-check. Any further retained state returns to the owner.
+
+**W8 addition, owner-ruled 2026-10-04 (D18):** +16 B of board objects (+8 on the host) beyond D16 — **+208 B in
+total on every ABI** — in the explicit shape the [W8 pre-check](../evidence/2026-10-03-standalone-mobile-home-w8-precheck.md)
+§6 measured: `SendReq` 16→20 (`draft_id`) in both carriers, and a model-private 4-byte outcome record (the written
+request's state and its reason, refusal and code bytes). `UiModel` 1000→1200 on the boards (1016→1216 host),
+`UiState` as D16; `UiSnapshot`, `UiChrome`, `SendLive` and `SendTracker` unchanged.
+
 Without the catalog growth the static estimate stays near 1 KB. The stack changes on two separate paths, so no
 neutrality is claimed: the UI send path loses its 96-B line (now static), and each widened preset buffer gains
 84 B on the console and boot-diagnostic paths; the peaks are measured at the brief. With T = 163 about +8.4 KB static on the six OLED images (`heltec_mobile` last recorded at 211724 B). Board padding differs (`UiModel`
 912 board vs 928 host; B246): every figure is re-derived with `tools/probe_board_abi.py` pins and a
 `tools/measure_board.py` pair at each brief. **Apart from the catalog estimate the owner accepted with D7, the W4b structures
-approved on 2026-09-27 and the W6 structures approved on 2026-09-29 (above), no allocation is granted by this
-document.**
+approved on 2026-09-27, the W6 structures approved on 2026-09-29 and the W7+W8 structures approved on 2026-10-03
+and 2026-10-04 (above), no allocation is granted by this document.**
 
 ### 11.2 Profiles
 
@@ -1094,6 +1188,10 @@ prediction is re-checked at each gate, never assumed.
 | D13 | Inbox order | **Resolved — owner 2026-09-23:** one newest-first list across DMs and team posts (§6.8). **D13b resolved — owner 2026-09-23 (the lighter rule):** this session's messages merged by receive time; earlier ones below, each kind newest-first, ages `--` | Not chosen: a persistent arrival serial in every Inbox record, exact across restarts | `src`-only — ≈ 8 B for the boot boundary plus an estimated 64 B payload of full-precision ordering keys (§11.1), before padding; existing accessors — and closes B445; the accepted residue is the DM-versus-team order among rows from before the last restart. The rejected alternative needed a `lib/core` Inbox change plus a store-format migration on both backends and still could not show pre-restart ages |
 | D14 | `ui preset` reply size (B475) | **Resolved — owner 2026-09-29 (pages of four):** `ui preset list [<page>]` answers at most four records, and the end record names the page and the page count; a bare `list` is page 1; a client reads pages 1..5 and restarts when `generation` changes; mutation replies and `reset all` unchanged (§7.7) | Not chosen: one phrase per request; one list per kind (2046 B, two bytes under the stage); streaming across service passes | Every reply fits the 2048-B USB console stage with about half to spare; reading the whole catalog takes five requests |
 | D15 | W6 allocation | **Resolved — owner 2026-09-29 (+303 B):** the review shares the Inbox detail page through a union; a separate review binding; `SendReq` 8→16; the static 199-B send line (§11.1) | Not chosen: a separate review page (+383 B); a separate page and review body (+551 B) | +7743 B of board objects with the catalog; the shared page's lifetime and the pending request's coexistence are proved by tests |
+| D16 | W7+W8 allocation | **Resolved — owner 2026-10-03:** the shared 163-byte draft now, with W8's draft ID and lock — +192 B board / +200 B host objects in the measured shape (§11.1) | Not chosen: a 32-byte name-only draft now (+48 B board), widened when W8 lands (the pre-check's recommendation) | One draft shape for both callers; W8's `SendReq` growth is priced at its pre-check |
+| D17 | W7/W8 order | **Resolved — owner 2026-10-03:** W7 and W8 paired under P6 — one brief and one gate, after W8's own pre-check | Not chosen: W7 alone first (the pre-check's recommendation) | The editor ships with both callers; the combined brief waits for W8's pre-check facts |
+| D18 | W8 addition | **Resolved — owner 2026-10-04:** +16 B board / +8 B host beyond D16 — `SendReq`'s draft ID in both carriers and an explicit 4-byte outcome record; +208 B in total on every ABI (§11.1) | Not chosen: the minimum +8 B, packing the outcome into D16's editor descriptor (the pre-check's recommendation) | The written request's state and reasons have their own typed record instead of sharing the descriptor |
+| D19 | B444's panel path | **Resolved — owner 2026-10-04:** before the team-local ID exists, both ordinary team-post kinds are refused at execution with zero submission, `NOT SENT` / `NO TEAM ID YET`; the Send screen stays navigable; the emergency is exempt (§7.4) | Not chosen: running W1b (the core fix) first; accepting the residual | A named change to today's phrase behaviour; B444 stays open for console and companion senders |
 
 ## 13. Proposed implementation packages (for QA briefs — not a frozen slice list)
 
@@ -1111,8 +1209,8 @@ prediction is re-checked at each gate, never assumed.
 | W4d | feature, `src` | Inbox newest-first merge (§6.8) over the unchanged per-kind budget, keyed on the full receive time kept beside each staged row; the identity cursor and the after-delete neighbour follow the displayed order | W4c | native (merge, ties, restart split, sub-second order), `model` battery (B231's M92/M93 re-anchored, never weakened), firmware-UI probe; metal UI-02 |
 | W5 | feature, `src` | boot splash: the mark and the build's Git ID (D3) | W4b | native (the pure line formatter, including an over-long ID), probe render, POWER metal |
 | W6 | feature, `src` + NV | `/mrui` v2 (an old v1 record: defaults and a distinct message at every boot until the first change; one added read classification), T, validation, `text_max` beside the unchanged slot `capacity` and the companion contract's `ui preset` section, the paged `ui preset list` (D14, B475), the reply line `kPresetLineMax` for the console emitters with the boot diagnostic's own bound, row projection with `»` (no length field), review for phrases (with `LOC` when located), the team and peer-hash binding, the static line buffer, defaults; allocation owner-ruled (D15) | W2, W3, W4b | native; the selector-(a) batteries (`model`, `devicenv`, `uisend`, `uipresets`, `uipresetverbs`, `sliceCbudget`, `sliceCsend`, `w4aident`, `w4bhome`) and the brief's selector (b); full 163-byte `set` replies and every `list` page through the real output path with zero `CONSOLE_DROP` on a clean stage, with a control restoring the 160-byte line; board-UI default; probe exact send lines and review renders; an OLED-enabled router arm; ABI; RAM pair; closes B335 and B475 with QA. **Status 2026-09-29: INDEPENDENT SOFTWARE QA PASS**, uncommitted on `70ff486`; [QA receipt](../evidence/2026-09-29-standalone-mobile-home-w6-qa.md). **B335/B475/B477 closed**; D14/D15 reproduced, nine touched batteries 437/437 RED, corpus unchanged and both board images reproduce the coder freeze. Mobile linked RAM +7752 B = catalog +7440 + D15 objects +303 + alignment +9; gateway unchanged. [Metal UI-12/UI-22/NV-06](../../2026-09-20-metal-test-plan.md#ui-22) OWED. B476 and B478–B481 stay separate. The approved brief and coder evidence remain frozen; commits are not progress gates. |
-| W7 | feature, `src` | editor + rename (CHANGE NAME, name prompt; the name origins `my_device`/`setup_join`/`setup_create`, with the settings gate re-asked on continuing into setup) | W0, W4b, W6 | new `uieditor` target, `model`, probe |
-| W8 | feature, `src` | written DM/team messages: WRITE MESSAGE rows, locked draft (163 bytes), new kinds and kind-scoped gates, the §7.4.1 caller table, never `-l` (D6) | W6, W7 (candidate pairing under P6) | `uisend`/`model`/`uieditor`, probe exact lines, ABI, RAM pair |
+| W7 | feature, `src` | editor + rename (CHANGE NAME, name prompt; the name origins `my_device`/`setup_join`/`setup_create`, with the settings gate re-asked on continuing into setup) | W0, W4b, W6 | new `uieditor` target, `model`, probe. **Status 2026-10-07: INDEPENDENT SOFTWARE QA PASS**, paired with W8 (D17), uncommitted on `4c1a000`; [QA receipt](../evidence/2026-10-07-standalone-mobile-home-w7w8-qa.md) — performed by the brief's author at the owner's request (reduced independence, disclosed). [Pre-check](../evidence/2026-10-03-standalone-mobile-home-w7-precheck.md); [brief](../plans/2026-10-04-standalone-mobile-home-w7w8-editor-rename-messages.md) revision 2. Native 3123/203168/0; corpus 36/36 identical; `uieditor` 25/25 and `model` 297/297 RED; firmware-UI 656/1130/656 with 263 controls accounted. **B480/B481 CLOSED.** [Metal EDIT-01](../../2026-09-20-metal-test-plan.md#edit-01) and the UI-04/06/13/16/17/19 and POWER-01 additions are OWED. Commits are not progress gates. |
+| W8 | feature, `src` | written DM/team messages: WRITE MESSAGE rows, locked draft (163 bytes), new kinds and kind-scoped gates, the §7.4.1 caller table, never `-l` (D6) | W6; paired with W7 (D17) | `uisend`/`model`/`uieditor`, probe exact lines, ABI, RAM pair. **Status 2026-10-07: INDEPENDENT SOFTWARE QA PASS** with W7 ([QA receipt](../evidence/2026-10-07-standalone-mobile-home-w7w8-qa.md)); [pre-check](../evidence/2026-10-03-standalone-mobile-home-w8-precheck.md). D16 + D18 measured exactly — +208 B on every ABI; heltec_mobile linked RAM +208 B / flash +7304 B, gateway unchanged. D19 refuses the panel's pre-ID team posts at execution only; review admission never applies it. `uisend` 40/40 RED; ABI 290 + 335 checks; board-UI 603 identities. **B498/B499 CLOSED**; B444 stays open for non-UI senders; B500 open; B501 (a latent exact DM test in the alarm drain) registered; the owner folded it into the next package whose fence includes `src/firmware_ui.cpp` (2026-10-07). [Metal EDIT-01 and UI-15](../../2026-09-20-metal-test-plan.md#ui-15) OWED. |
 | W9 | feature, `src` | the Home card of the newest unread team post (§8, D12) | W4b | native (eligibility matrix, newest wins with `+n`, clearing on read, team and epoch change, header-only under `RESTART NEEDED`, list items and the arrow's item unchanged), `model`, probe render, UI-14/POWER metal |
 
 Rules carried into every brief: C1 (W3 separate), C4 (no wire change anywhere), P6 (a `src`-only package's
@@ -1161,12 +1259,12 @@ is approved; each brief then freezes the exact panel and console strings.
 | UI-12 | 163-byte phrases over USB without `CONSOLE_DROP`, and their full `ui_preset` replies; a device carrying a custom v1 record boots on defaults with the old-record line at every boot until a phrase is re-entered, and re-entered phrases persist across reboot |
 | UI-13 | own and peer labels; an unnamed teammate as its six-digit fingerprint on the TEAM row and `0x<HASH8>` where it fits; a non-ASCII name as `.` cells |
 | UI-14 | wake behaviour unchanged; a message wake lights the current screen, menu mode included; on Home a waking team post's first line is readable without a press, and the card clears once an Inbox frame — the list or its menu-mode preview — has been shown after the post arrived |
-| UI-15 | phrase review then send, `LOC` shown for a located phrase; written team and DM messages arrive byte-exact and without location; refusal returns to the editor |
+| UI-15 | phrase review then send, `LOC` shown for a located phrase; written team and DM messages arrive byte-exact and without location; refusal returns to the editor; a team post before the team ID exists shows `NOT SENT` / `NO TEAM ID YET` and nothing airs (D19) |
 | UI-16 / UI-17 | emergency while editing, reviewing and in menu mode: draft survives, review closes, nothing sends later |
 | UI-19 | gateway Home: identity, My device and a menu mode that skips Team and Send |
 | NV-06 | power cuts during v2 writes, including the first write over an old v1 record; NVS free-entry reading |
 | POWER-01 / 02 | lit time and sleep during long typing sessions and chatty receive |
-| EDIT-01 (new, with the W7 brief) | an uncoached wearer enters a name and `RETURN TO BASE NOW` with one correction (the D9 saved default stays mixed case); record gestures, time, accidental doubles and emergency arms |
+| EDIT-01 (new, with the combined W7+W8 brief) | an uncoached wearer enters a name and `RETURN TO BASE NOW` with one correction (the D9 saved default stays mixed case); record gestures, time, accidental doubles and emergency arms |
 
 ## 16. Revision history and preparation record
 
@@ -1364,3 +1462,32 @@ B478, the mutation tool's decoding, as its own tool package before W7. At the W0
 was corrected: a byte-identical save costs no write but still publishes the requested name. On 2026-09-30 the owner
 moved the transcript comparator, broken at the base (B487/B488), out of W0's gates and into B478's tool package.
 Documentation only.
+
+**r2.25, 2026-10-03 — W7 scoped by its pre-check; three owner rulings.** The owner allocated the shared 163-byte
+draft now (D16, +192 B board / +200 B host, §11.1), paired W7 with W8 under P6 (D17), and folded B480 and B481 into
+the combined package. From the [W7 pre-check](../evidence/2026-10-03-standalone-mobile-home-w7-precheck.md) the
+author settled the details it left open:
+- §4.3: the name review's rows, its `WAS` capture point, the result strings and the request seam;
+- §4.4: the prompt's placement, `SKIP`'s re-check of the gate and the prompt's alarm return;
+- §5.3: the draft window, the cursor underline and note dismissal;
+- §5.4: the ring landings;
+- §6.5: the JOIN/CREATE row's rail.
+
+Documentation only.
+
+**r2.26, 2026-10-04 — W8 scoped by its pre-check; two owner rulings.** The owner granted +16 B board / +8 B host
+beyond D16 for an explicit outcome record and `SendReq`'s draft ID (D18), and ruled that the panel refuses a team
+post before the team-local ID exists (D19, B444's panel path). From the
+[W8 pre-check](../evidence/2026-10-03-standalone-mobile-home-w8-precheck.md) the author settled:
+- §5.3: which press clears a note;
+- §5.4: the SEND rail for a DM editor opened from TEAM, and the alarm case of the landings;
+- §5.6: the draft ID's sequence;
+- §7.4: the corrected `SendReq` fields, the binding rules, the stale-draft and busy refusals, and the composer;
+- §7.5: the typed `WRITE MESSAGE` row.
+
+Documentation only.
+
+**r2.27, 2026-10-04 — two clarifications from the W7+W8 brief review.** §5.3: a note owns row 0 alone while it
+shows, with the counter hidden, because the longest note cannot fit beside `163/163`. §7.4: D19's team-ID check runs
+at execution only; review admission keeps its existing checks, so a saved team phrase still opens its review before
+the ID exists. Documentation only.

@@ -1,0 +1,75 @@
+{
+ "method": "scratch copies of the base tree (every probe input at HEAD = the preflight hashes) and of the checkpoint-4 tree; the stock tools/probe_firmware_ui/run.sh plus ONE scratch-only line keeping each control's mutant output; a FAIL line is attributed to a check by its full label (startswith)",
+ "base_controls_kept": 239,
+ "final_controls_kept": 262,
+ "checks": {
+  "P25e ⛔ ...and NOTHING was evicted to make room — the four records are byte-identical": {
+   "base_reddened_by": [
+    {
+     "control": "L10 the parent row is hidden on a build that HAS a child",
+     "base_fail_count": 361,
+     "final_fail_count": 501,
+     "final_reddens_this_check": false
+    }
+   ],
+   "final_reddened_by": []
+  },
+  "P25e ⛔⛔ ...it DELETED NOTHING and REPLAYED NOTHING — two explicit transactions, never one": {
+   "base_reddened_by": [
+    {
+     "control": "L10 the parent row is hidden on a build that HAS a child",
+     "base_fail_count": 361,
+     "final_fail_count": 501,
+     "final_reddens_this_check": false
+    }
+   ],
+   "final_reddened_by": []
+  },
+  "P25h ⛔ ...and TEAM KEY RECEIVED is nowhere on the panel (F-10)": {
+   "base_reddened_by": [
+    {
+     "control": "K3 ★★★ the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)",
+     "base_fail_count": 236,
+     "final_fail_count": 428,
+     "final_reddens_this_check": false
+    }
+   ],
+   "final_reddened_by": []
+  },
+  "P29 ⛔ ...and nothing in this phase reached the executor": {
+   "base_reddened_by": [
+    {
+     "control": "C5  the idle arm forces a repaint, bypassing the 2 Hz throttle",
+     "base_fail_count": 328,
+     "final_fail_count": 392,
+     "final_reddens_this_check": false
+    },
+    {
+     "control": "C94 an entered list is drawn as PASSIVE (no marker, no exit)",
+     "base_fail_count": 182,
+     "final_fail_count": 279,
+     "final_reddens_this_check": false
+    },
+    {
+     "control": "C95 the interactive list's exit row (MENU) is never drawn",
+     "base_fail_count": 99,
+     "final_fail_count": 234,
+     "final_reddens_this_check": false
+    },
+    {
+     "control": "W4b-N1 the menu cue is drawn in list focus and missing in menu mode",
+     "base_fail_count": 216,
+     "final_fail_count": 303,
+     "final_reddens_this_check": false
+    },
+    {
+     "control": "W4b-N3 the TEAM/INBOX exit row reads BACK instead of MENU",
+     "base_fail_count": 101,
+     "final_fail_count": 234,
+     "final_reddens_this_check": false
+    }
+   ],
+   "final_reddened_by": []
+  }
+ }
+}

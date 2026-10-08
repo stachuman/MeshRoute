@@ -1,0 +1,36 @@
+{
+  "scratch": "/tmp/w8-reach-vsfioxmj",
+  "compile_argv": [
+    "g++",
+    "-std=c++20",
+    "-O2",
+    "-I/home/staszek/MeshRoute/src",
+    "-I/home/staszek/MeshRoute/lib/core",
+    "-I/home/staszek/MeshRoute/lib/console",
+    "-I/home/staszek/MeshRoute/lib/crypto",
+    "-I/home/staszek/MeshRoute/lib/hal",
+    "-I/home/staszek/MeshRoute/lib/radio",
+    "-I/home/staszek/MeshRoute/lib/monocypher/src",
+    "/tmp/w8-reach-vsfioxmj/witness.cpp",
+    "-o",
+    "/tmp/w8-reach-vsfioxmj/witness"
+  ],
+  "source": "\n#include \"firmware_ui_model.h\"\n#include <cstdio>\nint main() {\n  using namespace mrui;\n  UiSnapshot s{}; s.now_ms=1; s.team_build=true; s.team_id=0x12a1b2c3;\n  s.team_key_present=true; s.my_team_id=0;\n  mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat); ui_snapshot_publish_presets(s,cat);\n  UiModel m; m.on_tick(s);\n  unsigned checks=0;\n  auto check=[&](bool b,const char* why) { ++checks; std::printf(\"%s %s\\n\",b?\"OK\":\"FAIL\",why); return b; };\n  if(!check(home_profile(s)==HomeProfile::id_pending,\"Home ID-pending profile\"))return 1;\n  bool home_send=false; for(uint8_t i=0;i<m.state().home.count;++i)home_send|=m.state().home.items[i]==HomeItem::send;\n  if(!check(!home_send,\"Home hides SEND TO TEAM\"))return 1;\n  auto press=[&](Gesture g) { ++s.now_ms;m.on_gesture(g,s);m.on_tick(s); };\n  while(m.state().home.selected!=HomeItem::menu)press(Gesture::short_press);\n  press(Gesture::double_press);\n  if(!check(m.state().list_view==ListView::passive && m.state().screen==Screen::status,\"MENU enters Home rail\"))return 1;\n  for(unsigned i=0;i<3;++i)press(Gesture::short_press);\n  if(!check(m.state().screen==Screen::send,\"Rail reaches SEND before team-local ID\"))return 1;\n  press(Gesture::double_press);\n  if(!check(m.state().compose==Compose::channel && m.state().list_view==ListView::interactive,\"Double enters team phrase list before team-local ID\"))return 1;\n  std::printf(\"checks=%u team_local_id=%u catalog_rows=%u\\n\",checks,unsigned(s.my_team_id),unsigned(s.preset_ch.n));\n}\n",
+  "result": "OK Home ID-pending profile\nOK Home hides SEND TO TEAM\nOK MENU enters Home rail\nOK Rail reaches SEND before team-local ID\nOK Double enters team phrase list before team-local ID\nchecks=5 team_local_id=0 catalog_rows=4\n",
+  "repertoire": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,?!-",
+  "line_bounds": {
+    "dm": {
+      "bytes": 180,
+      "including_nul": 181,
+      "line": "send 255 \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\" -t -a",
+      "contains_location": false
+    },
+    "channel": {
+      "bytes": 188,
+      "including_nul": 189,
+      "line": "send_channel 255 \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\" -t -e",
+      "contains_location": false
+    }
+  },
+  "static_line_cap": 199
+}

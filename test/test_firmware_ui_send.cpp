@@ -24,6 +24,10 @@
 
 using namespace mrui;
 
+// ★ W8 (D19): the live answer every pre-D19 EXECUTION case assumed — team 0, no resolved peer, and the team-local ID
+//   EXISTS. `SendLive{}` now reads "no ID yet", which refuses an ordinary team post at execution (`no_team_id`).
+static const SendLive kLiveWithId{0, false, true, 0};
+
 // ---------------------------------------------------------------- the plan's ten cases (B76-corrected)
 
 TEST_CASE("ui-send: an unrelated channel_sent cannot complete the emergency") {
@@ -918,7 +922,7 @@ TEST_CASE("ui-frame: F2 — W6: an Inbox frame under an open phrase REVIEW reads
     CHECK(m.state().screen == Screen::send);
     m.on_gesture(Gesture::double_press, s);            // the Send list
     m.on_gesture(Gesture::double_press, s);            // its first phrase -> the review, requested
-    CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, 0}, nullptr, 0, s, 10000));
+    CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, true, 0}, nullptr, 0, s, 10000));
     CHECK(m.state().review_phase == ReviewPhase::open);
     s = snap_from(c, 10600); ui_snapshot_publish_presets(s, cat);
     CHECK(g.step(m, s, true) == FrameStep::open);
@@ -1310,15 +1314,16 @@ UiSnapshot snap_at(uint32_t now_ms) {
 SendExec ok_ctr(uint16_t c)  { return SendExec{ true, MESHROUTE_NS::CmdCode::queued, c }; }
 SendExec refused(MESHROUTE_NS::CmdCode c) { return SendExec{ true, c, 0 }; }
 // ★ W6 (brief §2.5): `ui_perform_send` composes into the CALLER's line — on the device its one static buffer — so these
-//   cases hand it this one. `SendLive{}` is team 0 with no resolved peer: the team every request below binds (0), so
-//   the two new gate questions answer `send` and each landed case keeps its meaning; the W6 cases name live values.
+//   cases hand it this one. `kLiveWithId` is team 0 with no resolved peer and (W8, D19) the team-local ID present: the
+//   team every request below binds (0), so the gate's team / recipient / ID questions answer `send` and each landed
+//   case keeps its meaning; the W6 and W8 cases name live values.
 char t_line[kSendLineCap];
 // ★ W6 (design r2.23 §7.3, owner-ruled D5): a phrase is sent THROUGH ITS REVIEW — the double REQUESTS it, the tick's
 //   capture (`ui_review_capture`, the shipped pure answer) copies the exact bytes, and only `short` (to SEND) +
 //   `double` queues. The live answers are the snapshot's team with no resolved peer (the landed DMs send by ID).
 void review_confirm(UiModel& m, const UiSnapshot& s) {
     CHECK(m.state().review_phase == ReviewPhase::requested);
-    CHECK(ui_review_capture(m, dflt_cat(), SendLive{s.team_id, false, 0}, nullptr, 0, s, s.now_ms));
+    CHECK(ui_review_capture(m, dflt_cat(), SendLive{s.team_id, false, true, 0}, nullptr, 0, s, s.now_ms));
     CHECK(m.state().review_phase == ReviewPhase::open);
     m.on_gesture(Gesture::short_press, s);
     m.on_gesture(Gesture::double_press, s);
@@ -1334,7 +1339,7 @@ void review_confirm(UiModel& m, const UiSnapshot& s) {
 TEST_CASE("ui7-line: a DM is `send <id> \"<text>\" -t -a` — the id, the plane and the ack, exactly") {
     char b[kSendLineCap];
     const int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, /*peer=*/7, kDm1, false, dflt_gen()},
-                                       dflt_cat(), 0, false);
+                                       dflt_cat(), 0, false, DraftView{});
     CHECK(n > 0);
     // ⛔ NO `-e`: the parser gates it `allow_e=by_hash` and REJECTS it on an id target, so the line would not parse
     //    at all. `crypt` stays `def` and follows the node's own e2e_dm setting (spec §3.4).
@@ -1344,14 +1349,14 @@ TEST_CASE("ui7-line: a DM is `send <id> \"<text>\" -t -a` — the id, the plane 
 TEST_CASE("ui7-line: the second DM text is the second STABLE SLOT, not an off-by-one") {
     char b[kSendLineCap];
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 200, kDm2, false, dflt_gen()},
-                               dflt_cat(), 0, false) > 0);
+                               dflt_cat(), 0, false, DraftView{}) > 0);
     CHECK(std::strcmp(b, "send 200 \"I'm OK\" -t -a") == 0);
 }
 
 TEST_CASE("ui7-line: a canned channel post is `send_channel <ch> \"<text>\" -t -e`") {
     char b[kSendLineCap];
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh2, false, dflt_gen()},
-                               dflt_cat(), /*ch=*/3, false) > 0);
+                               dflt_cat(), /*ch=*/3, false, DraftView{}) > 0);
     CHECK(std::strcmp(b, "send_channel 3 \"All good\" -t -e") == 0);
 }
 
@@ -1364,9 +1369,9 @@ TEST_CASE("ui7-line: the EMERGENCY carries -l only WITH a fix; without one it st
     char with_fix[kSendLineCap], no_fix[kSendLineCap];
     const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
     CHECK(dflt_cat().slot[mrfw::kPresetEmergency].loc == 1);          // the compiled default, §3.2.2's table row 1
-    CHECK(ui_compose_send_line(with_fix, sizeof with_fix, alarm, dflt_cat(), 0, /*have_fix=*/true) > 0);
+    CHECK(ui_compose_send_line(with_fix, sizeof with_fix, alarm, dflt_cat(), 0, /*have_fix=*/true, DraftView{}) > 0);
     CHECK(std::strcmp(with_fix, "send_channel 0 \"I'm in danger\" -t -l -e") == 0);
-    CHECK(ui_compose_send_line(no_fix, sizeof no_fix, alarm, dflt_cat(), 0, /*have_fix=*/false) > 0);
+    CHECK(ui_compose_send_line(no_fix, sizeof no_fix, alarm, dflt_cat(), 0, /*have_fix=*/false, DraftView{}) > 0);
     CHECK(std::strcmp(no_fix, "send_channel 0 \"I'm in danger\" -t -e") == 0);
     // The alarm is not silently downgraded to nothing: the body is identical and only `-l` differs.
     CHECK(std::strstr(no_fix, "\"I'm in danger\"") != nullptr);
@@ -1382,9 +1387,9 @@ TEST_CASE("ui10-p3-emergency: `loc=off` on the emergency slot means NO `-l`, fix
     mrfw::preset_slot_put(c.slot[mrfw::kPresetEmergency], true, /*loc=*/false, "HELP", 4);
     const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
     char b[kSendLineCap];
-    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/true) > 0);
+    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/true, DraftView{}) > 0);
     CHECK(std::strcmp(b, "send_channel 0 \"HELP\" -t -e") == 0);      // ⛔ no `-l`, even WITH a fix
-    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/false) > 0);
+    CHECK(ui_compose_send_line(b, sizeof b, alarm, c, 0, /*have_fix=*/false, DraftView{}) > 0);
     CHECK(std::strcmp(b, "send_channel 0 \"HELP\" -t -e") == 0);
 }
 
@@ -1396,7 +1401,7 @@ TEST_CASE("ui10-p3-emergency: the alarm's body is the CATALOG's emergency phrase
     mrfw::preset_slot_put(c.slot[mrfw::kPresetEmergency], true, /*loc=*/true, "BROKEN LEG N RIDGE", 17);
     char b[kSendLineCap];
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0},
-                               c, 0, /*have_fix=*/true) > 0);
+                               c, 0, /*have_fix=*/true, DraftView{}) > 0);
     CHECK(std::strcmp(b, "send_channel 0 \"BROKEN LEG N RIDG\" -t -l -e") == 0);   // 17 bytes, OQ-A's bound
     CHECK(std::strstr(b, "I'm in danger") == nullptr);                             // ⛔ the retired constant is gone
 }
@@ -1410,17 +1415,17 @@ TEST_CASE("ui10-p3-loc: a `loc=on` DM and channel preset compose `-l`, ALWAYS �
     mrfw::preset_slot_put(c.slot[kCh1], true, /*loc=*/true, "at the hut", 10);
     char b[kSendLineCap];
     for (bool fix : { false, true }) {
-        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, false, c.generation}, c, 0, fix) > 0);
+        CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, false, c.generation}, c, 0, fix, DraftView{}) > 0);
         // ⛔ THE FORM IS UNCHANGED BESIDES `-l`: still `send <id>`, still `-t -a`. §3.2.3: *"Do not change
         //    addressing to hash or silently downgrade merely to make the preset send."*
         CHECK(std::strcmp(b, "send 9 \"here I am\" -t -a -l") == 0);
         CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation},
-                                   c, /*ch=*/2, fix) > 0);
+                                   c, /*ch=*/2, fix, DraftView{}) > 0);
         CHECK(std::strcmp(b, "send_channel 2 \"at the hut\" -t -l -e") == 0);
     }
     // ...and `loc=off` on the same two slots emits the SAME line without `-l` — one flag, one difference.
     mrfw::preset_slot_put(c.slot[kDm1], true, /*loc=*/false, "here I am", 9);
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, false, c.generation}, c, 0, true) > 0);
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 9, kDm1, false, c.generation}, c, 0, true, DraftView{}) > 0);
     CHECK(std::strcmp(b, "send 9 \"here I am\" -t -a") == 0);
 }
 
@@ -1432,34 +1437,34 @@ TEST_CASE("ui7-line: a DISABLED slot, an out-of-range slot and an empty row all 
     b[0] = 'x';
     // ⓘ W6 (D9): `dm3` and `channel3/4` are compiled defaults now, so the DISABLED examples are `dm4` / `channel5`.
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, uint8_t(kDm1 + 3), false, dflt_gen()},
-                               dflt_cat(), 0, false) == 0);   // dm4 is compiled DISABLED
+                               dflt_cat(), 0, false, DraftView{}) == 0);   // dm4 is compiled DISABLED
     CHECK(b[0] == '\0');                                      // never a partly-formed command
     b[0] = 'x';
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0,
-                                                    uint8_t(kCh1 + 4), false, dflt_gen()}, dflt_cat(), 0, false) == 0);
+                                                    uint8_t(kCh1 + 4), false, dflt_gen()}, dflt_cat(), 0, false, DraftView{}) == 0);
     CHECK(b[0] == '\0');
     // ...and anything past the seventeen slots too.
-    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99, false, dflt_gen()}, dflt_cat(), 0, false) == 0);
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99, false, dflt_gen()}, dflt_cat(), 0, false, DraftView{}) == 0);
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, mrnv::kUiPresets, false, dflt_gen()},
-                               dflt_cat(), 0, false) == 0);
+                               dflt_cat(), 0, false, DraftView{}) == 0);
 }
 
 TEST_CASE("ui7-line: truncation is a REFUSAL, never a short send (C2)") {
     char tiny[12];
     tiny[0] = 'x';
     CHECK(ui_compose_send_line(tiny, sizeof tiny, SendReq{SendKind::dm, 7, kDm1, false, dflt_gen()},
-                               dflt_cat(), 0, false) == 0);
+                               dflt_cat(), 0, false, DraftView{}) == 0);
     CHECK(tiny[0] == '\0');
 }
 
 TEST_CASE("ui7-line: kSendLineCap fits every line either verb can produce, at the widest id and channel") {
     char b[kSendLineCap];
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, dflt_gen()},
-                               dflt_cat(), 0, false) > 0);
+                               dflt_cat(), 0, false, DraftView{}) > 0);
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()},
-                               dflt_cat(), 255, false) > 0);
+                               dflt_cat(), 255, false, DraftView{}) > 0);
     CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0},
-                               dflt_cat(), 255, true) > 0);
+                               dflt_cat(), 255, true, DraftView{}) > 0);
     // ★ §UI-10/11 P3 — AND AT THE WIDEST **PHRASE** THE RECORD CAN HOLD, in both location states: that is the bound
     //   the cap must now clear, and it is `mrnv::kUiPresetTextMax` rather than the longest compiled string.
     //   ⓘ W6 (D7): 163 bytes (was a 17-byte `w17`), which is what the derived 199-B cap exists for.
@@ -1472,11 +1477,11 @@ TEST_CASE("ui7-line: kSendLineCap fits every line either verb can produce, at th
         mrfw::preset_slot_put(wide.slot[kCh1], true, loc, w163, sizeof w163);
         mrfw::preset_slot_put(wide.slot[mrfw::kPresetEmergency], true, loc, w163, sizeof w163);
         CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, wide.generation},
-                                   wide, 255, true) > 0);
+                                   wide, 255, true, DraftView{}) > 0);
         CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, wide.generation},
-                                   wide, 255, true) > 0);
+                                   wide, 255, true, DraftView{}) > 0);
         CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0},
-                                   wide, 255, true) > 0);
+                                   wide, 255, true, DraftView{}) > 0);
     }
 }
 
@@ -1501,13 +1506,13 @@ TEST_CASE("w6-line: kSendLineCap is the derived 199, and a 163-byte phrase compo
             char b[kSendLineCap];
             const std::string q = std::string("\"") + body + "\"";
             // DM: `-l` iff the slot says so (never stripped); channel: the same; emergency: the slot AND a fix.
-            int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, c.generation}, c, 255, fix);
+            int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, kDm1, false, c.generation}, c, 255, fix, DraftView{});
             CHECK(std::string(b) == "send 255 " + q + (loc ? " -t -a -l" : " -t -a"));
             CHECK(n == int(std::strlen(b)));
-            n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, 255, fix);
+            n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, 255, fix, DraftView{});
             CHECK(std::string(b) == "send_channel 255 " + q + (loc ? " -t -l -e" : " -t -e"));
             CHECK(n == int(std::strlen(b)));
-            n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0}, c, 255, fix);
+            n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0}, c, 255, fix, DraftView{});
             CHECK(std::string(b) == "send_channel 255 " + q + ((loc && fix) ? " -t -l -e" : " -t -e"));
             // ★ the pre-check's fixture: a 163-byte emergency on a three-digit channel is 188 B without a fix, 191 with
             if (loc) CHECK(n == (fix ? 191 : 188));
@@ -1516,7 +1521,7 @@ TEST_CASE("w6-line: kSendLineCap is the derived 199, and a 163-byte phrase compo
     // ★ ...AND THROUGH `ui_perform_send`: into the CALLER's line (the device's one static buffer) and the executor, whole.
     mrfw::preset_slot_put(c.slot[kCh1], true, false, body, mrnv::kUiPresetTextMax);
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(7);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, SendLive{},
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, kLiveWithId,
                     t_line, sizeof t_line, /*ch=*/3, false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(std::string(f.line) == std::string("send_channel 3 \"") + body + "\" -t -e");
@@ -1530,35 +1535,35 @@ TEST_CASE("w6-gate: team and (known) recipient are asked at execution — typed 
     const SendReq dm_known{SendKind::dm, 7, kDm1, true, dflt_gen(), kTeam, kHash};
     const SendReq dm_unknown{SendKind::dm, 7, kDm1, false, dflt_gen(), kTeam, 0};
     const SendReq ch{SendKind::channel_canned, 0, kCh1, false, dflt_gen(), kTeam, 0};
-    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, true, kHash}) == SendGate::send);
-    CHECK(send_gate_of(ch, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::send);
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, true, true, kHash}) == SendGate::send);
+    CHECK(send_gate_of(ch, dflt_cat(), SendLive{kTeam, false, true, 0}) == SendGate::send);
     // the TEAM, for both ordinary kinds
-    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam + 1, true, kHash}) == SendGate::team_changed);
-    CHECK(send_gate_of(ch, dflt_cat(), SendLive{0, false, 0}) == SendGate::team_changed);
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam + 1, true, true, kHash}) == SendGate::team_changed);
+    CHECK(send_gate_of(ch, dflt_cat(), SendLive{0, false, true, 0}) == SendGate::team_changed);
     // the RECIPIENT: a different hash, and a binding that no longer resolves at all
-    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, true, kHash ^ 1u}) == SendGate::recipient_changed);
-    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::recipient_changed);
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, true, true, kHash ^ 1u}) == SendGate::recipient_changed);
+    CHECK(send_gate_of(dm_known, dflt_cat(), SendLive{kTeam, false, true, 0}) == SendGate::recipient_changed);
     // ...but a DM whose hash was NOT known at selection is sent by ID exactly as before
-    CHECK(send_gate_of(dm_unknown, dflt_cat(), SendLive{kTeam, true, 0x12345678u}) == SendGate::send);
-    CHECK(send_gate_of(dm_unknown, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::send);
+    CHECK(send_gate_of(dm_unknown, dflt_cat(), SendLive{kTeam, true, true, 0x12345678u}) == SendGate::send);
+    CHECK(send_gate_of(dm_unknown, dflt_cat(), SendLive{kTeam, false, true, 0}) == SendGate::send);
     // ★ A KNOWN ZERO IS KNOWN (labelled SYNTHETIC: today's resolver never yields one — `Node::team_key_set` rejects
     //   hash 0): it must still match only itself, ⛔ never read as "unknown".
     const SendReq dm_zero{SendKind::dm, 7, kDm1, true, dflt_gen(), kTeam, 0};
-    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, true, 0}) == SendGate::send);
-    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, true, 0x1u}) == SendGate::recipient_changed);
-    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::recipient_changed);
+    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, true, true, 0}) == SendGate::send);
+    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, true, true, 0x1u}) == SendGate::recipient_changed);
+    CHECK(send_gate_of(dm_zero, dflt_cat(), SendLive{kTeam, false, true, 0}) == SendGate::recipient_changed);
     // the generation is still asked FIRST (a moved catalog outranks a moved team)
     mrnv::UiPresetBlob moved = dflt_cat(); moved.generation = mrfw::preset_generation_next(moved.generation);
-    CHECK(send_gate_of(dm_known, moved, SendLive{kTeam + 1, false, 0}) == SendGate::preset_changed);
+    CHECK(send_gate_of(dm_known, moved, SendLive{kTeam + 1, false, true, 0}) == SendGate::preset_changed);
     // ⛔ THE EMERGENCY IS NEVER GATED — not by a team, not by a peer (R-3/§4.1)
     const SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
-    CHECK(send_gate_of(alarm, dflt_cat(), SendLive{kTeam, false, 0}) == SendGate::send);
+    CHECK(send_gate_of(alarm, dflt_cat(), SendLive{kTeam, false, true, 0}) == SendGate::send);
 
     // ★★ AND THROUGH `ui_perform_send`: each refusal is TYPED, the executor is never called and no tracker opens.
     struct { SendReq req; SendLive live; DmState dm; ChanState chs; } rows[] = {
-        { dm_known, SendLive{kTeam + 1, true, kHash}, DmState::team_changed,      ChanState::idle },
-        { dm_known, SendLive{kTeam, true, kHash ^ 1u}, DmState::recipient_changed, ChanState::idle },
-        { ch,       SendLive{0, false, 0},            DmState::idle,              ChanState::team_changed },
+        { dm_known, SendLive{kTeam + 1, true, true, kHash}, DmState::team_changed,      ChanState::idle },
+        { dm_known, SendLive{kTeam, true, true, kHash ^ 1u}, DmState::recipient_changed, ChanState::idle },
+        { ch,       SendLive{0, false, true, 0},            DmState::idle,              ChanState::team_changed },
     };
     for (const auto& r : rows) {
         UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
@@ -1572,7 +1577,7 @@ TEST_CASE("w6-gate: team and (known) recipient are asked at execution — typed 
     }
     // ...and the alarm under a changed team still SENDS.
     UiModel a; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(5);
-    ui_perform_send(emg, normal, a, alarm, dflt_cat(), SendLive{kTeam + 7, false, 0}, t_line, sizeof t_line, 0, true,
+    ui_perform_send(emg, normal, a, alarm, dflt_cat(), SendLive{kTeam + 7, false, true, 0}, t_line, sizeof t_line, 0, true,
                     fake_exec, &f, 6000);
     CHECK(f.calls == 1);
 }
@@ -1646,7 +1651,7 @@ TEST_CASE("ui10-p3-freeze: the EMERGENCY is exempt from the stale-generation ref
 TEST_CASE("ui7-send: an ACCEPTED emergency spends exactly one attempt and holds its handle") {
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(std::strcmp(f.line, "send_channel 0 \"I'm in danger\" -t -l -e") == 0);
     CHECK(m.attempts() == 1);
@@ -1662,7 +1667,7 @@ TEST_CASE("ui7-send: an ACCEPTED emergency spends exactly one attempt and holds 
 TEST_CASE("ui7-send: `queued` with ctr==0 spends NO attempt here — the bounded expiry does") {
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(0);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(m.attempts() == 0);                              // ★ NOT 1 — this is the whole assertion
     CHECK(emg.awaiting() == true);                         // parked, not accepted and not refused
@@ -1678,7 +1683,7 @@ TEST_CASE("ui7-send: an err_* result lands the alarm in FAILED and carries the C
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;
     f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
     CHECK(m.emergency() == Emergency::failed);
     CHECK(emg.idle() == true);                             // the slot is released, never leaked on a refusal
     // ★★ THE CODE IS THE POINT. `no_key`, `no_identity`, `no_fix`, `empty` and `unsealable` ALL return
@@ -1691,7 +1696,7 @@ TEST_CASE("ui7-send: a line that never PARSED is `parser`, and no code is claime
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;
     f.reply = SendExec{ /*ok=*/false, MESHROUTE_NS::CmdCode::queued, 0 };
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f, 6000);
     CHECK(m.emergency() == Emergency::failed);
     CHECK(m.refuse_reason() == RefuseReason::parser);       // the predicate that says "read no code"
 }
@@ -1710,7 +1715,7 @@ TEST_CASE("ui7-send: a request the composer refuses NEVER reaches the executor")
     c.slot[kDm1].enabled = 1; c.slot[kDm1].len = 0; c.slot[kDm1].text[0] = '\0';   // ⛔ enabled, but EMPTY
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
     CHECK(send_gate_of(SendReq{SendKind::dm, 7, kDm1, false, c.generation}, c, SendLive{}) == SendGate::send);   // the gate passes it
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 7, kDm1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line, 0, false,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 7, kDm1, false, c.generation}, c, kLiveWithId, t_line, sizeof t_line, 0, false,
                     fake_exec, &f, 6000);
     CHECK(f.calls == 0);                                   // ★ nothing was transmitted
     CHECK(f.line[0] == '\0');
@@ -1728,7 +1733,7 @@ TEST_CASE("ui10-p3-freeze: a stale request costs ZERO exec calls, ZERO tracker s
         UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
         const SendReq sealed = dm ? SendReq{SendKind::dm, 7, kDm1, false, dflt_gen()}
                                   : SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()};
-        ui_perform_send(emg, normal, m, sealed, c, SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
+        ui_perform_send(emg, normal, m, sealed, c, kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
         CHECK(f.calls == 0);                               // ⛔ nothing reached the core
         CHECK(f.line[0] == '\0');
         CHECK(normal.idle() == true);                      // ⛔ no slot opened -> none to leak
@@ -1750,7 +1755,7 @@ TEST_CASE("ui10-p3-freeze: an alarm SENDS through a catalog mutation, and reads 
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     CHECK(req.generation == 0u);                           // ⛔ the alarm seals NOTHING
-    ui_perform_send(emg, normal, m, req, c, SendLive{}, t_line, sizeof t_line, 0, /*have_fix=*/true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, c, kLiveWithId, t_line, sizeof t_line, 0, /*have_fix=*/true, fake_exec, &f, 6000);
     CHECK(f.calls == 1);                                   // ★ it FLEW
     CHECK(std::strcmp(f.line, "send_channel 0 \"HELP ME\" -t -l -e") == 0);
     CHECK(m.attempts() == 1);
@@ -1759,7 +1764,7 @@ TEST_CASE("ui10-p3-freeze: an alarm SENDS through a catalog mutation, and reads 
 
 TEST_CASE("ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the alarm slot stays untouched") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(std::strcmp(f.line, "send 11 \"Are you OK?\" -t -a") == 0);
     CHECK(normal.idle() == false);
     CHECK(emg.idle() == true);                             // ★ a DM can never occupy the alarm's slot
@@ -1801,7 +1806,7 @@ TEST_CASE("ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle,
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;   // ⚠ §B70: ONE call
     CHECK(req.kind == SendKind::channel_canned);
     CHECK(m.chan_state() == ChanState::submitting);                      // the hand-off, before the core answers
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &f, 6000);
     // The SIDE EFFECT first (§B110): the command actually issued, not a post-hoc enum.
     CHECK(f.calls == 1);
     CHECK(std::strcmp(f.line, "send_channel 0 \"Got your message\" -t -e") == 0);
@@ -1831,13 +1836,13 @@ TEST_CASE("ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle,
 //   vacuity lesson: a control whose scenario has already set the field cannot measure who set it).
 TEST_CASE("ui7-B113 CONTROL: accepting a DM or an ALARM must never move the canned-channel state") {
     UiModel dm_only; SendTracker emg_a, normal_a; FakeExec fa; fa.reply = ok_ctr(42);
-    ui_perform_send(emg_a, normal_a, dm_only, SendReq{SendKind::dm, 11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fa, 6000);
+    ui_perform_send(emg_a, normal_a, dm_only, SendReq{SendKind::dm, 11, kDm1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &fa, 6000);
     CHECK(dm_only.dm_state()   == DmState::waiting_ack);   // the DM really was accepted...
     CHECK(dm_only.chan_state() == ChanState::idle);        // ★ ...and the channel state did NOT move
 
     UiModel alarm = armed_and_fired(); SendReq req{}; SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(77);
     const bool got = alarm.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg_b, normal_b, alarm, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &fb, 6000);
+    ui_perform_send(emg_b, normal_b, alarm, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &fb, 6000);
     CHECK(alarm.attempts()   == 1);                        // the alarm really was accepted...
     CHECK(alarm.chan_state() == ChanState::idle);          // ★ ...and it does not own `_chan`. The alarm's own
                                                            //   evidence is `EmgEvidence`; `_chan` is the sub-view's.
@@ -1851,9 +1856,9 @@ TEST_CASE("ui7-B113 CONTROL: accepting a DM or an ALARM must never move the cann
 TEST_CASE("ui7-B113: `waiting` means WE HOLD A HANDLE — a ctr-less canned post must not reach it") {
     UiModel held, handleless;
     SendTracker emg_a, normal_a; FakeExec fa; fa.reply = ok_ctr(31);
-    ui_perform_send(emg_a, normal_a, held, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fa, 6000);
+    ui_perform_send(emg_a, normal_a, held, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &fa, 6000);
     SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(0);       // §B39: accepted-shaped, NO local handle
-    ui_perform_send(emg_b, normal_b, handleless, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false,
+    ui_perform_send(emg_b, normal_b, handleless, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false,
                     fake_exec, &fb, 6000);
     CHECK(held.chan_state()       == ChanState::waiting);
     CHECK(handleless.chan_state() != ChanState::waiting);      // nothing was ACCEPTED, so nothing may say SENT
@@ -1944,7 +1949,7 @@ TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") 
     m.on_gesture(Gesture::double_press, s);                // -> review "Are you OK?"...
     review_confirm(m, s);                                  // ...and SEND it (W6, D5)
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 1000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 1000);
     SendOutcome o{};
     CHECK(normal.match_dm(42, 11, /*acked=*/false, FailReason::e2e_ack_timeout, o) == true);
     m.on_outcome(o, 2000);
@@ -1991,7 +1996,7 @@ TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view h
     m.on_gesture(Gesture::double_press, s);                // -> review "Are you OK?"...
     review_confirm(m, s);                                  // ...and SEND it (W6, D5)
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 1000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 1000);
     SendOutcome o{};
     CHECK(normal.match_dm(42, 11, /*acked=*/false, FailReason::e2e_ack_timeout, o) == true);
     m.on_outcome(o, 2000);
@@ -2020,7 +2025,7 @@ TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view h
     //   consult `idle()` itself, so it would succeed either way. That the tick really reads the gate is pinned by
     //   the probe's wiring checks, the same division of labour §R1 used for W6.
     FakeExec f2; f2.reply = ok_ctr(43);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f2,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f2,
                     1000 + kBlankMs + 3);
     CHECK(f2.calls == 1);
     CHECK(std::strcmp(f2.line, "send_channel 0 \"Got your message\" -t -e") == 0);
@@ -2070,7 +2075,7 @@ TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3
     SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
     CHECK(r1.kind == SendKind::emergency);
     FakeExec f1; f1.reply = ok_ctr(769);
-    ui_perform_send(emg, normal, m, r1, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, /*have_fix=*/true, fake_exec, &f1, 6000);
+    ui_perform_send(emg, normal, m, r1, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, /*have_fix=*/true, fake_exec, &f1, 6000);
     CHECK(f1.calls == 1);
     CHECK(m.attempts() == 1);
     emg_line_now(m, l, sizeof l);
@@ -2085,7 +2090,7 @@ TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3
     CHECK(std::strcmp(l, "attempt 2 of 3") == 0);
     SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
     FakeExec f2; f2.reply = ok_ctr(770);
-    ui_perform_send(emg, normal, m, r2, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f2, 8000);
+    ui_perform_send(emg, normal, m, r2, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f2, 8000);
     CHECK(m.attempts() == 2);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 2 of 3") == 0);
@@ -2098,7 +2103,7 @@ TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3
     CHECK(std::strcmp(l, "attempt 3 of 3") == 0);
     SendReq r3{}; const bool got3 = m.take_send_request(r3); CHECK(got3 == true); if (!got3) return;
     FakeExec f3; f3.reply = ok_ctr(771);
-    ui_perform_send(emg, normal, m, r3, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f3, 10000);
+    ui_perform_send(emg, normal, m, r3, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f3, 10000);
     CHECK(m.attempts() == 3);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 3 of 3") == 0);           // ⛔ NEVER `4 of 3`
@@ -2123,7 +2128,7 @@ TEST_CASE("ui7-b115: a ctr==0 attempt still reads `1 of 3`, never `0 of 3`") {
     char l[48];
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     FakeExec f; f.reply = ok_ctr(0);
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, /*have_fix=*/false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, /*have_fix=*/false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(emg.awaiting() == true);                          // parked: no handle, status unknown
     CHECK(m.attempts() == 0);                               // ★ and the LIMIT's counter has genuinely not moved
@@ -2150,7 +2155,7 @@ TEST_CASE("ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by
     CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));
     SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
     FakeExec f1; f1.reply = ok_ctr(769);
-    ui_perform_send(emg, normal, m, r1, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f1, 6000);
+    ui_perform_send(emg, normal, m, r1, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f1, 6000);
     CHECK(m.emg_attempt_ordinal() == m.attempts());          // ★ accepted: counted, so NO `+1`
     SendOutcome o1{}; const bool s1 = emg.match_channel_sent(769, false, o1);
     CHECK(s1 == true); if (!s1) return;
@@ -2159,7 +2164,7 @@ TEST_CASE("ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by
     // ...and the `ctr == 0` arm reaches the uncounted relation from the other direction.
     SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
     FakeExec f2; f2.reply = ok_ctr(0);
-    ui_perform_send(emg, normal, m, r2, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f2, 8000);
+    ui_perform_send(emg, normal, m, r2, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f2, 8000);
     CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));
 }
 
@@ -2171,7 +2176,7 @@ TEST_CASE("ui7-b115: a blocked-then-retried alarm still reads `1 of 3` — a blo
     char l[48];
     SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
     FakeExec f1; f1.reply = ok_ctr(0);                       // a pre-TX self-gate returns queued with no handle
-    ui_perform_send(emg, normal, m, r1, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f1, 6000);
+    ui_perform_send(emg, normal, m, r1, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f1, 6000);
     SendOutcome ob{}; const bool blocked = emg.match_blocked(/*blocked_channel=*/true, /*next_ms=*/3000, 6500, ob);
     CHECK(blocked == true); if (!blocked) return;
     m.on_outcome(ob, 6500);
@@ -2184,7 +2189,7 @@ TEST_CASE("ui7-b115: a blocked-then-retried alarm still reads `1 of 3` — a blo
     CHECK(std::strcmp(l, "attempt 1 of 3") == 0);            // ⛔ not `2 of 3` — nothing was ever transmitted
     SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
     FakeExec f2; f2.reply = ok_ctr(769);
-    ui_perform_send(emg, normal, m, r2, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, true, fake_exec, &f2, 10000);
+    ui_perform_send(emg, normal, m, r2, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, true, fake_exec, &f2, 10000);
     CHECK(m.attempts() == 1);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 1 of 3") == 0);
@@ -2221,7 +2226,7 @@ static MESHROUTE_NS::Push aired_push(uint8_t dst, uint16_t ctr) {
 
 TEST_CASE("ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NOT close the slot") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(m.dm_state() == DmState::waiting_ack);                       // PREMISE: core ACCEPTANCE only — renders `QUEUED`
     // ---- ① CORRELATED ⇒ the upgrade happens, through the ONE explicit arm.
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/11, /*ctr=*/42), 6100) == true);
@@ -2240,7 +2245,7 @@ TEST_CASE("ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NO
 
 TEST_CASE("ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor peer may be approximated)") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, kDm1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &f, 6000);
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/11, /*ctr=*/43), 6100) == false);  // wrong handle
     CHECK(m.dm_state() == DmState::waiting_ack);
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/12, /*ctr=*/42), 6100) == false);  // wrong peer
@@ -2254,7 +2259,7 @@ TEST_CASE("ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor p
 
 TEST_CASE("ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, above 255 (§b40)") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(300);
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, /*slot=*/kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, /*slot=*/kCh1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &f, 6000);
     CHECK(m.chan_state() == ChanState::waiting);                       // PREMISE: acceptance -> `QUEUED`
     // ⛔ TRUNCATION IS THE DEFECT THIS PINS: 300 & 0xff == 44, and the low byte must NOT match.
     CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/44), 6100) == false);
@@ -2276,7 +2281,7 @@ TEST_CASE("ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, a
 TEST_CASE("ui-T3-c: an EMERGENCY send_aired changes NOTHING and RETAINS the slot; its channel_sent still lands") {
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
     const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
-    ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, /*have_fix=*/true, fake_exec, &f, 6000);
+    ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, /*ch=*/0, /*have_fix=*/true, fake_exec, &f, 6000);
     CHECK(m.emergency() == Emergency::firing);
     CHECK(m.attempts() == 1);
     const Emergency   emg_before  = m.emergency();
@@ -2308,12 +2313,12 @@ TEST_CASE("ui-T3-c: an EMERGENCY airing must not relabel a coincident canned pos
     UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal;
     // A canned post is accepted on the NORMAL slot first, and is left QUEUED.
     { FakeExec fc; fc.reply = ok_ctr(300);
-      ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &fc, 5900); }
+      ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, /*ch=*/0, false, fake_exec, &fc, 5900); }
     CHECK(m.chan_state() == ChanState::waiting);                       // PREMISE: a live canned transaction stands
     // ...and the alarm is accepted on the EMERGENCY slot, with a DIFFERENT handle.
     { const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
       FakeExec fe; fe.reply = ok_ctr(77);
-      ui_perform_send(emg, normal, m, req, dflt_cat(), SendLive{}, t_line, sizeof t_line, /*ch=*/0, /*have_fix=*/true, fake_exec, &fe, 6000); }
+      ui_perform_send(emg, normal, m, req, dflt_cat(), kLiveWithId, t_line, sizeof t_line, /*ch=*/0, /*have_fix=*/true, fake_exec, &fe, 6000); }
     CHECK(m.attempts() == 1);
     const Emergency emg_before = m.emergency();
     // ★★★★ THE ALARM'S OWN airing. It correlates (the emergency slot claims it) and it must move NOTHING —
@@ -2757,7 +2762,7 @@ TEST_CASE("ui16-route: team_key_grant_failed reaches the verdict, and a UI slot'
         N6Fix f; UiSnapshot s = n6_snap();
         CHECK(f.to_verdict(s));
         SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
-        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fx, 6000);
+        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &fx, 6000);
         CHECK(f.m.dm_state() == DmState::waiting_ack);
         CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4242), 7000)
               == true);
@@ -2771,7 +2776,7 @@ TEST_CASE("ui16-route: team_key_grant_failed reaches the verdict, and a UI slot'
         N6Fix f; UiSnapshot s = n6_snap();
         CHECK(f.to_verdict(s));
         SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
-        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, false, dflt_gen()}, dflt_cat(), SendLive{}, t_line, sizeof t_line, 0, false, fake_exec, &fx, 6000);
+        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, kDm1, false, dflt_gen()}, dflt_cat(), kLiveWithId, t_line, sizeof t_line, 0, false, fake_exec, &fx, 6000);
         CHECK(f.m.dm_state() == DmState::waiting_ack);              // the slot holds the SAME handle
         CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::team_key_grant_aired, 200, 4242), 7000)
               == true);
@@ -2951,7 +2956,7 @@ TEST_CASE("ui10-p3-loc: a located CHANNEL preset with no fix ISSUES `-l` and rep
     const auto c = located_cat();
     UiModel m; SendTracker emg, normal; FakeExec f;
     f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);       // what the core answers for want_loc/no fix
-    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, kCh1, false, c.generation}, c, kLiveWithId, t_line, sizeof t_line,
                     /*ch=*/2, /*have_fix=*/false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);                                             // ★ the line WAS issued...
     CHECK(std::strcmp(f.line, "send_channel 2 \"at the hut\" -t -l -e") == 0);
@@ -2971,7 +2976,7 @@ TEST_CASE("ui10-p3-loc: a located DM preset keeps `send <id> … -t -a -l` and r
     const auto c = located_cat();
     UiModel m; SendTracker emg, normal; FakeExec f;
     f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);       // the core's `unsealable` / `no_fix` wall
-    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line,
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, kDm1, false, c.generation}, c, kLiveWithId, t_line, sizeof t_line,
                     0, /*have_fix=*/false, fake_exec, &f, 6000);
     CHECK(f.calls == 1);
     CHECK(std::strcmp(f.line, "send 11 \"on the ridge\" -t -a -l") == 0);
@@ -2986,9 +2991,1134 @@ TEST_CASE("ui10-p3-loc: a located DM preset keeps `send <id> … -t -a -l` and r
     CHECK(normal.idle() == true);
     // ★ AND THE SEALED PATH SENDS: the SAME line, accepted, is what a node with `e2e_dm=1`, a key and a fix produces.
     UiModel ok; SendTracker e2, n2; FakeExec f2; f2.reply = ok_ctr(31);
-    ui_perform_send(e2, n2, ok, SendReq{SendKind::dm, 11, kDm1, false, c.generation}, c, SendLive{}, t_line, sizeof t_line,
+    ui_perform_send(e2, n2, ok, SendReq{SendKind::dm, 11, kDm1, false, c.generation}, c, kLiveWithId, t_line, sizeof t_line,
                     0, /*have_fix=*/true, fake_exec, &f2, 7000);
     CHECK(f2.calls == 1);
     CHECK(std::strcmp(f2.line, "send 11 \"on the ridge\" -t -a -l") == 0);   // ⛔ the SAME line — one composition
     CHECK(ok.dm_state() == DmState::waiting_ack);
+}
+
+// ==================================================================================================================
+// W8 (design r2.27 §7.3–§7.5, §7.4.1; owner-ruled D6, D16, D18, D19) — WRITTEN MESSAGES, driven through the REAL model
+//   presses, the shipped pure captures (`ui_editor_capture`, `ui_review_capture`) and the shipped execution
+//   (`ui_perform_send` → the recording executor). The device glue that calls them is the firmware-UI probe's.
+// ==================================================================================================================
+#include "console_parse.h"   // ★ W8: the REAL parser reads every composed written line
+namespace w8 {
+constexpr uint32_t kTeam = 0x66C0FFEEu;
+constexpr uint32_t kHash0 = 0x3F2A91BCu;    // roster row 0's key hash
+// A ready team member snapshot: three teammates (ids 10, 11, 12) with KNOWN hashes, the compiled catalog.
+UiSnapshot tsnap(uint32_t now_ms = 1000, const mrnv::UiPresetBlob& cat = dflt_cat()) {
+    UiSnapshot s{}; s.now_ms = now_ms;
+    ui_snapshot_publish_presets(s, cat);
+    s.team_build = true; s.team_id = kTeam; s.team_key_present = true; s.my_team_id = 7;
+    s.team_shown = 3; s.team_total = 3;
+    for (uint8_t i = 0; i < 3; ++i) {
+        s.team[i].id = uint8_t(10 + i); s.team[i].last_heard_s = 60;
+        s.member[i].id = s.team[i].id; s.member[i].key_hash32 = kHash0 + i;
+    }
+    return s;
+}
+// The device's live answers for a request: the live team, the resolver's own bit + hash, the team-local ID.
+SendLive live(const UiSnapshot& s, const SendReq& b, bool have_id = true) {
+    SendLive l{};
+    l.team_id = s.team_id;
+    l.team_local_id = have_id;
+    if (send_kind_dm(b.kind)) {
+        for (uint8_t i = 0; i < s.team_shown; ++i)
+            if (s.member[i].id == b.peer_id && s.member[i].key_hash32 != 0) {   // 0 = no authoritative binding
+                l.peer_found = true; l.peer_hash = s.member[i].key_hash32;
+            }
+    }
+    return l;
+}
+// The peer-name read the device supplies (`g_node.peer_name_find`): STANISLAW for row 0's hash, nothing else.
+uint8_t names(uint32_t hash, char* out, uint8_t cap, void*) {
+    if (hash != kHash0) return 0;
+    const char* n = "STANISLAW";
+    uint8_t k = 0;
+    for (; n[k] && k < cap; ++k) out[k] = n[k];
+    return k;
+}
+void press(UiModel& m, const UiSnapshot& s, Gesture g) { m.on_gesture(g, s); m.on_tick(s); }
+// Serve the tick's captures, as `ui_service_review` does.
+void serve(UiModel& m, const UiSnapshot& s, bool have_id = true, const mrnv::UiPresetBlob& cat = dflt_cat()) {
+    SendReq b{}; bool resolve = false;
+    if (m.editor_capture_owed(b, resolve)) (void)ui_editor_capture(m, live(s, b, have_id), names, nullptr);
+    if (m.review_capture_owed(b)) {
+        const SendLive l = live(s, b, have_id);
+        char raw[32]; const uint8_t n = l.peer_found ? names(l.peer_hash, raw, sizeof raw, nullptr) : uint8_t(0);
+        (void)ui_review_capture(m, cat, l, raw, n, s, s.now_ms);
+    }
+}
+// Home (list focus) → menu mode → SEND → the Send list.
+void to_send_list(UiModel& m, const UiSnapshot& s) {
+    m.on_tick(s); to_menu_home(m, s);
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+}
+// Home → menu mode → TEAM → enter the roster → row `row` → that person's compose list.
+void to_person(UiModel& m, const UiSnapshot& s, uint8_t row = 0) {
+    m.on_tick(s); to_menu_home(m, s);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    for (uint8_t i = 0; i < row; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+}
+// From a compose list, onto WRITE MESSAGE (by the row authority, never a literal index), then double.
+bool open_write(UiModel& m, const UiSnapshot& s, bool have_id = true) {
+    const ComposeList& l = (m.state().compose == Compose::dm) ? s.preset_dm : s.preset_ch;
+    for (int i = 0; i < 16 && compose_row_kind(m.state().cursor, l, m.state().compose_grant_row) != ComposeRow::write; ++i)
+        m.on_gesture(Gesture::short_press, s);
+    if (compose_row_kind(m.state().cursor, l, m.state().compose_grant_row) != ComposeRow::write) return false;
+    press(m, s, Gesture::double_press);
+    serve(m, s, have_id);
+    return m.state().editor.phase == EditorPhase::groups;
+}
+void type(UiModel& m, const UiSnapshot& s, const char* text) {
+    for (const char* p = text; *p; ++p) {
+        uint8_t at = kEditorRepertoireSize;
+        for (uint8_t i = 0; i < kEditorRepertoireSize; ++i) if (kEditorRepertoire[i] == *p) at = i;
+        CHECK(at < kEditorRepertoireSize);
+        if (at >= kEditorRepertoireSize) return;
+        for (int i = 0; i < kGroupRingItems && m.state().editor.item != at / kEditorGroupSize; ++i) press(m, s, Gesture::short_press);
+        press(m, s, Gesture::double_press);
+        for (int i = 0; i < kCharRingItems && m.state().editor.item != at % kEditorGroupSize; ++i) press(m, s, Gesture::short_press);
+        press(m, s, Gesture::double_press);
+    }
+}
+// Fill the draft directly to `n` bytes through the real insertion (typing 163 bytes press by press is slow and adds
+// nothing the editor's own cases do not already prove).
+void fill(UiModel& m, const UiSnapshot& s, const char* text) { type(m, s, text); }
+void control(UiModel& m, const UiSnapshot& s, EditorControl c) {
+    if (m.state().editor.phase == EditorPhase::groups) {
+        for (int i = 0; i < kGroupRingItems && m.state().editor.item != kEditorGroups; ++i) press(m, s, Gesture::short_press);
+        press(m, s, Gesture::double_press);
+    }
+    for (int i = 0; i < kControlRingItems && m.state().editor.item != uint8_t(c); ++i) press(m, s, Gesture::short_press);
+}
+// DONE → the review requested → the tick's capture.
+void done(UiModel& m, const UiSnapshot& s, bool have_id = true) {
+    control(m, s, EditorControl::done);
+    press(m, s, Gesture::double_press);
+    serve(m, s, have_id);
+}
+// The review's SEND: short to SEND, double.
+void send(UiModel& m, const UiSnapshot& s) { press(m, s, Gesture::short_press); press(m, s, Gesture::double_press); }
+// The tick's drain + execution, as `mr_ui_tick` performs them (emergency first).
+struct Exec {
+    SendTracker emg, normal;
+    FakeExec    f;
+    int drained = 0;
+    Exec() { f.reply = ok_ctr(41); }
+    void drain(UiModel& m, const UiSnapshot& s, bool have_id = true, const mrnv::UiPresetBlob& cat = dflt_cat()) {
+        SendReq req{};
+        if (m.emergency_pending()) {
+            if (m.take_send_request(req)) { ++drained; ui_perform_send(emg, normal, m, req, cat, live(s, req, have_id),
+                                                                          t_line, sizeof t_line, 0, false, fake_exec, &f, s.now_ms); }
+        } else if (normal.idle()) {
+            if (m.take_send_request(req)) { ++drained; ui_perform_send(emg, normal, m, req, cat, live(s, req, have_id),
+                                                                          t_line, sizeof t_line, 0, false, fake_exec, &f, s.now_ms); }
+        }
+    }
+};
+std::string draft_of(const UiModel& m) { return std::string(m.draft().bytes, m.draft().len); }
+}  // namespace w8
+
+TEST_CASE("w8-entry: WRITE MESSAGE on the Send list opens a TEAM editor bound to the live team — cap 163, no catalog") {
+    UiModel m; const UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(m.state().compose == Compose::channel);
+    CHECK(compose_row_kind(s.preset_ch.n, s.preset_ch, false) == ComposeRow::write);
+    CHECK(w8::open_write(m, s));
+    CHECK(m.state().screen == Screen::send);                  // rail SEND: the editor lives inside the Send list
+    CHECK(m.state().compose == Compose::channel);
+    CHECK(m.draft().caller == DraftCaller::team);
+    CHECK(m.draft().cap == 163);
+    CHECK(m.draft().len == 0);
+    CHECK(m.review_binding().kind == SendKind::channel_text);
+    CHECK(m.review_binding().team_id == w8::kTeam);
+    CHECK(m.review_binding().generation == 0);                // ⛔ never a fake slot or generation
+    CHECK(m.state().editor.cap == 163);
+    SendReq req{};
+    CHECK(m.take_send_request(req) == false);                 // ⛔ opening the editor sends nothing
+}
+
+TEST_CASE("w8-entry: WRITE MESSAGE for a person binds ID, known bit and hash ONCE; the label is the FULL name at 8 columns") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_person(m, s, 0);
+    CHECK(m.state().compose == Compose::dm);
+    // ★ the rows: phrases, WRITE MESSAGE, GRANT KEY (when offered), back — WRITE right after the phrases
+    CHECK(compose_row_kind(s.preset_dm.n, s.preset_dm, m.state().compose_grant_row) == ComposeRow::write);
+    m.on_tick(s);
+    const ComposeList& l = s.preset_dm;
+    for (int i = 0; i < 16 && compose_row_kind(m.state().cursor, l, m.state().compose_grant_row) != ComposeRow::write; ++i)
+        m.on_gesture(Gesture::short_press, s);
+    w8::press(m, s, Gesture::double_press);
+    CHECK(m.state().editor.phase == EditorPhase::bind);       // the binding is owed by this tick's capture
+    SendReq b{}; bool resolve = false;
+    CHECK(m.editor_capture_owed(b, resolve));
+    CHECK(resolve);
+    CHECK(b.kind == SendKind::dm_text);
+    CHECK(b.peer_id == s.team[0].id);
+    w8::serve(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::groups);
+    CHECK(m.review_binding().peer_known);
+    CHECK(m.review_binding().peer_hash == w8::kHash0);
+    CHECK(std::strcmp(m.state().review_header, "STANISL\xBB") == 0);    // ★ 8 columns, `»` included
+    char h[24];
+    editor_header_line(h, sizeof h, "TO STANISL\xBB", m.state().editor.used, m.state().editor.cap,
+                       editor_note_text(m.state().editor.note));
+    CHECK(std::strcmp(h, "TO STANISL\xBB   0/163") == 0);
+    CHECK(std::strlen(h) == 19);
+    // ⛔ a later re-label re-reads NOTHING: the hash the resolver now answers is ignored by the binding
+    s.member[0].key_hash32 = 0x11111111u;
+    CHECK(m.review_binding().peer_hash == w8::kHash0);
+}
+
+TEST_CASE("w8-entry: an UNVERIFIED person (no resolver answer) is labelled T<n>; a known ZERO hash stays KNOWN") {
+    {
+        UiModel m; UiSnapshot s = w8::tsnap();
+        s.member[1].key_hash32 = 0;                           // the resolver has no answer for row 1
+        w8::to_person(m, s, 1);
+        CHECK(w8::open_write(m, s));
+        CHECK_FALSE(m.review_binding().peer_known);
+        CHECK(std::strcmp(m.state().review_header, "T11") == 0);
+    }
+    {   // a synthetic KNOWN ZERO (today's resolver never produces it): the resolver's bit, never `hash != 0`
+        UiModel m; const UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 2);
+        const ComposeList& l = s.preset_dm;
+        for (int i = 0; i < 16 && compose_row_kind(m.state().cursor, l, m.state().compose_grant_row) != ComposeRow::write; ++i)
+            m.on_gesture(Gesture::short_press, s);
+        w8::press(m, s, Gesture::double_press);
+        SendLive zero{}; zero.team_id = s.team_id; zero.peer_found = true; zero.peer_hash = 0;
+        CHECK(ui_editor_capture(m, zero, w8::names, nullptr));
+        CHECK(m.review_binding().peer_known);
+        CHECK(m.review_binding().peer_hash == 0u);
+        CHECK(std::strcmp(m.state().review_header, "T12") == 0);
+    }
+}
+
+TEST_CASE("w8-review: DONE freezes a new draft_id; the review is TO TEAM <ID8>, word-wrapped, ` SEND >EDIT     n/m`") {
+    UiModel m; const UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "RETURN TO BASE NOW. MEET AT THE NORTH GATE.");
+    const uint32_t id0 = m.draft().draft_id;
+    w8::done(m, s);
+    CHECK(m.draft().draft_id == id0 + 1);
+    CHECK(m.review_binding().draft_id == m.draft().draft_id);
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    CHECK(m.state().editor.phase == EditorPhase::message_review);
+    CHECK(std::strcmp(m.state().review_header, "TO TEAM 66C0FFEE") == 0);
+    CHECK(std::strcmp(m.state().review_line[0], "RETURN TO BASE NOW.") == 0);
+    CHECK(std::strcmp(m.state().review_line[1], " MEET AT THE NORTH ") == 0);
+    CHECK(std::strcmp(m.state().review_line[2], "GATE.") == 0);
+    CHECK(m.state().detail_pages == 1);
+    CHECK_FALSE(m.state().review_send);                       // EDIT selected
+    CHECK_FALSE(m.state().review_loc);                        // ⛔ never LOC
+    char a[24];
+    review_written_action_line(a, sizeof a, m.state().review_send, m.state().detail_page, m.state().detail_pages);
+    CHECK(std::strcmp(a, " SEND >EDIT     1/1") == 0);
+    CHECK(std::strlen(a) == 19);
+    review_written_action_line(a, sizeof a, true, 5, 6);
+    CHECK(std::strcmp(a, ">SEND  EDIT     6/6") == 0);
+    // EDIT: the editor on group 1, the cursor kept, the draft unfrozen, nothing queued
+    w8::press(m, s, Gesture::double_press);
+    w8::serve(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::groups);
+    CHECK(m.state().editor.item == 0);
+    CHECK(m.draft().cursor == m.draft().len);
+    SendReq req{};
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("w8-review: a DM review reads TO <label ≤7> <HASH8>; an unverified one TO T<n> UNVERIFIED") {
+    {
+        UiModel m; const UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 0);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "OK");
+        w8::done(m, s);
+        CHECK(std::strcmp(m.state().review_header, "TO STANIS\xBB 3F2A91BC") == 0);
+        CHECK(std::strlen(m.state().review_header) == 19);
+    }
+    {
+        UiModel m; UiSnapshot s = w8::tsnap();
+        s.member[1].key_hash32 = 0;
+        w8::to_person(m, s, 1);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "OK");
+        w8::done(m, s);
+        CHECK(std::strcmp(m.state().review_header, "TO T11 UNVERIFIED") == 0);
+    }
+}
+
+TEST_CASE("w8-review: 163 bytes wrap into ≤ 6 pages, every byte kept, the pages turn on TIME only and never send") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    std::string text;
+    for (int i = 0; i < 8; ++i) text += std::string(" ") + std::string(19, 'Y');
+    text += " YY";                                             // the pre-check's witness: 17 lines / 6 pages
+    CHECK(text.size() == 163);
+    w8::type(m, s, text.c_str());
+    CHECK(m.draft().len == 163);
+    w8::done(m, s);
+    CHECK(m.state().detail_pages == 6);
+    std::string seen;
+    for (uint8_t p = 0; p < 6; ++p) {
+        CHECK(m.state().detail_page == p);
+        for (uint8_t r = 0; r < kReviewBodyRows; ++r) seen += m.state().review_line[r];
+        s.now_ms += kDetailPageMs; m.on_tick(s);
+    }
+    CHECK(seen == text);                                      // ★ the concatenation IS the payload
+    CHECK(m.state().detail_page == 0);                        // cycled
+    SendReq req{};
+    CHECK(m.take_send_request(req) == false);                 // ⛔ time never sends
+}
+
+TEST_CASE("w8-send: SEND locks the draft and queues the BOUND request whole; execution reads it ONCE — no -l, real parser") {
+    using namespace MESHROUTE_NS;
+    for (bool dm : { false, true }) {
+        CAPTURE(dm);
+        UiModel m; UiSnapshot s = w8::tsnap();
+        if (dm) w8::to_person(m, s, 0); else w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "AT CAMP, ALL OK?");
+        w8::done(m, s);
+        w8::send(m, s);
+        CHECK(m.state().compose_result);
+        CHECK(m.state().editor.phase == EditorPhase::message_result);
+        CHECK(m.draft().locked);
+        CHECK(m.written_outcome().state == WrittenState::queued);
+        if (dm) CHECK(m.dm_state() == DmState::submitting); else CHECK(m.chan_state() == ChanState::submitting);
+        // a press while QUEUED is consumed and ignored
+        w8::press(m, s, Gesture::double_press);
+        CHECK(m.state().compose_result);
+        CHECK(m.draft().locked);
+        w8::Exec x;
+        x.drain(m, s);
+        CHECK(x.drained == 1);
+        CHECK(x.f.calls == 1);                                // ★ exactly once
+        const char* want = dm ? "send 10 \"AT CAMP, ALL OK?\" -t -a" : "send_channel 0 \"AT CAMP, ALL OK?\" -t -e";
+        CHECK(std::strcmp(x.f.line, want) == 0);
+        CHECK(std::strstr(x.f.line, "-l") == nullptr);        // ⛔ D6: never location
+        // ★ the REAL parser reads it as the intended command
+        Command c{};
+        CHECK(console::parse_command(x.f.line, std::strlen(x.f.line), c) == console::ParseErr::ok);
+        CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "AT CAMP, ALL OK?");
+        if (dm) {
+            CHECK(c.kind == CmdKind::send);
+            CHECK(c.u.send.dst_id == 10);
+            CHECK(c.u.send.plane == 1);                        // -t: TEAM
+            CHECK((c.u.send.flags & DATA_FLAG_E2E_ACK_REQ) != 0);
+            CHECK((c.u.send.flags & DATA_FLAG_LOCATION) == 0);
+        } else {
+            CHECK(c.kind == CmdKind::send_channel);
+            CHECK(c.u.channel.team);
+            CHECK_FALSE(c.u.channel.global);
+            CHECK_FALSE(c.u.channel.loc);
+            CHECK(c.crypt == CryptIntent::on);                 // -e: sealed
+        }
+        CHECK_FALSE(m.draft().locked);                        // ★ executed: the lock lifts
+        CHECK(m.written_outcome().state == WrittenState::accepted_open);
+        SendReq again{};
+        CHECK(m.take_send_request(again) == false);           // ⛔ nothing left to drain: one request, one execution
+    }
+}
+
+TEST_CASE("w8-result: accepted FINAL → back to the list WRITE came from (arrow on WRITE), released, tracker closed ONCE") {
+    for (bool dm : { false, true }) {
+        CAPTURE(dm);
+        UiModel m; UiSnapshot s = w8::tsnap();
+        if (dm) w8::to_person(m, s, 0); else w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "HI");
+        w8::done(m, s); w8::send(m, s);
+        w8::Exec x; x.drain(m, s);
+        CHECK(m.normal_tracking_open());
+        CHECK_FALSE(x.normal.idle());
+        // a final outcome arrives, attributed by the tracker (ctr 41)
+        MESHROUTE_NS::Push pu{};
+        if (dm) { pu.kind = MESHROUTE_NS::PushKind::send_e2e_acked; pu.ctr = 41; pu.dst = 10; }
+        else    { pu.kind = MESHROUTE_NS::PushKind::channel_sent;  pu.ctr = 41; pu.relayed = true; }
+        CHECK(ui_route_send_push(x.emg, x.normal, m, pu, s.now_ms));
+        CHECK(m.written_outcome().state == WrittenState::accepted_final);
+        if (dm) CHECK(m.dm_state() == DmState::delivered); else CHECK(m.chan_state() == ChanState::relayed);
+        w8::press(m, s, Gesture::short_press);                // acknowledge
+        CHECK_FALSE(m.state().compose_result);
+        CHECK(m.state().compose == (dm ? Compose::dm : Compose::channel));   // ★ the list WRITE MESSAGE came from
+        const ComposeList& l = dm ? s.preset_dm : s.preset_ch;
+        CHECK(compose_row_kind(m.state().cursor, l, m.state().compose_grant_row) == ComposeRow::write);
+        CHECK(m.draft().caller == DraftCaller::none);         // released
+        CHECK(m.written_outcome().state == WrittenState::released);
+        CHECK_FALSE(m.normal_tracking_open());
+        ui_pump_trackers(x.emg, x.normal, m, s.now_ms);       // the pump closes the normal tracker ONCE
+        CHECK(x.normal.idle());
+    }
+}
+
+TEST_CASE("w8-result: accepted OPEN → the view closes and tracking ends (the declared residual); a later outcome is ignored") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_person(m, s, 0);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "HI");
+    w8::done(m, s); w8::send(m, s);
+    w8::Exec x; x.drain(m, s);
+    CHECK(m.written_outcome().state == WrittenState::accepted_open);
+    CHECK(m.dm_state() == DmState::waiting_ack);
+    w8::press(m, s, Gesture::double_press);                   // acknowledge while still open
+    CHECK(m.state().compose == Compose::none);                // the view closed (today's rule for a DM)
+    CHECK(m.draft().caller == DraftCaller::none);
+    ui_pump_trackers(x.emg, x.normal, m, s.now_ms);
+    CHECK(x.normal.idle());                                   // ★ tracking ended
+    MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::send_e2e_acked; pu.ctr = 41; pu.dst = 10;
+    CHECK(ui_route_send_push(x.emg, x.normal, m, pu, s.now_ms) == false);   // ⛔ unmatched: changes nothing
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+TEST_CASE("w8-result: a ctr==0 acceptance is ACCEPTED, OPEN — no attempt spent, no emergency counter moved") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "HI");
+    w8::done(m, s); w8::send(m, s);
+    w8::Exec x; x.f.reply = ok_ctr(0);
+    x.drain(m, s);
+    CHECK(m.written_outcome().state == WrittenState::accepted_open);
+    CHECK_FALSE(m.draft().locked);
+    CHECK(x.normal.awaiting());
+    CHECK(m.attempts() == 0);                                 // ⛔ the alarm's counter never moves
+    CHECK(m.emergency() == Emergency::idle);
+    // the 8-second expiry: NOT CONFIRMED — accepted, final (it may have aired)
+    s.now_ms += kOutcomeWindowMs + 1;
+    ui_pump_trackers(x.emg, x.normal, m, s.now_ms);
+    CHECK(m.chan_state() == ChanState::unconfirmed);
+    CHECK(m.written_outcome().state == WrittenState::accepted_final);
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+TEST_CASE("w8-refused: every KNOWN-REFUSED path returns to the editor UNLOCKED with the same bytes — nothing re-submitted") {
+    using C = MESHROUTE_NS::CmdCode;
+    for (int path = 0; path < 4; ++path) {
+        CAPTURE(path);
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 0);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "ABC");
+        w8::done(m, s); w8::send(m, s);
+        w8::Exec x;
+        if (path == 0) x.f.reply = SendExec{false, C::queued, 0};             // parser reject
+        if (path == 1) x.f.reply = refused(C::err_unsupported);              // synchronous executor refusal
+        if (path == 2) { x.f.reply = ok_ctr(41); }                            // accepted, then a never-aired failure
+        if (path == 3) { x.f.reply = ok_ctr(41); }                            // accepted, then NO KEY
+        x.drain(m, s);
+        if (path == 2) {
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::send_failed; pu.ctr = 41; pu.dst = 10;
+            pu.reason = FailReason::no_location;
+            CHECK(ui_route_send_push(x.emg, x.normal, m, pu, s.now_ms));
+        }
+        if (path == 3) {
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::send_failed; pu.ctr = 41; pu.dst = 10;
+            pu.reason = FailReason::no_pubkey;
+            CHECK(ui_route_send_push(x.emg, x.normal, m, pu, s.now_ms));
+        }
+        CHECK(m.written_outcome().state == WrittenState::refused);
+        CHECK_FALSE(m.draft().locked);
+        w8::press(m, s, Gesture::short_press);                // acknowledge
+        w8::serve(m, s);                                      // the DM editor re-labels
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(m.state().editor.item == 0);
+        CHECK(w8::draft_of(m) == "ABC");
+        CHECK(m.state().compose == Compose::dm);
+        const int calls = x.f.calls;
+        x.drain(m, s);
+        CHECK(x.f.calls == calls);                            // ⛔ no automatic resend
+    }
+}
+
+TEST_CASE("w8-refused: the written result shows ITS OWN reason — an alarm's later refusal cannot re-describe it") {
+    using C = MESHROUTE_NS::CmdCode;
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "X");
+    w8::done(m, s); w8::send(m, s);
+    w8::Exec x; x.f.reply = refused(C::err_tx_queue_full);
+    x.drain(m, s);
+    RefuseReason r{}; C c{}; FailReason f{};
+    m.panel_reasons(r, c, f);
+    CHECK(c == C::err_tx_queue_full);
+    m.on_send_refused(SendKind::emergency, RefuseReason::other, C::err_unsupported, s.now_ms);   // an alarm's refusal
+    CHECK(m.refuse_code() == C::err_unsupported);             // the SHARED word moved...
+    m.panel_reasons(r, c, f);
+    CHECK(c == C::err_unsupported);                           // ...and while the alarm is up, the overlay reads it
+    m.on_gesture(Gesture::short_press, s);                    // the presented alarm outcome is acknowledged
+    // (the alarm's failed state is retained until it is SEEN; mark it presented, then acknowledge)
+    m.mark_outcome_presented(m.emergency(), m.emg_news());
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::idle);
+    m.panel_reasons(r, c, f);
+    CHECK(c == C::err_tx_queue_full);                         // ★ the written result still says ITS reason
+}
+
+TEST_CASE("w8-busy: SEND over an owed ordinary request queues NOTHING — BUSY owns row 0 until the next press, which acts") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    // an OWED phrase request — queued through the real review and not yet drained (in the device it waits behind a
+    // busy tracker); its result view is acknowledged, which leaves it owed (today's rule)
+    w8::to_send_list(m, s);
+    m.on_gesture(Gesture::double_press, s);                   // phrase 1 → its review
+    w8::serve(m, s);
+    w8::send(m, s);
+    CHECK(m.state().compose_result);
+    w8::press(m, s, Gesture::short_press);                    // acknowledged → the Send list
+    CHECK(m.state().compose == Compose::channel);
+    CHECK_FALSE(m.state().compose_result);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "Q");
+    w8::done(m, s);
+    w8::send(m, s);
+    CHECK(m.state().editor.note == EditorNote::busy);         // ★ BUSY: nothing queued, the review stays
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    CHECK_FALSE(m.draft().locked);
+    CHECK(m.written_outcome().state == WrittenState::none);
+    SendReq req{};
+    CHECK(m.take_send_request(req));
+    CHECK(req.kind == SendKind::channel_canned);              // ⛔ the owed phrase was not overwritten
+    w8::press(m, s, Gesture::short_press);                    // the next press clears BUSY and still acts (toggle)
+    CHECK(m.state().editor.note == EditorNote::none);
+    CHECK_FALSE(m.state().review_send);
+    w8::press(m, s, Gesture::short_press);
+    w8::press(m, s, Gesture::double_press);                   // now nothing is owed: it queues
+    CHECK(m.written_outcome().state == WrittenState::queued);
+}
+
+TEST_CASE("w8-gate: each kind asks only its questions — written: draft, team, recipient; never the catalog") {
+    const uint32_t team = w8::kTeam;
+    char b[4] = {'A', 'B', 'C', 0};
+    const DraftView ok{b, 3, true, 9};
+    SendLive l{}; l.team_id = team; l.team_local_id = true; l.peer_found = true; l.peer_hash = 0x55u;
+    mrnv::UiPresetBlob moved = dflt_cat();
+    moved.generation = mrfw::preset_generation_next(moved.generation);
+    for (uint8_t i = 0; i < mrnv::kUiPresets; ++i) if (i != mrfw::kPresetEmergency) moved.slot[i].enabled = 0;
+    SendReq ch{SendKind::channel_text, 0, 0, false, 0, team, 0, 9};
+    SendReq dm{SendKind::dm_text, 10, 0, true, 0, team, 0x55u, 9};
+    // ⛔ the catalog is never asked: a moved, emptied catalog changes nothing for written kinds
+    CHECK(send_exec_gate_of(ch, moved, l, ok) == SendGate::send);
+    CHECK(send_exec_gate_of(dm, moved, l, ok) == SendGate::send);
+    CHECK(send_gate_of(ch, moved, l) == SendGate::send);
+    // the draft: locked, same id, in bounds
+    CHECK(send_exec_gate_of(ch, dflt_cat(), l, DraftView{b, 3, false, 9}) == SendGate::draft_changed);
+    CHECK(send_exec_gate_of(ch, dflt_cat(), l, DraftView{b, 3, true, 8}) == SendGate::draft_changed);
+    CHECK(send_exec_gate_of(ch, dflt_cat(), l, DraftView{b, 0, true, 9}) == SendGate::draft_changed);
+    CHECK(send_exec_gate_of(ch, dflt_cat(), l, DraftView{b, 164, true, 9}) == SendGate::draft_changed);
+    CHECK(send_exec_gate_of(ch, dflt_cat(), l, DraftView{nullptr, 3, true, 9}) == SendGate::draft_changed);
+    // the destination: the live team, the known hash
+    SendLive other = l; other.team_id = team + 1;
+    CHECK(send_exec_gate_of(ch, dflt_cat(), other, ok) == SendGate::team_changed);
+    SendLive rekeyed = l; rekeyed.peer_hash = 0x56u;
+    CHECK(send_exec_gate_of(dm, dflt_cat(), rekeyed, ok) == SendGate::recipient_changed);
+    SendLive gone = l; gone.peer_found = false;
+    CHECK(send_exec_gate_of(dm, dflt_cat(), gone, ok) == SendGate::recipient_changed);
+    SendReq unknown = dm; unknown.peer_known = false;
+    CHECK(send_exec_gate_of(unknown, dflt_cat(), gone, ok) == SendGate::send);   // sent by ID, as UNVERIFIED said
+    // D19 at execution: both ordinary TEAM posts need the ID; the DM kinds and the alarm never do
+    SendLive noid = l; noid.team_local_id = false;
+    CHECK(send_exec_gate_of(ch, dflt_cat(), noid, ok) == SendGate::no_team_id);
+    SendReq canned{SendKind::channel_canned, 0, kCh1, false, dflt_gen(), team, 0, 0};
+    CHECK(send_exec_gate_of(canned, dflt_cat(), noid, DraftView{}) == SendGate::no_team_id);
+    CHECK(send_exec_gate_of(dm, dflt_cat(), noid, ok) == SendGate::send);
+    SendReq phrase_dm{SendKind::dm, 10, kDm1, true, dflt_gen(), team, 0x55u, 0};
+    CHECK(send_exec_gate_of(phrase_dm, dflt_cat(), noid, DraftView{}) == SendGate::send);
+    SendReq alarm{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0};
+    CHECK(send_exec_gate_of(alarm, dflt_cat(), SendLive{}, DraftView{}) == SendGate::send);
+    // ⛔ REVIEW ADMISSION never sees D19 or a draft answer: `send_gate_of` alone
+    CHECK(send_gate_of(canned, dflt_cat(), noid) == SendGate::send);
+    CHECK(send_gate_of(ch, dflt_cat(), noid) == SendGate::send);
+    CHECK(review_note_of(SendGate::no_team_id) == ReviewPhase::none);
+    CHECK(review_note_of(SendGate::draft_changed) == ReviewPhase::none);
+    // the order: a draft refusal outranks a destination one, and the destination outranks D19
+    CHECK(send_exec_gate_of(ch, dflt_cat(), other, DraftView{b, 3, false, 9}) == SendGate::draft_changed);
+    SendLive both = other; both.team_local_id = false;
+    CHECK(send_exec_gate_of(ch, dflt_cat(), both, ok) == SendGate::team_changed);
+}
+
+TEST_CASE("w8-d19: BEFORE the team-local ID — a team PHRASE and a WRITTEN team post both OPEN their review; SEND is refused") {
+    // ★★★ W7W8R-2's two-phase trace, for BOTH ordinary team kinds: review admission never applies D19; execution does.
+    for (bool written : { false, true }) {
+        CAPTURE(written);
+        UiModel m; UiSnapshot s = w8::tsnap();
+        s.my_team_id = 0;                                     // the team-local ID does not exist yet
+        w8::to_send_list(m, s);
+        if (written) {
+            CHECK(w8::open_write(m, s, /*have_id=*/false));
+            w8::type(m, s, "WHERE ARE YOU");
+            w8::done(m, s, /*have_id=*/false);
+        } else {
+            m.on_gesture(Gesture::double_press, s);           // phrase 1 → its review
+            w8::serve(m, s, /*have_id=*/false);
+        }
+        CHECK(m.state().review_phase == ReviewPhase::open);   // ★ phase 1: the review OPENS
+        w8::send(m, s);
+        w8::Exec x;
+        x.drain(m, s, /*have_id=*/false);
+        CHECK(x.drained == 1);
+        CHECK(x.f.calls == 0);                                // ★ phase 2: ZERO executor calls...
+        CHECK(x.normal.idle());                               // ...and ZERO tracker submission
+        CHECK(m.chan_state() == ChanState::no_team_id);       // NOT SENT / NO TEAM ID YET
+        w8::press(m, s, Gesture::double_press);               // acknowledge
+        if (written) {
+            CHECK(m.state().editor.phase == EditorPhase::groups);   // the editor, unlocked
+            CHECK_FALSE(m.draft().locked);
+            CHECK(w8::draft_of(m) == "WHERE ARE YOU");
+        } else {
+            CHECK(m.state().compose == Compose::channel);     // the phrase list
+            CHECK_FALSE(m.state().compose_result);
+        }
+    }
+}
+
+TEST_CASE("w8-d19: the ID LOST between the review and the drain is refused at execution; WITH an ID it sends; the alarm is exempt") {
+    {   // lost between review and drain
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "A");
+        w8::done(m, s);
+        w8::send(m, s);
+        w8::Exec x;
+        x.drain(m, s, /*have_id=*/false);
+        CHECK(x.f.calls == 0);
+        CHECK(m.chan_state() == ChanState::no_team_id);
+        CHECK(m.written_outcome().state == WrittenState::refused);
+    }
+    {   // with an ID: it sends
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_send_list(m, s);
+        m.on_gesture(Gesture::double_press, s); w8::serve(m, s); w8::send(m, s);
+        w8::Exec x; x.drain(m, s, /*have_id=*/true);
+        CHECK(x.f.calls == 1);
+        CHECK(m.chan_state() == ChanState::waiting);
+    }
+    {   // the alarm: no ID, it still airs
+        UiModel m; UiSnapshot s = w8::tsnap();
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s);
+        w8::Exec x; x.drain(m, s, /*have_id=*/false);
+        CHECK(x.f.calls == 1);
+        CHECK(std::strncmp(x.f.line, "send_channel ", 13) == 0);
+    }
+}
+
+TEST_CASE("w8-classify: all 18 SendFailReason values — known-not-aired returns the draft, may-have-aired releases it") {
+    using F = FailReason;
+    const F never[] = { F::no_pubkey, F::no_identity, F::too_large, F::bad_rng, F::joining, F::mobile_no_home,
+                        F::unsealable, F::no_location };
+    const F maybe[] = { F::cap, F::min_interval, F::no_ack, F::e2e_ack_timeout, F::no_cts, F::gateway_unreachable,
+                        F::no_route, F::queue_full, F::reprovisioned, F::none };
+    CHECK(sizeof never / sizeof never[0] + sizeof maybe / sizeof maybe[0] == 18);
+    for (F r : never) { CAPTURE(int(r)); CHECK(send_fail_never_aired(r)); }
+    for (F r : maybe) { CAPTURE(int(r)); CHECK_FALSE(send_fail_never_aired(r)); }
+    CHECK(send_outcome_never_aired(SendOutcome::blocked(0)));                  // cap / min_interval: the attributable path
+    CHECK(send_outcome_never_aired(SendOutcome::dm_no_key()));
+    CHECK_FALSE(send_outcome_never_aired(SendOutcome::dm_timeout()));
+    CHECK_FALSE(send_outcome_never_aired(SendOutcome::channel_remote_mint()));
+    CHECK_FALSE(send_outcome_never_aired(SendOutcome::dm_failed(F::cap)));    // ⛔ cap as a send_failed reason: maybe
+    // and through the model: each written DM failure lands where its class says
+    for (bool known_never : { true, false }) {
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 0);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "Z");
+        w8::done(m, s); w8::send(m, s);
+        w8::Exec x; x.drain(m, s);
+        MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::send_failed; pu.ctr = 41; pu.dst = 10;
+        pu.reason = known_never ? F::too_large : F::no_ack;
+        CHECK(ui_route_send_push(x.emg, x.normal, m, pu, s.now_ms));
+        CHECK(m.written_outcome().state == (known_never ? WrittenState::refused : WrittenState::accepted_final));
+        CHECK(m.written_outcome().reason == pu.reason);
+        CHECK(m.dm_state() == DmState::failed);
+        w8::press(m, s, Gesture::short_press);
+        w8::serve(m, s);
+        if (known_never) CHECK(m.state().editor.phase == EditorPhase::groups);   // the draft is back
+        else             CHECK(m.draft().caller == DraftCaller::none);           // released: it may have aired
+    }
+}
+
+TEST_CASE("w8-classify: NO CONFIRM may still upgrade to DELIVERED while the view is open; a QUEUED request ignores an older verdict") {
+    {
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 0);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "Z");
+        w8::done(m, s); w8::send(m, s);
+        w8::Exec x; x.drain(m, s);
+        MESHROUTE_NS::Push to{}; to.kind = MESHROUTE_NS::PushKind::send_failed; to.ctr = 41; to.dst = 10;
+        to.reason = FailReason::e2e_ack_timeout;
+        CHECK(ui_route_send_push(x.emg, x.normal, m, to, s.now_ms));
+        CHECK(m.dm_state() == DmState::not_confirmed);
+        CHECK(m.written_outcome().state == WrittenState::accepted_final);
+        MESHROUTE_NS::Push ack{}; ack.kind = MESHROUTE_NS::PushKind::send_e2e_acked; ack.ctr = 41; ack.dst = 10;
+        CHECK(ui_route_send_push(x.emg, x.normal, m, ack, s.now_ms));
+        CHECK(m.dm_state() == DmState::delivered);           // ★ the late-ACK upgrade, while the view is open
+        CHECK(m.written_outcome().state == WrittenState::accepted_final);
+    }
+    {   // an OLDER phrase transaction's verdict arrives while the written request is still queued: ignored
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_send_list(m, s);
+        m.on_gesture(Gesture::double_press, s); w8::serve(m, s); w8::send(m, s);   // phrase, executed below
+        w8::Exec x; x.drain(m, s);
+        CHECK(m.chan_state() == ChanState::waiting);
+        w8::press(m, s, Gesture::short_press);                // its result acknowledged → the Send list
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "Y");
+        w8::done(m, s); w8::send(m, s);
+        CHECK(m.written_outcome().state == WrittenState::queued);
+        CHECK(m.chan_state() == ChanState::submitting);
+        MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::channel_sent; pu.ctr = 41; pu.relayed = true;
+        CHECK(ui_route_send_push(x.emg, x.normal, m, pu, s.now_ms));   // matched by the PHRASE's tracker...
+        CHECK(m.chan_state() == ChanState::submitting);       // ★ ...and it does not describe the written result
+        CHECK(m.written_outcome().state == WrittenState::queued);
+        CHECK(m.emergency() == Emergency::idle);              // ⛔ an ordinary outcome never moves the alarm
+    }
+}
+
+TEST_CASE("w8-withdraw: long_fire withdraws ONLY a pending WRITTEN request — the alarm drains first, a phrase stays owed") {
+    {   // written: withdrawn, never sent after the alarm, the editor on group 1 with the draft unlocked
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "SOS");
+        w8::done(m, s); w8::send(m, s);
+        CHECK(m.written_outcome().state == WrittenState::queued);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        CHECK(m.emergency_pending());                          // ★ the alarm's own slot, untouched
+        CHECK(m.emergency() == Emergency::firing);             // ★ ...and the alarm itself is still up
+        SendReq req{};
+        CHECK(m.take_send_request(req));
+        CHECK(req.kind == SendKind::emergency);
+        CHECK(m.take_send_request(req) == false);              // ⛔ the written request is GONE
+        CHECK_FALSE(m.draft().locked);
+        CHECK(w8::draft_of(m) == "SOS");
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(m.state().editor.item == 0);
+        CHECK(m.state().compose == Compose::channel);
+    }
+    {   // a saved PHRASE's owed request keeps today's behaviour: it waits behind the alarm and still executes
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_send_list(m, s);
+        m.on_gesture(Gesture::double_press, s); w8::serve(m, s); w8::send(m, s);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        SendReq req{};
+        CHECK(m.take_send_request(req)); CHECK(req.kind == SendKind::emergency);
+        CHECK(m.take_send_request(req)); CHECK(req.kind == SendKind::channel_canned);
+    }
+}
+
+TEST_CASE("w8-fire: long_fire keeps the editor (E1-E4), closes the review to the editor, returns a refused result to it") {
+    {   // the editor survives with its ring position
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 0);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "AB");
+        w8::press(m, s, Gesture::short_press); w8::press(m, s, Gesture::short_press);
+        const EditorView before = m.state().editor;
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        CHECK(std::memcmp(&before, &m.state().editor, sizeof before) == 0);
+        CHECK(m.state().compose == Compose::dm);
+        CHECK(w8::draft_of(m) == "AB");
+    }
+    {   // the review closes; after the alarm the editor shows the draft on group 1
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_person(m, s, 0);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "AB");
+        w8::done(m, s);
+        m.on_gesture(Gesture::long_arm, s);
+        CHECK_FALSE(m.state().review_send);                   // long_arm: EDIT
+        m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        w8::serve(m, s);
+        CHECK(m.state().review_phase == ReviewPhase::none);
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(m.state().editor.item == 0);
+        SendReq req{};
+        CHECK(m.take_send_request(req)); CHECK(req.kind == SendKind::emergency);
+        CHECK(m.take_send_request(req) == false);              // ⛔ nothing was sent from the review
+    }
+    {   // an ACCEPTED result is released with its view (§B101)
+        UiModel m; UiSnapshot s = w8::tsnap();
+        w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "AB");
+        w8::done(m, s); w8::send(m, s);
+        w8::Exec x; x.drain(m, s);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        CHECK(m.draft().caller == DraftCaller::none);
+        CHECK(m.state().compose == Compose::none);
+        CHECK(m.written_outcome().state == WrittenState::released);
+    }
+}
+
+TEST_CASE("w8-binding: a team change raises TEAM CHANGED once; DONE re-shows it and opens nothing; nothing re-binds") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "HELLO");
+    s.team_id = w8::kTeam + 1;                                // the team changed under the editor
+    m.on_tick(s);
+    CHECK(m.state().editor.note == EditorNote::team_changed);
+    w8::press(m, s, Gesture::short_press);                    // the next press clears it and still acts
+    CHECK(m.state().editor.note == EditorNote::binding_seen); // ⓘ not drawn; not raised again while broken
+    CHECK(editor_note_text(m.state().editor.note) == nullptr);
+    for (int i = 0; i < 3; ++i) m.on_tick(s);
+    CHECK(m.state().editor.note == EditorNote::binding_seen);
+    const uint32_t id0 = m.draft().draft_id;
+    w8::control(m, s, EditorControl::done);
+    w8::press(m, s, Gesture::double_press);                   // DONE, asserted BEFORE the tick's capture is served:
+    CHECK(m.state().editor.note == EditorNote::team_changed); // ★ DONE shows it again...
+    CHECK(m.state().review_phase == ReviewPhase::none);       // ...and REQUESTS no review — ⛔ the capture's own race
+    CHECK(m.state().editor.phase == EditorPhase::controls);   //    check must never be what stops it
+    { SendReq b{}; CHECK_FALSE(m.review_capture_owed(b)); }
+    CHECK(m.draft().draft_id == id0);                         // ⛔ nothing was frozen
+    w8::serve(m, s);
+    CHECK(m.state().editor.note == EditorNote::team_changed);
+    CHECK(m.state().review_phase == ReviewPhase::none);
+    CHECK(m.review_binding().team_id == w8::kTeam);           // ⛔ nothing re-bound
+    CHECK(w8::draft_of(m) == "HELLO");
+    // DISCARD is the way out
+    w8::control(m, s, EditorControl::discard);
+    w8::press(m, s, Gesture::double_press);
+    w8::press(m, s, Gesture::short_press);
+    w8::press(m, s, Gesture::double_press);
+    CHECK(m.draft().caller == DraftCaller::none);
+    CHECK(m.state().editor.phase == EditorPhase::closed);
+}
+
+TEST_CASE("w8-binding: a re-keyed recipient closes the REVIEW to the editor with RECIPIENT CHANGED, the draft kept") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_person(m, s, 0);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "HI");
+    w8::done(m, s);
+    CHECK(m.state().review_phase == ReviewPhase::open);
+    s.member[0].key_hash32 = 0x77777777u;                     // re-keyed
+    m.on_tick(s);
+    w8::serve(m, s);
+    CHECK(m.state().review_phase == ReviewPhase::none);
+    CHECK(m.state().editor.phase == EditorPhase::groups);
+    CHECK(m.state().editor.note == EditorNote::recipient_changed);
+    CHECK(w8::draft_of(m) == "HI");
+    CHECK(m.review_binding().peer_hash == w8::kHash0);        // ⛔ never re-bound to whoever holds the ID now
+    // a catalog change has NO effect on written text (B480's exception)
+    UiModel n; UiSnapshot t = w8::tsnap();
+    w8::to_person(n, t, 0);
+    CHECK(w8::open_write(n, t));
+    w8::type(n, t, "OK");
+    mrnv::UiPresetBlob moved = dflt_cat(); moved.generation = mrfw::preset_generation_next(moved.generation);
+    ui_snapshot_publish_presets(t, moved);
+    for (int i = 0; i < 3; ++i) n.on_tick(t);
+    CHECK(n.state().compose == Compose::dm);                  // ⛔ the DM compose is NOT closed under written text
+    CHECK(n.state().editor.phase == EditorPhase::groups);
+    w8::done(n, t);
+    CHECK(n.state().review_phase == ReviewPhase::open);
+    for (int i = 0; i < 3; ++i) n.on_tick(t);
+    CHECK(n.state().review_phase == ReviewPhase::open);
+}
+
+TEST_CASE("w8-trackers: dm_text is DM-shaped (ctr AND peer), channel_text is channel-shaped — one family classification") {
+    SendTracker t; SendOutcome o{};
+    t.submit(SendKind::dm_text, 10, 0, 1000); t.accept(5, 1000);
+    CHECK_FALSE(t.match_channel_sent(5, true, o));            // ⛔ a channel verdict never completes a DM
+    CHECK_FALSE(t.match_blocked(true, 0, 1000, o));
+    CHECK(t.match_aired(10, 5));
+    CHECK_FALSE(t.match_aired(0, 5));
+    CHECK_FALSE(t.match_dm(5, 11, true, FailReason::none, o));   // the peer must match too
+    CHECK(t.match_dm(5, 10, true, FailReason::none, o));
+    SendTracker c;
+    c.submit(SendKind::channel_text, 0, 0, 1000); c.accept(6, 1000);
+    CHECK_FALSE(c.match_dm(6, 0, true, FailReason::none, o));
+    CHECK(c.match_aired(0, 6));
+    CHECK(c.match_channel_sent(6, false, o));
+    SendTracker z;                                            // B111: a DM-shaped ctr==0 never invents an outcome
+    z.submit(SendKind::dm_text, 10, 0, 1000); z.awaiting_outcome(1000);
+    CHECK_FALSE(z.tick(1000 + kOutcomeWindowMs + 1, o));
+    CHECK(send_kind_dm(SendKind::dm_text));
+    CHECK_FALSE(send_kind_dm(SendKind::channel_text));
+    CHECK(send_kind_written(SendKind::dm_text));
+    CHECK(send_kind_written(SendKind::channel_text));
+    CHECK_FALSE(send_kind_written(SendKind::dm));
+    CHECK_FALSE(send_kind_written(SendKind::channel_canned));
+    CHECK_FALSE(send_kind_written(SendKind::emergency));
+    CHECK(send_kind_team_post(SendKind::channel_canned));
+    CHECK(send_kind_team_post(SendKind::channel_text));
+    CHECK_FALSE(send_kind_team_post(SendKind::emergency));
+    CHECK_FALSE(send_kind_team_post(SendKind::dm_text));
+}
+
+TEST_CASE("w8-composer: empty, all-space, 17/18, 163, 164 and a too-small line — the written forms, byte for byte") {
+    char line[kSendLineCap];
+    const SendReq dm{SendKind::dm_text, 255, 0, true, 0, 1, 2, 3};
+    const SendReq ch{SendKind::channel_text, 0, 0, false, 0, 1, 0, 3};
+    CHECK(ui_compose_send_line(line, sizeof line, dm, dflt_cat(), 255, true, DraftView{}) == 0);   // no draft
+    CHECK(ui_compose_send_line(line, sizeof line, dm, dflt_cat(), 255, true, DraftView{"", 0, true, 3}) == 0);
+    CHECK(ui_compose_send_line(line, sizeof line, dm, dflt_cat(), 255, true, DraftView{"   ", 3, true, 3}) == 0);
+    for (uint8_t n : { uint8_t(17), uint8_t(18), uint8_t(163) }) {
+        CAPTURE(int(n));
+        const std::string body(n, 'W');
+        const DraftView v{body.data(), n, true, 3};
+        int k = ui_compose_send_line(line, sizeof line, dm, dflt_cat(), 255, /*have_fix=*/true, v);
+        CHECK(std::string(line) == "send 255 \"" + body + "\" -t -a");      // ⛔ no -l even with a fix
+        CHECK(k == int(std::strlen(line)));
+        k = ui_compose_send_line(line, sizeof line, ch, dflt_cat(), 255, true, v);
+        CHECK(std::string(line) == "send_channel 255 \"" + body + "\" -t -e");
+        CHECK(k == int(std::strlen(line)));
+    }
+    const std::string full(163, 'W');
+    // ★ the widest lines: 181 / 189 bytes with NUL at a three-digit id — inside the unchanged 199-byte line
+    CHECK(ui_compose_send_line(line, sizeof line, dm, dflt_cat(), 255, true, DraftView{full.data(), 163, true, 3}) == 180);
+    CHECK(ui_compose_send_line(line, sizeof line, ch, dflt_cat(), 255, true, DraftView{full.data(), 163, true, 3}) == 188);
+    const std::string over(164, 'W');
+    CHECK(ui_compose_send_line(line, sizeof line, dm, dflt_cat(), 255, true, DraftView{over.data(), 164, true, 3}) == 0);
+    char tiny[180];                                           // one byte short of the 181 the DM line needs
+    CHECK(ui_compose_send_line(tiny, sizeof tiny, dm, dflt_cat(), 255, true, DraftView{full.data(), 163, true, 3}) == 0);
+    CHECK(tiny[0] == '\0');                                   // ⛔ never a truncated send
+    // counted: the bytes past `len` are never read
+    const char tail[] = "ABCDEFGH";
+    CHECK(ui_compose_send_line(line, sizeof line, ch, dflt_cat(), 0, false, DraftView{tail, 3, true, 3}) > 0);
+    CHECK(std::strcmp(line, "send_channel 0 \"ABC\" -t -e") == 0);
+}
+
+TEST_CASE("w8-resources: D16 + D18 exactly — the draft 176, the descriptor 10, the record 4; SendReq 20 with draft_id APPENDED") {
+    CHECK(sizeof(Draft) == 176);
+    CHECK(alignof(Draft) == 4);
+    CHECK(sizeof(EditorView) == 10);
+    CHECK(sizeof(WrittenOutcome) == 4);
+    CHECK(sizeof(NameOrigin) == 1);
+    CHECK(sizeof(SendReq) == 20);
+    CHECK(offsetof(SendReq, draft_id) == 16);                 // ★ appended: every existing initializer keeps its meaning
+    CHECK(sizeof(SendLive) == 12);
+    CHECK(offsetof(SendLive, team_local_id) == offsetof(SendLive, peer_found) + 1);   // in the old padding
+    CHECK(sizeof(UiState) == 576);
+    CHECK(sizeof(UiModel) == 1216);
+    CHECK(sizeof(UiSnapshot) == 1368);
+    CHECK(sizeof(SendTracker) == 16);
+    CHECK(sizeof(InputFsm) == 28);
+    // the editor's two rows ALIAS the review/detail union — ⛔ no second text array
+    UiState st{};
+    CHECK(static_cast<void*>(st.editor_line) == static_cast<void*>(st.review_line));
+    CHECK(sizeof st.editor_line <= sizeof st.review_line);
+    CHECK(kEditorCols == kDetailCols);                        // §5.3: the editor's grid IS the body's 19 columns
+}
+
+TEST_CASE("w8-binding: the written review's CAPTURE validates the binding against the LIVE answers — a race refuses to the editor") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_person(m, s, 0);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "HI");
+    w8::control(m, s, EditorControl::done);
+    w8::press(m, s, Gesture::double_press);                   // the snapshot's binding is fine: the review is REQUESTED
+    CHECK(m.state().review_phase == ReviewPhase::requested);
+    SendReq b{};
+    CHECK(m.review_capture_owed(b));
+    SendLive l = w8::live(s, b);
+    l.peer_hash = 0x22222222u;                                // ...but the resolver answers a different key NOW
+    CHECK(ui_review_capture(m, dflt_cat(), l, nullptr, 0, s, s.now_ms));
+    CHECK(m.state().review_phase == ReviewPhase::none);       // refused: no review over a broken binding
+    CHECK(m.state().editor.note == EditorNote::recipient_changed);
+    CHECK(m.state().editor.phase == EditorPhase::relabel);    // back to the editor (its label owed again)
+    CHECK(w8::draft_of(m) == "HI");
+    CHECK(m.review_binding().peer_hash == w8::kHash0);        // ⛔ never re-bound
+    w8::serve(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::groups);
+    CHECK(m.state().editor.note == EditorNote::recipient_changed);   // the note survived the re-label
+}
+
+// ★★ §2.5 (W8 §8, design §5.5 and its edge timing) — THE WRITTEN REVIEW UNDER EVERY INTERRUPTION. The blank keeps it on
+//    the page the operator last SAW — ⛔ the BOTH-DUE tick (the blanking tick is also page-due) included — with EDIT
+//    selected and the cadence suspended; a receive and the waking press only wake, and the cadence restarts at the wake
+//    on the same page; long_arm resets to EDIT and long_cancel returns on it. ⛔ Nothing queues, nothing locks.
+TEST_CASE("w8-interrupt: the written REVIEW keeps its page in the dark (the both-due tick too) on EDIT; receive, wake and arm/cancel never act") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    std::string text;
+    for (int i = 0; i < 8; ++i) text += std::string(" ") + std::string(19, 'Y');
+    text += " YY";
+    w8::type(m, s, text.c_str());
+    w8::done(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::message_review);
+    CHECK(m.state().detail_pages == 6);                           // ⛔ non-vacuity: the cadence is ARMED
+    const auto at = [&s](uint32_t t) { UiSnapshot x = s; x.now_ms = t; return x; };
+    const uint32_t t0 = s.now_ms;
+    m.on_tick(at(t0 + kDetailPageMs));
+    m.on_tick(at(t0 + 2 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);                            // ★ the page the operator is looking at
+    const uint32_t last = t0 + 2 * kDetailPageMs + 5;
+    m.on_gesture(Gesture::short_press, at(last)); m.on_tick(at(last));
+    CHECK(m.state().review_send);                                 // SEND selected
+    // ★★★ THE BLANKING TICK IS ALSO PAGE-DUE (kBlankMs since the last turn): the blank wins
+    m.on_tick(at(last + kBlankMs));
+    CHECK(m.state().blanked);
+    CHECK(m.state().detail_page == 2);                            // ★★ the LAST VISIBLE page, not a turned one
+    CHECK(m.state().editor.phase == EditorPhase::message_review); // kept
+    CHECK_FALSE(m.state().review_send);                           // ★ reset to EDIT
+    m.on_tick(at(last + kBlankMs + 5 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);                            // ★ suspended in the dark
+    // a receive: counters and wake only — no navigation, EDIT kept, the cadence restarted at the wake
+    const uint32_t rx = last + kBlankMs + 6 * kDetailPageMs;
+    m.on_msg_wake(rx); m.on_tick(at(rx));
+    CHECK_FALSE(m.state().blanked);
+    CHECK(m.state().editor.phase == EditorPhase::message_review);
+    CHECK(m.state().detail_page == 2);
+    CHECK_FALSE(m.state().review_send);
+    m.on_tick(at(rx + kDetailPageMs - 1));
+    CHECK(m.state().detail_page == 2);
+    m.on_tick(at(rx + kDetailPageMs));
+    CHECK(m.state().detail_page == 3);
+    // dark again (both due once more), then the WAKING press — a double on EDIT that would leave: consumed
+    const uint32_t dark = rx + kBlankMs + 1;
+    m.on_tick(at(dark));
+    CHECK(m.state().blanked);
+    CHECK(m.state().detail_page == 3);
+    m.on_gesture(Gesture::double_press, at(dark + 40)); m.on_tick(at(dark + 40));
+    CHECK_FALSE(m.state().blanked);
+    CHECK(m.state().editor.phase == EditorPhase::message_review);
+    CHECK(m.state().detail_page == 3);
+    CHECK_FALSE(m.state().review_send);
+    // long_arm resets to EDIT; long_cancel returns to the review on it
+    const uint32_t t1 = dark + 100;
+    m.on_gesture(Gesture::short_press, at(t1)); m.on_tick(at(t1));
+    CHECK(m.state().review_send);
+    m.on_gesture(Gesture::long_arm, at(t1 + 10));
+    CHECK_FALSE(m.state().review_send);
+    m.on_gesture(Gesture::long_cancel, at(t1 + 20));
+    m.on_tick(at(t1 + 20 + kCancelledMs + 1));
+    CHECK(m.emergency() == Emergency::idle);
+    CHECK(m.state().editor.phase == EditorPhase::message_review);
+    CHECK_FALSE(m.state().review_send);
+    SendReq req{};
+    CHECK(m.take_send_request(req) == false);                     // ⛔ none of it queued anything
+    CHECK_FALSE(m.draft().locked);
+    CHECK(w8::draft_of(m) == text);
+}
+
+// ★★ §2.5 — THE WRITTEN EDITOR AND RESULT in the dark, and the SLEEP policy over them: blanked, each lets the device
+//    sleep (`ui_allows_sleep`), lit never; a receive only wakes; the waking press on an ACCEPTED, OPEN result is NOT its
+//    acknowledgement; long_arm / long_cancel return to the result. ⛔ Nothing is re-queued and the executor ran once.
+TEST_CASE("w8-interrupt: the written EDITOR and RESULT ride blank, wake, receive and arm/cancel; blanked, each lets the device sleep") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    InputFsm in; FrameGate g;
+    w8::to_send_list(m, s);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "OK");
+    const EditorView e = m.state().editor;
+    CHECK_FALSE(ui_allows_sleep(m, in, g));                       // lit
+    s.now_ms += kBlankMs; m.on_tick(s);
+    CHECK(m.state().blanked);
+    CHECK(ui_allows_sleep(m, in, g));                             // ★ a blanked editor lets the device sleep
+    CHECK(std::memcmp(&e, &m.state().editor, sizeof e) == 0);     // ring, cursor and window kept
+    s.now_ms += 10; m.on_msg_wake(s.now_ms); m.on_tick(s);        // a receive: wake only
+    CHECK_FALSE(m.state().blanked);
+    CHECK(std::memcmp(&e, &m.state().editor, sizeof e) == 0);
+    CHECK_FALSE(ui_allows_sleep(m, in, g));
+    s.now_ms += 10;
+    w8::done(m, s); w8::send(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::message_result);
+    w8::Exec x; x.drain(m, s);
+    CHECK(x.drained == 1);
+    CHECK(x.f.calls == 1);
+    CHECK(m.written_outcome().state == WrittenState::accepted_open);
+    s.now_ms += kBlankMs; m.on_tick(s);
+    CHECK(m.state().blanked);
+    CHECK(ui_allows_sleep(m, in, g));                             // ★ ...and so does a blanked result
+    CHECK(m.state().editor.phase == EditorPhase::message_result);
+    s.now_ms += 40; w8::press(m, s, Gesture::double_press);       // the WAKE: consumed, ⛔ NOT the acknowledgement
+    CHECK_FALSE(m.state().blanked);
+    CHECK(m.state().editor.phase == EditorPhase::message_result);
+    CHECK(m.written_outcome().state == WrittenState::accepted_open);
+    s.now_ms += 10; m.on_msg_wake(s.now_ms); m.on_tick(s);
+    CHECK(m.state().editor.phase == EditorPhase::message_result);
+    m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_cancel, s);
+    s.now_ms += kCancelledMs + 1; m.on_tick(s);
+    CHECK(m.emergency() == Emergency::idle);
+    CHECK(m.state().editor.phase == EditorPhase::message_result); // ★ returns
+    CHECK(m.written_outcome().state == WrittenState::accepted_open);
+    SendReq req{};
+    CHECK(m.take_send_request(req) == false);                     // ⛔ nothing re-queued
+    CHECK(x.f.calls == 1);
+}
+
+// ★★ §2.5's EDGE TIMING — millis() WRAP: the editor's blank and the written review's page cadence ride across 2^32 (a
+//    wrapped comparison would blank ~4.29e9 ms "late" or turn every page at once).
+TEST_CASE("w8-interrupt: millis() WRAP — the editor's blank and the written review's cadence ride across 2^32") {
+    {   // the editor's blank
+        UiModel m; UiSnapshot s = w8::tsnap(0xFFFFE000u);
+        w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        w8::type(m, s, "OK");
+        const EditorView e = m.state().editor;
+        UiSnapshot t = s; t.now_ms = 0xFFFFE000u + kBlankMs - 1;      // past the wrap, 1 ms short
+        CHECK(t.now_ms < 0x10000u);
+        m.on_tick(t);
+        CHECK_FALSE(m.state().blanked);                               // NOT ~4.29e9 ms "elapsed"
+        t.now_ms = 0xFFFFE000u + kBlankMs;
+        m.on_tick(t);
+        CHECK(m.state().blanked);                                     // exactly kBlankMs after the last press
+        CHECK(std::memcmp(&e, &m.state().editor, sizeof e) == 0);
+    }
+    {   // the review's cadence: one page per kDetailPageMs on both sides of the wrap
+        const uint32_t t0 = 0xFFFFF800u;                              // 2048 ms before the wrap
+        UiModel m; UiSnapshot s = w8::tsnap(t0);
+        w8::to_send_list(m, s);
+        CHECK(w8::open_write(m, s));
+        std::string text;
+        for (int i = 0; i < 4; ++i) text += std::string(" ") + std::string(19, 'Y');
+        w8::type(m, s, text.c_str());
+        w8::done(m, s);
+        CHECK(m.state().editor.phase == EditorPhase::message_review);
+        CHECK(m.state().detail_pages > 2);                            // ⛔ non-vacuity: three turns are visible
+        UiSnapshot t = s;
+        t.now_ms = t0 + kDetailPageMs - 1; m.on_tick(t);
+        CHECK(m.state().detail_page == 0);
+        t.now_ms = t0 + kDetailPageMs;     m.on_tick(t);              // before the wrap
+        CHECK(m.state().detail_page == 1);
+        t.now_ms = t0 + 2 * kDetailPageMs - 1; m.on_tick(t);          // past the wrap, 1 ms short
+        CHECK(t.now_ms < 0x10000u);
+        CHECK(m.state().detail_page == 1);                            // ⛔ not turned by a wrapped "eternity"
+        t.now_ms = t0 + 2 * kDetailPageMs; m.on_tick(t);
+        CHECK(m.state().detail_page == 2);
+        SendReq req{};
+        CHECK(m.take_send_request(req) == false);
+    }
+}
+
+// ★★ THE ONE ACCEPTANCE WHOSE TRACKER IS STILL OPEN WHEN IT IS ACKNOWLEDGED. A written DM that ends NO CONFIRM keeps its
+//    late-ACK slot while the result shows (it may still upgrade to DELIVERED, §7.4.1). Acknowledged, the view returns
+//    to the person's list — compose stays OPEN — so `compose_open()` alone would hold the slot for ever; the pump asks
+//    `normal_tracking_open()` and closes it ONCE, and a late ACK is then unmatched. (A delivered DM or a relayed post
+//    closes its own slot inside the tracker, which is why the accepted-FINAL case above cannot see this.)
+TEST_CASE("w8-result: NO CONFIRM keeps the late-ACK slot while shown; acknowledged back to the list, the pump closes it ONCE") {
+    UiModel m; UiSnapshot s = w8::tsnap();
+    w8::to_person(m, s, 0);
+    CHECK(w8::open_write(m, s));
+    w8::type(m, s, "HI");
+    w8::done(m, s); w8::send(m, s);
+    w8::Exec x; x.drain(m, s);
+    SendOutcome o{};
+    CHECK(x.normal.match_dm(41, 10, /*acked=*/false, FailReason::e2e_ack_timeout, o));
+    m.on_outcome(o, s.now_ms);
+    CHECK(m.dm_state() == DmState::not_confirmed);
+    CHECK(m.written_outcome().state == WrittenState::accepted_final);   // may have aired
+    ui_pump_trackers(x.emg, x.normal, m, s.now_ms);
+    CHECK_FALSE(x.normal.idle());                             // ★ retained while shown: the upgrade may still land
+    w8::press(m, s, Gesture::short_press);                    // acknowledge
+    CHECK(m.state().compose == Compose::dm);                  // the person's list — compose is still OPEN
+    CHECK(m.written_outcome().state == WrittenState::released);
+    CHECK(m.compose_open());
+    ui_pump_trackers(x.emg, x.normal, m, s.now_ms);
+    CHECK(x.normal.idle());                                   // ★★ closed ONCE although compose_open() is true
+    SendOutcome late{};
+    CHECK_FALSE(x.normal.match_dm(41, 10, /*acked=*/true, FailReason::none, late));   // ⛔ a late ACK is unmatched
+    CHECK(m.dm_state() == DmState::not_confirmed);
 }

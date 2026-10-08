@@ -1,0 +1,43 @@
+inv-start	0	0
+b499-proof	0	0
+native-build	0	2
+native-binary	0	1
+native-cold-copy	0	0
+native-cold-build	0	28
+native-cold-binary	0	1
+native-cold-cleanup	0	0
+sim-configure	0	0
+sim-build	0	33
+lus-sha	0	0
+corpus	0	52
+corpus-copy	0	0
+corpus-vs-base	0	0
+corpus-vs-final	0	0
+board-qa-1	0	47
+stock-compare-gateway-final-1	2	0	observed
+stock-compare-heltec_mobile-final-1	2	0	observed
+board-fields	0	0
+abi	0	19
+abi-supplemental	0	18
+firmware-ui	0	478
+board-ui	0	26
+mut-model	9	262
+STOP: step mut-model exited 9
+RESUME	qa-chain-2.sh	--workers=4 after ENOSPC (mut-model exit 9, no verdicts; log kept as enospc-mut-model.log)
+disk-before	0	0
+mut-model	0	404
+mut-chrome	0	142
+mut-uisend	0	112
+mut-sliceCbudget	0	18
+mut-sliceCsend	0	17
+mut-w4aident	0	77
+mut-w4bhome	0	105
+mut-uieditor	0	100
+mut-uipresets-U13	0	18
+mut-uipresets-W6-P1	0	18
+mut-uipresets-W6-P3	0	17
+discovery	0	896
+inventory	0	2
+inv-end	0	0
+stability	0	0
+DONE

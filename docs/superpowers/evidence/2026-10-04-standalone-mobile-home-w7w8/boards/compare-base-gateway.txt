@@ -1,0 +1,4 @@
+PASS: exact repeatability env=gateway
+  RAM=203740 flash=572096 objects=285
+  payload_sha256=7fa27c2b884cf4b4b9869b3c9937ef264e40cd9369c5926c006aaf64f3fb837d
+  ELF hashes are diagnostic only and were not used as the verdict

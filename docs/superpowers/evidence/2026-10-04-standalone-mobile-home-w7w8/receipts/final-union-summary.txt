@@ -1,0 +1,17 @@
+model rc=0 wall=1368s mutations: 297 RED / 0 unusable
+chrome rc=0 wall=297s mutations: 50 RED / 0 unusable
+uisend rc=0 wall=369s mutations: 40 RED / 0 unusable
+sliceCbudget rc=0 wall=34s mutations: 1 RED / 0 unusable
+sliceCsend rc=0 wall=33s mutations: 1 RED / 0 unusable
+w4aident rc=0 wall=306s mutations: 9 RED / 0 unusable
+w4bhome rc=0 wall=364s mutations: 26 RED / 0 unusable
+uistatus rc=0 wall=285s mutations: 19 RED / 0 unusable
+uiteam rc=0 wall=272s mutations: 20 RED / 0 unusable
+uiinvite rc=0 wall=385s mutations: 32 RED / 0 unusable
+uiprov rc=0 wall=320s mutations: 45 RED / 0 unusable
+uijoin rc=0 wall=386s mutations: 26 RED / 0 unusable
+uipresets rc=0 wall=454s mutations: 39 RED / 0 unusable
+config rc=0 wall=408s mutations: 32 RED / 0 unusable
+consoleline rc=0 wall=303s mutations: 12 RED / 0 unusable
+uieditor rc=0 wall=391s mutations: 25 RED / 0 unusable
+DONE

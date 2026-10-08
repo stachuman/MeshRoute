@@ -1,0 +1,226 @@
+[
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 305,
+    "symbols": [
+      "if (!m.compose_open()"
+    ],
+    "source": "    // \u24d8 The EMERGENCY slot is deliberately untouched: an alarm has no modal and must never be closed by one.\n    if (!m.compose_open() && !normal.idle()) normal.close();\n}\n\n// Correlate ONE node-wide outcome push into the UI. Returns true if some slot claimed it (diagnostic; an unmatched push\n// being IGNORED is the entire point of the tracker)."
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 513,
+    "symbols": [
+      "struct SendLive"
+    ],
+    "source": "//   `peer_found` is the resolver's OWN boolean: a zero `peer_hash` with `peer_found` is a known zero, never \"unknown\".\nstruct SendLive {\n    uint32_t team_id    = 0;      // `g_node.config().team_id`\n    bool     peer_found = false;  // `Node::team_key_of_id`'s answer for the request's peer (DM only)\n    uint32_t peer_hash  = 0;      // its hash, meaningful only when `peer_found`\n};"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 518,
+    "symbols": [
+      "inline SendGate send_gate_of"
+    ],
+    "source": "};\ninline SendGate send_gate_of(const SendReq& req, const mrnv::UiPresetBlob& cat, const SendLive& live) {\n    if (req.kind == SendKind::emergency) return SendGate::send;              // \u26d4 R-3/\u00a74.1 \u2014 never gated\n    if (req.generation != cat.generation) return SendGate::preset_changed;   // \u2605 EQUALITY, never ordering (\u00a73.2.3)\n    if (!mrfw::preset_slot_valid(req.slot)) return SendGate::preset_changed; // C2 \u2014 a slot this catalog has not got\n    if (!cat.slot[req.slot].enabled) return SendGate::preset_changed;        // \u2605 the slot was cleared under the press"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 613,
+    "symbols": [
+      "switch (send_gate_of"
+    ],
+    "source": "    // \u2605 W6: the two new bindings refuse the same way \u2014 typed, zero submission, the tracker untouched.\n    switch (send_gate_of(req, cat, live)) {\n        case SendGate::send:              break;\n        case SendGate::preset_changed:    m.on_preset_changed(req.kind, now_ms);   return;\n        case SendGate::team_changed:      m.on_team_changed(req.kind, now_ms);     return;\n        case SendGate::recipient_changed: m.on_recipient_changed(now_ms);          return;"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 636,
+    "symbols": [
+      "if (r.ctr == 0)"
+    ],
+    "source": "    }\n    if (r.ctr == 0) { tr.awaiting_outcome(now_ms); return; }   // \u2605 rule 2 \u2014 no handle, status UNKNOWN, no attempt spent\n    tr.accept(r.ctr, now_ms);\n    m.on_send_accepted(req.kind, now_ms);\n}\n"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 679,
+    "symbols": [
+      "inline bool ui_review_capture"
+    ],
+    "source": "// \u2192 true when a requested review was answered (opened, or closed on its broken binding).\ninline bool ui_review_capture(UiModel& m, const mrnv::UiPresetBlob& cat, const SendLive& live,\n                              const char* name, uint8_t name_len, const UiSnapshot& s, uint32_t now_ms) {\n    SendReq b{};\n    if (!m.review_capture_owed(b)) return false;\n    b.peer_known = (b.kind == SendKind::dm) && live.peer_found;   // \u2605 the resolver's own bit \u2014 a known zero stays known"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 685,
+    "symbols": [
+      "const SendGate g = send_gate_of"
+    ],
+    "source": "    b.peer_hash  = b.peer_known ? live.peer_hash : 0u;\n    const SendGate g = send_gate_of(b, cat, live);\n    if (g != SendGate::send) { m.on_review_refused(review_note_of(g), s, cat.generation); return true; }\n    const mrnv::UiPresetSlot& sl = cat.slot[b.slot];              // the gate proved it valid, enabled and of this kind\n    char header[kReviewHeaderCap];\n    ui_review_header(header, sizeof header, b, name, name_len);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 468,
+    "symbols": [
+      "g_node.team_key_of_id"
+    ],
+    "source": "    //   the bare id. No #if needed \u2014 the stub IS the fallback.\n    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap, cols); return hash; }\n    snprintf(out, cap, \"id %u\", unsigned(id));\n    return 0;   // \u26d4 C2: \"no hash\" is said out loud, never a plausible one \u2014 the caller blanks the location columns\n}\nvoid label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap, uint8_t cols) {"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 587,
+    "symbols": [
+      "g_node.team_key_of_id"
+    ],
+    "source": "    l.team_id = g_node.config().team_id;\n    if (req.kind == mrui::SendKind::dm) l.peer_found = g_node.team_key_of_id(req.peer_id, l.peer_hash);\n    if (!l.peer_found) l.peer_hash = 0;\n    return l;\n}\nvoid ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 600,
+    "symbols": [
+      "void ui_service_review"
+    ],
+    "source": "//     (`label_from_hash`'s read, W4a \u2014 \u26d4 never a pre-clipped prefix). \u26d4 It never queues and never calls `ui_exec`.\nvoid ui_service_review(const mrui::UiSnapshot& s, uint32_t now_ms) {\n    mrui::SendReq b{};\n    if (!s_model.review_capture_owed(b)) return;\n    const mrui::SendLive live = ui_send_live(b);\n    char raw[MESHROUTE_NS::protocol::peer_name_max];"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2617,
+    "symbols": [
+      "void mr_ui_tick"
+    ],
+    "source": "\nvoid mr_ui_tick(uint32_t now_ms) {\n    // \u2605\u2605 \u00a7B84/\u00a7B79 FIRST, before any paint decision: both trackers' bounded windows must advance, the emergency slot\n    //    must consume one attempt on an unattributable expiry, and the normal slot's expiry must NEVER reach the\n    //    emergency model. That whole wiring is `mrui::ui_pump_trackers` \u2014 a PURE function in firmware_ui_send.h, which\n    //    is what puts it under the native gate. It used to be inline here, where nothing could test it."
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2639,
+    "symbols": [
+      "s_model.take_send_request"
+    ],
+    "source": "        if (!s_tracker_normal.idle() && s_tracker_normal.kind() != mrui::SendKind::dm) s_tracker_normal.close();\n        const bool got_emg = s_model.take_send_request(req);   // \u26a0 \u00a7B70: this DRAINS \u2014 ONE call, into a local\n        if (got_emg) ui_perform_send(req, now_ms);\n    } else if (s_tracker_normal.idle()) {\n        const bool got_req = s_model.take_send_request(req);   // \u26a0 \u00a7B70: distinct name, still exactly one call\n        if (got_req) ui_perform_send(req, now_ms);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2642,
+    "symbols": [
+      "s_model.take_send_request"
+    ],
+    "source": "    } else if (s_tracker_normal.idle()) {\n        const bool got_req = s_model.take_send_request(req);   // \u26a0 \u00a7B70: distinct name, still exactly one call\n        if (got_req) ui_perform_send(req, now_ms);\n    }\n\n    // \u2605\u2605 \u00a7UI-7D slice B: serve the inbox detail/delete request, and BEFORE the frame gate below \u2014 the answer must be in"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2651,
+    "symbols": [
+      "ui_service_review(s, now_ms);"
+    ],
+    "source": "    //     in `UiState` when the frame freezes, and no frame may read the live catalog or a live name while it draws.\n    ui_service_review(s, now_ms);\n\n    // \u2605\u2605\u2605\u2605 \u00a7CHROME-3 / design \u00a78.3 \u2014 THE REPAINT INVALIDATION. Snapshot-only facts move with NO gesture and NO app\n    //   push: a team route arrives on a beacon, the mobile-home link changes state, a battery sample lands, and the\n    //   compact home age turns with the clock. Without this the strip would simply go stale on a lit panel, because"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 1858,
+    "symbols": [
+      "struct SendReq"
+    ],
+    "source": "// \u26d4 No `draft_id` and no new `SendKind`: written messages are W8's.\nstruct SendReq {\n    SendKind kind       = SendKind::emergency;\n    uint8_t  peer_id    = 0;\n    uint8_t  slot       = 0;      // \u2605 the STABLE `/mrui` slot, \u26d4 never a row index\n    bool     peer_known = false;  // \u2605 W6: `peer_hash` is a KNOWN hash (DM only) \u2014 in the old padding byte"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2793,
+    "symbols": [
+      "char    review_line"
+    ],
+    "source": "        char    detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped\n        char    review_line[kReviewBodyRows][kDetailCols + 1];        // W6: the review's page, word-wrapped (\u00a77.2)\n    };\n    // \u2605\u2605\u2605 \u00a7UI-14 \u2014 WHAT THE MODEL DECIDED ABOUT SETTINGS, frozen with everything else. \u26d4 WHAT IS DELIBERATELY *NOT*\n    //     HERE: `config_unsaved`, `conflict`, `reboot_required` and the draft VALUES. Those are the SERVICE's, read\n    //     through `ConfigService` at the freeze (`src/firmware_ui.cpp`'s `SettingsView`) \u2014 mirroring them into"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 2993,
+    "symbols": [
+      "char        review_header"
+    ],
+    "source": "    bool        review_loc   = false;\n    char        review_header[kReviewHeaderCap] = {};\n};\n\n// \u2605\u2605 THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION \u2014 formatted in this PURE unit so the native suite can\n//    assert the VISIBLE BYTES (\u00a7B115's rule; `src/firmware_ui.cpp` is compiled by neither the native suite nor the"
+  },
+  {
+    "path": "src/firmware_ui_model.h",
+    "line": 3157,
+    "symbols": [
+      "preset_generation_moved(s)) close_compose();"
+    ],
+    "source": "        if (_st.compose == Compose::channel && preset_generation_moved(s)) preset_catalog_moved(s);\n        if (preset_generation_moved(s)) close_compose();\n        // \u2605\u2605\u2605\u2605 \u00a7UI-17 S2 \u2014 **THERE ARE NO MODAL TIMEOUTS HERE ANY MORE**, and the absence is stated rather than left\n        //      as a gap somebody re-fills. \u00a73.3 (owner-ruled 2026-08-20, spec \u00a79 R-1) is that **blanking is a POWER\n        //      action**: it may not discard a draft, a detail selection or a compose choice. The panel goes dark, the\n        //      interaction and its stable selection stay exactly as the operator left them, and the consumed wake"
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 186,
+    "symbols": [
+      "def source_snapshot"
+    ],
+    "source": "\ndef source_snapshot() -> dict[str, Any]:\n    # Capture the deletion authority before walking inputs: a later disappearance\n    # must still fail. NUL records preserve literal whitespace/quotes in paths.\n    status = subprocess.check_output(\n        [\"git\", \"status\", \"--porcelain=v1\", \"-z\", \"--untracked-files=all\"], cwd=ROOT"
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 234,
+    "symbols": [
+      "def metadata_snapshot"
+    ],
+    "source": "\ndef metadata_snapshot(root: Path) -> dict[str, Any]:\n    if not root.exists():\n        return {\"exists\": False, \"entry_count\": 0, \"sha256\": hashlib.sha256(b\"absent\").hexdigest()}\n    digest = hashlib.sha256()\n    entries = [root, *sorted(root.rglob(\"*\"))]"
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 790,
+    "symbols": [
+      "QUALIFICATION_FIELDS"
+    ],
+    "source": "\nQUALIFICATION_FIELDS = (\n    \"schema\",\n    \"environment\",\n    \"fixed_identity.source_date_epoch\",\n    \"fixed_identity.build_stamp\","
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 802,
+    "symbols": [
+      "source.tree_sha256"
+    ],
+    "source": "    \"source.deleted_files\",\n    \"source.tree_sha256\",\n    \"paths.project_root\",\n    \"paths.build_root\",\n    \"paths.libdeps_root\",\n    \"paths.workspace_root\","
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 851,
+    "symbols": [
+      "normal_pio_metadata.sha256"
+    ],
+    "source": "    \"normal_pio_metadata.entry_count\",\n    \"normal_pio_metadata.sha256\",\n    \"concurrency.measurement_lock\",\n    \"concurrency.mutation_batteries_share_lock\",\n    \"concurrency.limitation\",\n    \"host.platform\","
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 861,
+    "symbols": [
+      "QUALIFICATION_FIELDS"
+    ],
+    "source": "def compare_qualification(first: dict[str, Any], second: dict[str, Any]) -> None:\n    mismatches = [field for field in QUALIFICATION_FIELDS if nested(first, field) != nested(second, field)]\n    require(not mismatches, f\"repeatability mismatch in: {', '.join(mismatches)}\")\n\n\ndef compare_command(first_path: Path, second_path: Path) -> None:"
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 865,
+    "symbols": [
+      "def compare_command"
+    ],
+    "source": "\ndef compare_command(first_path: Path, second_path: Path) -> None:\n    first = load_manifest(first_path.resolve())\n    second = load_manifest(second_path.resolve())\n    compare_qualification(first, second)\n    print(f\"PASS: exact repeatability env={first['environment']}\")"
+  },
+  {
+    "path": "tools/probe_board_ui/accounting.py",
+    "line": 75,
+    "symbols": [
+      "def shell_words"
+    ],
+    "source": "\ndef shell_words(s):\n    \"\"\"Split one statement into words: '\u2026', \"\u2026\" (with \\\\-escapes and $( \u2026 ) nesting) and bare runs. Returns\n    [(raw, first-segment-kind)] with the quotes KEPT in raw (the census reads, never expands).\"\"\"\n    words, i = [], 0\n    while i < len(s):"
+  },
+  {
+    "path": "tools/probe_board_abi.py",
+    "line": 454,
+    "symbols": [
+      "def load_extra_pins"
+    ],
+    "source": "\ndef load_extra_pins(path: str) -> tuple[tuple[str, ...], tuple[str, ...],\n                                        tuple[tuple[str, str], ...],\n                                        dict[str, dict[str, tuple[int, int, bool]]]]:\n    \"\"\"Read an extra-pins manifest. Returns (headers, include_dirs, entries, pins).\n"
+  },
+  {
+    "path": "tools/probe_board_abi.py",
+    "line": 636,
+    "symbols": [
+      "def measure"
+    ],
+    "source": "\ndef measure(target: str, tu_text: str, defines: list[str] | None = None) -> dict[str, int]:\n    \"\"\"Compile the generated TU for one target and read the symbol sizes back.\n\n    \u26d4 A COMPILE FAILURE RAISES \u2014 it is never turned into an absent/zero measurement ([[B237]]).\n    \"\"\""
+  }
+]

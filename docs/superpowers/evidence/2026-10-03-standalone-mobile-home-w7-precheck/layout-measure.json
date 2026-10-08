@@ -1,0 +1,471 @@
+{
+  "scope": "STRUCT-ONLY candidate pricing, not implementation or linked RAM. Uses stock ABI toolchains.",
+  "scratch": "/tmp/w7-layout-uls7xbcz",
+  "variants": {
+    "base": {
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1016,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 560,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1000,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 560,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1000,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          }
+        }
+      },
+      "model_sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf"
+    },
+    "name32": {
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 576,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1064,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 36,
+            "align": 1
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1040,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 36,
+            "align": 1
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1040,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 36,
+            "align": 1
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          }
+        }
+      },
+      "model_sha256": "894055dd7a516acf05d8859cb208cdb13f618f7406bed0e8cfdf27bfc9b69dc9"
+    },
+    "shared163": {
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 576,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1208,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 176,
+            "align": 4
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1184,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 176,
+            "align": 4
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1184,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::HomeCapture": {
+            "size": 9,
+            "align": 1
+          },
+          "mrui::HomeView": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SetupOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::ReviewPhase": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::InputFsm": {
+            "size": 28,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 176,
+            "align": 4
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          }
+        }
+      },
+      "model_sha256": "8ece037878b2ddcf53f9a84ef53bddd3a67450ece544cc5670df3926cabaacf5"
+    }
+  }
+}

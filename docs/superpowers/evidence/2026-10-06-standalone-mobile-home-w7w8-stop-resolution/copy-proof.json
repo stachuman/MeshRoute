@@ -1,0 +1,7 @@
+{
+  "base_harness": "27807b320427fb090840e927bf559bfff909f78761d98b29e3aff8b3cb4d177d",
+  "candidate_paths": 2569,
+  "new_editor": "c197a80c792b7dc72dab47a238b60e0bbd6088155f2eaa3299e4337fa6b02c4f",
+  "candidate_model": "0355c83ccf3a5d0680b76ddafe97bd7bc0e025e61bae29076c1098a37f150479",
+  "scope": "isolated scratch snapshots; shared checkout never used for builds or mutations"
+}

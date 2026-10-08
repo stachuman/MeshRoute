@@ -1,0 +1,227 @@
+{
+  "command": [
+    "cc",
+    "-std=c11",
+    "-O2",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-I/home/staszek/MeshRoute/.pio/libdeps/heltec_mobile/U8g2/src/clib",
+    "/home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c",
+    "/home/staszek/MeshRoute/.pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_font.c",
+    "/home/staszek/MeshRoute/.pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_fonts.c",
+    "-Wl,--gc-sections",
+    "-o",
+    "/tmp/w7-precheck-m6n5vvdo/font-proof"
+  ],
+  "repertoire": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,?!-",
+  "repertoire_bytes": 42,
+  "groups": [
+    "ABCDEF",
+    "GHIJKL",
+    "MNOPQR",
+    "STUVWX",
+    "YZ0123",
+    "456789",
+    " .,?!-"
+  ],
+  "glyphs": {
+    "41": {
+      "present": "1",
+      "advance": "6"
+    },
+    "42": {
+      "present": "1",
+      "advance": "6"
+    },
+    "43": {
+      "present": "1",
+      "advance": "6"
+    },
+    "44": {
+      "present": "1",
+      "advance": "6"
+    },
+    "45": {
+      "present": "1",
+      "advance": "6"
+    },
+    "46": {
+      "present": "1",
+      "advance": "6"
+    },
+    "47": {
+      "present": "1",
+      "advance": "6"
+    },
+    "48": {
+      "present": "1",
+      "advance": "6"
+    },
+    "49": {
+      "present": "1",
+      "advance": "6"
+    },
+    "4a": {
+      "present": "1",
+      "advance": "6"
+    },
+    "4b": {
+      "present": "1",
+      "advance": "6"
+    },
+    "4c": {
+      "present": "1",
+      "advance": "6"
+    },
+    "4d": {
+      "present": "1",
+      "advance": "6"
+    },
+    "4e": {
+      "present": "1",
+      "advance": "6"
+    },
+    "4f": {
+      "present": "1",
+      "advance": "6"
+    },
+    "50": {
+      "present": "1",
+      "advance": "6"
+    },
+    "51": {
+      "present": "1",
+      "advance": "6"
+    },
+    "52": {
+      "present": "1",
+      "advance": "6"
+    },
+    "53": {
+      "present": "1",
+      "advance": "6"
+    },
+    "54": {
+      "present": "1",
+      "advance": "6"
+    },
+    "55": {
+      "present": "1",
+      "advance": "6"
+    },
+    "56": {
+      "present": "1",
+      "advance": "6"
+    },
+    "57": {
+      "present": "1",
+      "advance": "6"
+    },
+    "58": {
+      "present": "1",
+      "advance": "6"
+    },
+    "59": {
+      "present": "1",
+      "advance": "6"
+    },
+    "5a": {
+      "present": "1",
+      "advance": "6"
+    },
+    "30": {
+      "present": "1",
+      "advance": "6"
+    },
+    "31": {
+      "present": "1",
+      "advance": "6"
+    },
+    "32": {
+      "present": "1",
+      "advance": "6"
+    },
+    "33": {
+      "present": "1",
+      "advance": "6"
+    },
+    "34": {
+      "present": "1",
+      "advance": "6"
+    },
+    "35": {
+      "present": "1",
+      "advance": "6"
+    },
+    "36": {
+      "present": "1",
+      "advance": "6"
+    },
+    "37": {
+      "present": "1",
+      "advance": "6"
+    },
+    "38": {
+      "present": "1",
+      "advance": "6"
+    },
+    "39": {
+      "present": "1",
+      "advance": "6"
+    },
+    "20": {
+      "present": "1",
+      "advance": "6"
+    },
+    "2e": {
+      "present": "1",
+      "advance": "6"
+    },
+    "2c": {
+      "present": "1",
+      "advance": "6"
+    },
+    "3f": {
+      "present": "1",
+      "advance": "6"
+    },
+    "21": {
+      "present": "1",
+      "advance": "6"
+    },
+    "2d": {
+      "present": "1",
+      "advance": "6"
+    },
+    "5f": {
+      "present": "1",
+      "advance": "6"
+    }
+  },
+  "layout_strings": {
+    "NAME           4/32": 19,
+    ">ABCDEF GHIJKL": 14,
+    " MNOPQR STUVWX": 14,
+    " A B C>D E F BACK": 17,
+    ">DEL LEFT RIGHT": 15,
+    " DONE DISCARD BACK": 18,
+    "ADD SPACE": 9,
+    "BACK TO GROUPS": 14,
+    "SAVE NAME?": 10,
+    " SAVE >EDIT": 11,
+    " CHANGE NAME >BACK": 18,
+    "NO NAME SET": 11,
+    " SET NAME": 9,
+    ">SKIP": 5,
+    "NAME SAVED": 10,
+    "NAME NOT SAVED": 14,
+    "NV WRITE FAILED": 15
+  },
+  "font_inputs": {
+    "docs/superpowers/evidence/2026-09-26-standalone-mobile-home-w4a-precheck/font-proof.c": "3d7c71787394a39d4c43c20442c1e3a7451130cdbd291283c70a58ae13d7c2b1",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_font.c": "33b1d8611ac13bda84c7639c2d760087811133e22f6fa35a76e7291604f10f66",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2_fonts.c": "4320525f309cec957538502a48ac1b86c6fd4fbc7db45335ec48e046618d1494",
+    ".pio/libdeps/heltec_mobile/U8g2/src/clib/u8g2.h": "38f231e6b3f54560886628ef595f3bbe6c463b886c0a69acf7c8aabaf8bd6f30",
+    "variants/heltec_common/board_ui.cpp": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46"
+  }
+}

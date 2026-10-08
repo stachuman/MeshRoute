@@ -1,0 +1,244 @@
+# reader audit — 4c1a000, 2026-10-02T13:24:48Z
+
+### harness symbols (SuiteOutput/SuiteFailure/run_suite/unusable_verdict/retain_unusable/escape/bounded_view/ship/receive/retain_shipped)
+tools/probe_ui_model_mutations.py:45:the longest window in the tool (a full build inside `run_suite()`). ★★ EVERY WRITE TO THE SOURCE NOW GOES THROUGH THAT
+tools/probe_ui_model_mutations.py:2838:#      the file. ⇒ ★ AND THE UNGUARDED WINDOW WAS THE WORST ONE IN THE TOOL: `run_suite()` sits between those two
+tools/probe_ui_model_mutations.py:12335:class SuiteOutput(NamedTuple):
+tools/probe_ui_model_mutations.py:12343:class SuiteFailure(NamedTuple):
+tools/probe_ui_model_mutations.py:12356:#    retention keeps them byte for byte (`retain_unusable`), and every HUMAN view — the excerpt lines, the baseline
+tools/probe_ui_model_mutations.py:12363:def escape_child_bytes(data, limit=None):
+tools/probe_ui_model_mutations.py:12380:def bounded_view(stdout, stderr):
+tools/probe_ui_model_mutations.py:12383:    return escape_child_bytes((stdout + stderr)[-_VIEW_BYTES:])
+tools/probe_ui_model_mutations.py:12386:def child_lines(data):
+tools/probe_ui_model_mutations.py:12394:def unusable_verdict(failure):
+tools/probe_ui_model_mutations.py:12395:    """Pure classification of a `SuiteFailure`: its headline, a bounded inline excerpt and the bounded `.log` view."""
+tools/probe_ui_model_mutations.py:12397:    lines = child_lines(failure.stdout + failure.stderr)
+tools/probe_ui_model_mutations.py:12407:    extra = [f"        {escape_child_bytes(x, 160)}" for x in excerpt]
+tools/probe_ui_model_mutations.py:12410:    return line, extra, bounded_view(failure.stdout, failure.stderr)
+tools/probe_ui_model_mutations.py:12413:def unusable_log_path(target, label):
+tools/probe_ui_model_mutations.py:12418:def stream_record(data):
+tools/probe_ui_model_mutations.py:12422:def unretained_record(meta, declared, stdout, stderr, failed):
+tools/probe_ui_model_mutations.py:12430:        got = stream_record(data) if data is not None else {"bytes": "(unreadable)", "sha256": "(unreadable)"}
+tools/probe_ui_model_mutations.py:12434:    lines += [f"        | {x}" for x in bounded_view(stdout or b"", stderr or b"").split("\n")]
+tools/probe_ui_model_mutations.py:12438:def retain_unusable(target, label, meta, stdout, stderr):
+tools/probe_ui_model_mutations.py:12440:    the bounded `.log` view at `unusable_log_path` — then RE-READ and verify all four.
+tools/probe_ui_model_mutations.py:12444:    path = unusable_log_path(target, label)
+tools/probe_ui_model_mutations.py:12447:                  stdout=dict(stream_record(stdout), file=path.with_suffix(".stdout").name),
+tools/probe_ui_model_mutations.py:12448:                  stderr=dict(stream_record(stderr), file=path.with_suffix(".stderr").name))
+tools/probe_ui_model_mutations.py:12450:    view = bounded_view(stdout, stderr)
+tools/probe_ui_model_mutations.py:12464:        return (unretained_record(meta, {"stdout": stream_record(stdout), "stderr": stream_record(stderr)},
+tools/probe_ui_model_mutations.py:12474:def ship_streams(stem, stdout, stderr):
+tools/probe_ui_model_mutations.py:12482:        declared[name] = dict(stream_record(data), file=os.path.basename(path))
+tools/probe_ui_model_mutations.py:12486:def receive_streams(scratch, declared):
+tools/probe_ui_model_mutations.py:12506:def retain_shipped(target, ident, label, worker, evidence):
+tools/probe_ui_model_mutations.py:12508:    exactly like `retain_unusable`; a transfer that does not match is never retained and never claimed."""
+tools/probe_ui_model_mutations.py:12515:    stdout, stderr, problems = receive_streams(_SCRATCH_ROOT, evidence.get("streams"))
+tools/probe_ui_model_mutations.py:12518:        return (unretained_record(meta, evidence.get("streams"), stdout, stderr, failed),
+tools/probe_ui_model_mutations.py:12521:    return retain_unusable(target, label, meta, stdout, stderr)
+tools/probe_ui_model_mutations.py:12544:            path = unusable_log_path("selftest", reason)
+tools/probe_ui_model_mutations.py:12547:            line, extra, view = unusable_verdict(SuiteFailure(reason, rc, stdout, stderr))
+tools/probe_ui_model_mutations.py:12553:            lines, problem = retain_unusable("selftest", reason, meta, stdout, stderr)
+tools/probe_ui_model_mutations.py:12572:def run_suite():
+tools/probe_ui_model_mutations.py:12578:        return None, SuiteFailure("build", b.returncode, b.stdout, b.stderr)
+tools/probe_ui_model_mutations.py:12583:        return None, SuiteFailure("run", r.returncode, r.stdout, r.stderr)
+tools/probe_ui_model_mutations.py:12596:        return (failed, int(c.group(1)), int(m.group(1))), SuiteOutput(r.returncode, r.stdout, r.stderr)
+tools/probe_ui_model_mutations.py:12597:    return None, SuiteFailure("run", r.returncode, r.stdout, r.stderr,
+tools/probe_ui_model_mutations.py:12875:        lines, problem = retain_shipped(_TARGET, f"baseline-w{w}", f"baseline-w{w} clean baseline of worker {w}",
+tools/probe_ui_model_mutations.py:12909:            lines, problem = retain_shipped(_TARGET, ent["label"].split()[0], ent["label"], ent["worker"],
+tools/probe_ui_model_mutations.py:13045:    base, base_out = run_suite()
+tools/probe_ui_model_mutations.py:13050:                                 streams=ship_streams("baseline", base_out.stdout, base_out.stderr))
+tools/probe_ui_model_mutations.py:13052:        _why, _extra, _view = unusable_verdict(base_out)
+tools/probe_ui_model_mutations.py:13064:                                 streams=ship_streams("baseline", base_out.stdout, base_out.stderr))
+tools/probe_ui_model_mutations.py:13068:        _lines = child_lines(base_out.stdout)
+tools/probe_ui_model_mutations.py:13071:            print("        " + escape_child_bytes(line, 200))
+tools/probe_ui_model_mutations.py:13103:        #    the whole of `run_suite()` below, a full build plus test run, which is the longest window in the tool.
+tools/probe_ui_model_mutations.py:13107:        res, out = run_suite()
+tools/probe_ui_model_mutations.py:13111:            line, extra, _view = unusable_verdict(out)
+tools/probe_ui_model_mutations.py:13114:                          streams=ship_streams(f"e{_i}", out.stdout, out.stderr)))
+tools/test_mutation_unusable_reason.py:29:DEFINITIONS = ("SuiteOutput", "SuiteFailure", "escape_child_bytes", "bounded_view", "child_lines",
+tools/test_mutation_unusable_reason.py:30:               "unusable_verdict", "unusable_log_path", "stream_record", "unretained_record", "retain_unusable",
+tools/test_mutation_unusable_reason.py:31:               "run_suite")
+tools/test_mutation_unusable_reason.py:102:# ===== A9.1 — REAL CHILDREN THROUGH THE REAL `run_suite` ==========================================================
+tools/test_mutation_unusable_reason.py:156:    """The harness's own `run_suite` against a real child. Only the BUILD response is stubbed, and only for a
+tools/test_mutation_unusable_reason.py:170:    result, out = harness_namespace(source, tmp, process, required)["run_suite"]()
+tools/test_mutation_unusable_reason.py:201:    _line, _extra, view = ns["unusable_verdict"](failure)
+tools/test_mutation_unusable_reason.py:203:    lines, problem = ns["retain_unusable"]("sizecase", "S01 size case", meta, failure.stdout, failure.stderr)
+tools/test_mutation_unusable_reason.py:541:        # Compile the actual run_suite definition with a subprocess double. Never import the harness's
+tools/test_mutation_unusable_reason.py:544:        return harness_namespace(harness_source(), ROOT, process)["run_suite"], process
+tools/test_mutation_unusable_reason.py:600:        self.assertEqual(unescape(ns["escape_child_bytes"](every)), every)
+tools/test_mutation_unusable_reason.py:601:        self.assertEqual(ns["escape_child_bytes"](b"a\\b\tc\n\r\x00\x7f\x80\xff"),
+tools/test_mutation_unusable_reason.py:603:        self.assertEqual(ns["escape_child_bytes"](b"ab\xff", 3), "ab", "a bound never splits an escape")
+tools/test_mutation_unusable_reason.py:604:        self.assertEqual(ns["child_lines"](b"a\r\nb\n\nc\n"), [b"a\r", b"b", b"", b"c"], "line feeds only")
+tools/test_dm_delivery_breakdown.py:2008:def run_suite(name, fns):
+tools/test_dm_delivery_breakdown.py:2051:    run_suite("SYNTHETIC (stdlib only, no corpus, no simulator)", SYNTHETIC_CASES)
+tools/test_dm_delivery_breakdown.py:2053:        run_suite("CORPUS GATE (self-provisioned streams; refuses rather than skips)", CORPUS_CASES)
+
+### harness output: retained files, the self-test, the result-JSON fields (capture/evidence/refusal)
+tools/__pycache__/probe_ui_model_mutations.cpython-311.pyc
+tools/__pycache__/test_mutation_unusable_reason.cpython-311.pyc
+tools/probe_ui_model_mutations.py
+tools/test_mutation_unusable_reason.py
+
+### files naming the harness (comment references included)
+lib/core/node_hashlocate.cpp
+src/firmware_ui_chrome.h
+src/firmware_ui_model.h
+src/firmware_config_service.h
+src/firmware_ui_prov.h
+src/firmware_ui_join.h
+src/firmware_ui_invite.h
+src/firmware_ui_nearby.h
+src/firmware_ui_status.h
+test/test_dual_layer.cpp
+test/test_firmware_ui_chrome.cpp
+test/test_custody_internal_d.cpp
+tools/probe_board_abi.py
+tools/__pycache__/probe_ui_model_mutations.cpython-311.pyc
+tools/__pycache__/test_mutation_unusable_reason.cpython-311.pyc
+tools/__pycache__/test_worker_formula_derived.cpython-311.pyc
+tools/test_worker_formula_derived.py
+tools/probe_console_sink/ownership.py
+tools/probe_inbox_verbs/run.sh
+tools/probe_firmware_ui/probe_main.cpp
+tools/probe_features/run.sh
+tools/probe_ui_model_mutations.py
+tools/probe_custody_usb/run.sh
+tools/probe_ble_line/run.sh
+tools/test_mutation_unusable_reason.py
+
+### test_worker_formula_derived.py's patterns (it reads the harness text)
+41:FORMULA_LITERAL = re.compile(r"cores\b.{0,48}?-\s*(\d+)\s*,\s*(\d+)")
+43:CAP_RE = re.compile(r"^_WORKERS_CAP\s*=\s*(\d+)\s*$", re.MULTILINE)
+44:RESERVE_RE = re.compile(r"^_WORKERS_RESERVED_CORES\s*=\s*(\d+)\s*$", re.MULTILINE)
+47:PROSE_RE = re.compile(r"^# ★ THE DEFAULT IS `min\(usable cores - (\d+), (\d+)\)`", re.MULTILINE)
+105:        self.assertEqual(self.text.count("_workers_default_formula()"), 3,
+143:          f"prose={prose_numbers(text)}  formatter call sites={text.count('_workers_default_formula()') - 1}\n")
+
+### the unusable-reason controls' anchors, each in the harness (must be 1)
+1  <=  if reason == "build":
+1  <=  path.write_text(view, encoding="ascii")
+1  <=      if agrees:
+1  <=  shipped.write(data)
+1  <=  path.with_suffix(suffix).write_bytes(data)
+1  <=  except OSError as error:
+1  <=  .pio/build/native/program")], cwd=ROOT, capture_output=True)
+1  <=  if (len(data), hashlib.sha256(data).hexdigest()) != (want.get("bytes"), want.get("sha256")):
+1  <=  p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=wenv)
+
+### transcript symbols and output (DEFAULT_DEFS/default_flags/build_and_run/MR0C_ADAPTERS_HEADER/mr0c_adapters/MR0C-*/transcript.py/transcript_main)
+tools/probe_console_sink/negctl.py:794:        rc, text = ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'ctl{idx}')
+tools/probe_console_sink/negctl.py:880:        rc, text = ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'actl{idx}', family='admin')
+tools/probe_console_sink/negctl.py:1066:        rc, text = ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'dctl{idx}', family='client')
+tools/probe_console_sink/negctl.py:1111:        ble_guard.build_and_run(dest, CXX, FLAGS, OUT, tag=f'dxctl{idx}', family='client')
+tools/probe_console_sink/ble_guard.py:479:def build_and_run(fw_main_path: str, cxx: str, flags: list, out_dir: str, tag: str = "real",
+tools/probe_console_sink/ble_guard.py:535:            rc, text = build_and_run(a.fw_main, a.cxx, flags, out, family=family)
+tools/probe_inbox_verbs/transcript.py:2:# MeshRoute — tools/probe_inbox_verbs/transcript.py
+tools/probe_inbox_verbs/transcript.py:52:#   tools/probe_inbox_verbs/transcript.py --fw-main src/fw_main.cpp --out <dir>    # full_headless ledger on stdout
+tools/probe_inbox_verbs/transcript.py:53:#   tools/probe_inbox_verbs/transcript.py --profile mobile --emit mobile.txt        # the mobile profile
+tools/probe_inbox_verbs/transcript.py:54:#   tools/probe_inbox_verbs/transcript.py --fw-main <(git show 106c6b8:src/fw_main.cpp) --label pre0c --emit a.txt
+tools/probe_inbox_verbs/transcript.py:55:#   tools/probe_inbox_verbs/transcript.py --compare a.txt b.txt                     # validate both, compare records
+tools/probe_inbox_verbs/transcript.py:56:#   tools/probe_inbox_verbs/transcript.py --print-matrix [--profile mobile]        # the derived matrix only
+tools/probe_inbox_verbs/transcript.py:288:HEADER = '''// GENERATED by tools/probe_inbox_verbs/transcript.py — NOT A COMMITTED FILE, NOT A FROZEN SNAPSHOT.
+tools/probe_inbox_verbs/transcript.py:352:    path = os.path.join(out_dir, "mr0c_adapters.h")
+tools/probe_inbox_verbs/transcript.py:380:DRIVER = os.path.join(HERE, "transcript_main.cpp")
+tools/probe_inbox_verbs/transcript.py:501:    m = re.search(r"^MR0C-PROFILE (.+)$", text, re.M)
+tools/probe_inbox_verbs/transcript.py:503:        raise ExtractError("the driver printed no MR0C-PROFILE line — the compiled macro set is unknown")
+tools/probe_inbox_verbs/transcript.py:523:IDENT_RE = re.compile(r"MR0C-TRANSCRIPT v1 adapters=(?:pre0c|post0c)/[0-9a-f]{12} lines=(\d+)")
+tools/probe_inbox_verbs/transcript.py:527:END_RE = re.compile(r"MR0C-TRANSCRIPT END chk=-?\d+ fail=-?\d+")
+tools/probe_inbox_verbs/transcript.py:575:    for prefix, what in (("MR0C-TRANSCRIPT v1 ", "an identity line"), ("MR0C-PROFILE", "a profile line"),
+tools/probe_inbox_verbs/transcript.py:576:                         ("MR0C-TRANSCRIPT END", "an END line"), ("LINE ", "a LINE record"),
+tools/probe_inbox_verbs/transcript.py:610:        fail(2, "expected the identity line `MR0C-TRANSCRIPT v1 adapters=<shape>/<12 hex> lines=<N>`, found %s"
+tools/probe_inbox_verbs/transcript.py:612:    if len(lines) < 3 or not lines[2].startswith("MR0C-PROFILE "):
+tools/probe_inbox_verbs/transcript.py:613:        fail(3, "expected the MR0C-PROFILE line, found %s" % (_describe(lines[2]) if len(lines) > 2 else "nothing"))
+tools/probe_inbox_verbs/transcript.py:618:        fail(3, "the MR0C-PROFILE line carries a field that is not `name=value`: %r" % bare[0][:60])
+tools/probe_inbox_verbs/transcript.py:643:        fail(n + 1, "expected `MR0C-TRANSCRIPT END chk=<n> fail=<n>` after the last row, found %s"
+tools/probe_inbox_verbs/probe_main.cpp:426:// `tools/probe_inbox_verbs/transcript_main.cpp` (the slice's BEFORE/AFTER byte-identity comparator) needs EVERY
+tools/probe_inbox_verbs/transcript_main.cpp:1:// MeshRoute — tools/probe_inbox_verbs/transcript_main.cpp
+tools/probe_inbox_verbs/transcript_main.cpp:18://   regions are lifted VERBATIM out of a REAL `fw_main.cpp` text by `transcript.py` (the `ble_guard.py` idiom:
+tools/probe_inbox_verbs/transcript_main.cpp:35:// ⓘ [[B487]] IT IS BUILT ONLY BY THE INBOX RUNNER'S OWN BUILDER (`transcript.py` B1), with the profile's arm: the
+tools/probe_inbox_verbs/transcript_main.cpp:43:#include <mr0c_adapters.h>      // GENERATED by transcript.py: mr0c_serial_tail / mr0c_ble_tail + MR0C_MATRIX
+tools/probe_inbox_verbs/transcript_main.cpp:111:            std::fprintf(stderr, "MR0C-REFUSED row %s len=%u cannot be represented in the USB intake array "
+tools/probe_inbox_verbs/transcript_main.cpp:124:    printf("MR0C-TRANSCRIPT v1 adapters=%s lines=%u\n", MR0C_ADAPTERS_ID,
+tools/probe_inbox_verbs/transcript_main.cpp:132:    printf("MR0C-PROFILE MR_N_LAYERS=%d MR_FEAT_MOBILE=%d MR_FEAT_OLED=%d MR_FEAT_RADMIN_ACCEPT=%d "
+tools/probe_inbox_verbs/transcript_main.cpp:169:    // ⓘ This driver asserts NOTHING about the bytes — it is a ledger, and `transcript.py` validates it against the
+tools/probe_inbox_verbs/transcript_main.cpp:173:    printf("MR0C-TRANSCRIPT END chk=%d fail=%d\n", g_chk, g_fail);
+tools/probe_board_ui/run.sh:1427:#   (`transcript.py`) lifts only two regions of it, the serial and the BLE caller.
+tools/probe_board_ui/fakes/Arduino.h:98:    //     · the inbox-verbs transcript comparator (`transcript_main.cpp`) shares the limitation.
+tools/test_probe_inbox_transcript.py:27:TOOL = HERE / "transcript.py"
+tools/test_probe_inbox_transcript.py:28:DRIVER = HERE / "transcript_main.cpp"
+tools/test_probe_inbox_transcript.py:71:SITE_PROFILE = ('printf("MR0C-PROFILE MR_N_LAYERS=%d MR_FEAT_MOBILE=%d MR_FEAT_OLED=%d MR_FEAT_RADMIN_ACCEPT=%d "\n'
+tools/test_probe_inbox_transcript.py:74:THREE_MACROS = ('printf("MR0C-PROFILE MR_N_LAYERS=%d MR_FEAT_MOBILE=%d MR_FEAT_OLED=%d\\n",\n'
+tools/test_probe_inbox_transcript.py:87:    """A FRESH copy of transcript.py as a module — the real text, or an exact edit of it — with the real
+tools/test_probe_inbox_transcript.py:112:    """The driver's own escape (`esc()` in transcript_main.cpp), for synthetic ledgers."""
+tools/test_probe_inbox_transcript.py:126:             "MR0C-TRANSCRIPT v1 adapters=post0c/000000000000 lines=%d" % (len(rows) if declared is None else declared),
+tools/test_probe_inbox_transcript.py:127:             "MR0C-PROFILE " + macros]
+tools/test_probe_inbox_transcript.py:131:    lines.append("MR0C-TRANSCRIPT END chk=0 fail=0")
+tools/test_probe_inbox_transcript.py:178:        self.assertFalse(hasattr(t, "DEFAULT_DEFS") or hasattr(t, "default_flags"), "the private recipe is gone")
+tools/test_probe_inbox_transcript.py:200:            t.verify_profile("MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0\n", "full_headless")
+tools/test_probe_inbox_transcript.py:201:        t.verify_profile("MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=1 "
+tools/test_probe_inbox_transcript.py:358:            path = cls.tmp / name / "transcript_main.cpp"
+tools/test_probe_inbox_transcript.py:451:        self.assertEqual([p.name for p in shadow[0].iterdir()], ["mr0c_adapters.h"], "the shadow dir holds one header")
+tools/test_probe_inbox_transcript.py:456:        header = (shadow[0] / "mr0c_adapters.h").read_text(encoding="utf-8")
+tools/test_probe_inbox_transcript.py:537:        self.assertIn("MR0C-REFUSED row L203 len=1024 cannot be represented in the USB intake array (1024 bytes, "
+tools/test_probe_inbox_transcript.py:543:        self.assertIn("INVALID LEDGER — the fresh ledger, line 3: the MR0C-PROFILE line carries a field that is not "
+
+### the transcript controls' anchors (must be 1 each)
+1  <=  SITE_POINTER
+1  <=  SITE_LIVE
+1  <=  SITE_BLE_INCLUDE
+
+### builder-prefix consumers of run.sh's boundary
+tools/probe_inbox_verbs/transcript.py:381:BUILDER_BOUNDARY = "rc=0\nif ! build_support;"
+tools/probe_deferred_actions/run.py:140:    runner=(ROOT/'tools/probe_inbox_verbs/run.sh').read_text();boundary='rc=0\nif ! build_support;';assert runner.count(boundary)==1
+tools/test_probe_inbox_transcript.py:173:        boundary = "rc=0\nif ! build_support;"
+tools/test_probe_inbox_transcript.py:175:                     runner.replace(boundary, "rc=0\nif ! build_support ;")):
+
+### readers of MUTS_W4AIDENT / its F07 entry (A10 changes one replacement string)
+tools/probe_firmware_ui/run.sh:1502:  #   RED on the exact-byte checks of P18 / P28 / P30. The formatter itself is the `--target=w4aident` battery's.
+tools/probe_ui_model_mutations.py:548:    "w4aident":     "src/firmware_ui_model.h",       # W4a — sanitize, abbreviate with `»`, member tokens, no fabrication
+tools/probe_ui_model_mutations.py:12098:MUTS_W4AIDENT = [
+tools/probe_ui_model_mutations.py:12290:                  "w4aident": MUTS_W4AIDENT, "w4bhome": MUTS_W4BHOME}
+tools/test_mutation_unusable_reason.py:305:    target = literal(source, "TARGET_SRC")["w4aident"]
+tools/test_mutation_unusable_reason.py:312:    for i, (label, pat, rep) in enumerate(literal(source, "MUTS_W4AIDENT")):
+tools/test_mutation_unusable_reason.py:347:        blocked = tree / ".pio" / "mutation-unusable" / "w4aident"
+tools/test_mutation_unusable_reason.py:354:    args = ["--target=w4aident", f"--workers={workers}"]
+tools/test_mutation_unusable_reason.py:361:    if p.returncode == 99 or "-- target w4aident:" not in console:
+tools/test_mutation_unusable_reason.py:380:    return battery.tree / ".pio" / "mutation-unusable" / "w4aident"
+tools/test_mutation_unusable_reason.py:389:    want = dict(target="w4aident", id=ident, label=label, worker=worker, phase=phase, exit=rc,
+tools/test_mutation_unusable_reason.py:399:    for i, (label, _pat, _rep) in enumerate(literal(source, "MUTS_W4AIDENT")):
+tools/test_mutation_unusable_reason.py:414:    labels = literal(source, "MUTS_W4AIDENT")
+
+### readers of B491's refusal text (parse_ledger's name=value and digit-count refusals)
+tools/probe_inbox_verbs/transcript.py:594:            fail(n, "%s has %d digits — not a count a ledger can carry" % (what, len(digits)))
+tools/probe_inbox_verbs/transcript.py:618:        fail(3, "the MR0C-PROFILE line carries a field that is not `name=value`: %r" % bare[0][:60])
+tools/test_probe_inbox_transcript.py:330:                    "a profile field without `=`": r"^the fresh ledger, line 3: .* not `name=value`: 'malformed'$",
+
+### A10's ui_fmt_identity consumer census (a10_census.py; rows keyed by call text, every grep hit accounted for)
+  firmware_ui_send.h           ext=8    cap=8    cols=7    exact (cap == cols + 1): new F07 inert — ui_review_header — `TO <label>`
+  firmware_ui_status.h         ext=17   cap=17   cols=16   exact (cap == cols + 1): new F07 inert — ui_home_me_line — Home row 0
+  firmware_ui.cpp              ext=None cap=None cols=None forwards — label_from_hash (wrapper: forwards its caller's out/cap/cols)
+  firmware_ui.cpp              ext=15   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — invite NEW MEMBER carrier (InviteMember::name)
+  firmware_ui.cpp              ext=7    cap=7    cols=6    exact (cap == cols + 1): new F07 inert — invite candidate row (name6)
+  firmware_ui.cpp              ext=None cap=None cols=None forwards — label_for_team_id -> label_from_hash (forwards)
+  firmware_ui.cpp              ext=None cap=None cols=None forwards — label_for_origin -> label_from_hash (forwards)
+  firmware_ui.cpp              ext=15   cap=15   cols=6    ROOMY (cap >= cols + 2): new F07 ACTIVE — TEAM row (TeamRow::label) via label_for_team_id
+  firmware_ui.cpp              ext=20   cap=20   cols=19   exact (cap == cols + 1): new F07 inert — DELIVERED via label_for_team_id
+  firmware_ui.cpp              ext=16   cap=16   cols=15   exact (cap == cols + 1): new F07 inert — compose TO via label_for_team_id
+  firmware_ui.cpp              ext=15   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — REPLY sender via label_for_origin
+  test_firmware_ui_model.cpp   ext=None cap=None cols=None forwards — native: id_fmt helper (IdBuf::out[48], guarded; per-call caps below)
+  test_firmware_ui_model.cpp   ext=0    cap=20   cols=6    null destination — native: null destination
+  test_firmware_ui_model.cpp   ext=8    cap=7    cols=6    exact (cap == cols + 1): new F07 inert — native: two-pass a6 (one spare byte)
+  test_firmware_ui_model.cpp   ext=16   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — native: two-pass c14 (one spare byte)
+  test_firmware_ui_model.cpp   ext=8    cap=7    cols=6    exact (cap == cols + 1): new F07 inert — native: two-pass b6 (one spare byte)
+  test_firmware_ui_model.cpp   ext=16   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — native: marker survives the second pass, c14
+  test_firmware_ui_model.cpp   ext=16   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — native: preformatted REPLY sender (one spare byte)
+  test_firmware_ui_model.cpp   ext=8    cap=8    cols=7    exact (cap == cols + 1): new F07 inert — native: w6-review member token
+  test_firmware_ui_team.cpp    ext=15   cap=15   cols=6    ROOMY (cap >= cols + 2): new F07 ACTIVE — native: projected TEAM row (TeamRow::label)
+  test_firmware_ui_invite.cpp  ext=8    cap=7    cols=6    exact (cap == cols + 1): new F07 inert — native: invite cand_row name6 (one spare byte)
+  test_firmware_ui_invite.cpp  ext=15   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — native: invite high-byte name (InviteMember::name)
+  test_firmware_ui_invite.cpp  ext=15   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — native: invite live[0] longest name
+  test_firmware_ui_invite.cpp  ext=15   cap=15   cols=14   exact (cap == cols + 1): new F07 inert — native: invite live[1] high bytes
+  native id_fmt literal calls: {'exact': 25, 'ROOMY': 7, 'variable budget `cols` (no name: the F07 line is never reached)': 2, 'SHORT (deliberate no_fit)': 4} | F07-reachable (roomy, name longer than budget): 5
+  active in production: ['TEAM row (TeamRow::label) via label_for_team_id']
+  valid callers all cap >= cols + 1: True | problems: []
+CENSUS PASS

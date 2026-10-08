@@ -1,0 +1,51 @@
+{
+ "changed": [
+  "MEMORY.md",
+  "docs/2026-07-30-open-bug-register.md",
+  "docs/2026-09-20-metal-test-plan.md",
+  "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+  "tracker.md"
+ ],
+ "added": [
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa.md",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/b499-proof.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/board-fields.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/board-provenance.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/board-qa-1-gateway.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/board-qa-1-heltec_mobile.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/corpus-manifest-qa.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/corpus-vs-base.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/corpus-vs-final.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/inv-end.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/inv-start.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa-chain-2.sh",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa-chain.sh",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_board_compare.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_board_provenance.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_collect.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_corpus_compare.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_inventory.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_preservation.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_reader_audit.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/qa_stability.py",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/reader-audit.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/results.json",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/runs.tsv",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/source-review.md",
+  "docs/superpowers/evidence/2026-10-07-standalone-mobile-home-w7w8-qa/stability.json"
+ ],
+ "missing": [],
+ "unexplained_changed": [],
+ "unexplained_added": [],
+ "landing_documents_changed": [
+  "MEMORY.md",
+  "docs/2026-07-30-open-bug-register.md",
+  "docs/2026-09-20-metal-test-plan.md",
+  "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+  "tracker.md"
+ ],
+ "head_same": true,
+ "staged": [],
+ "simulator_unchanged": true,
+ "verdict": "PASS"
+}

@@ -1,0 +1,442 @@
+{
+  "mesh_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+  "branch": "main",
+  "staged": "",
+  "sim_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "sim_status": "",
+  "brief_hash": "47cb5a461d07cc3cbaf0ab6ae81fe535e206eda996201885f4dbe878dd11cb8e",
+  "brief_lines": 732,
+  "mesh_paths": 2538,
+  "sim_paths": 285,
+  "versus_revision_1_entry": {
+    "changed": [
+      "docs/superpowers/plans/2026-10-04-standalone-mobile-home-w7w8-editor-rename-messages.md",
+      "MEMORY.md",
+      "docs/2026-07-30-open-bug-register.md",
+      "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "tracker.md"
+    ],
+    "missing": [],
+    "added": [
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review.md",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/SHA256SUMS",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/dependency-pins.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/entry-inputs.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout-measure.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout_measure.py",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/mutation-selection.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preflight.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preservation.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/row-width-measurement.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/source-review.json"
+    ]
+  },
+  "versus_w8": {
+    "changed": [
+      "MEMORY.md",
+      "docs/2026-07-30-open-bug-register.md",
+      "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "tracker.md"
+    ],
+    "missing": [],
+    "added": [
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck.md",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/SHA256SUMS",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/baseline-summary.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/baselines.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/census.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/control-reconciliation.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/corpus-manifest.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/failure-classification.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/failure-producers.txt",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/failure_classification.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/finalize.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/inputs.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/layout-measure.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/layout_measure.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/mutation-census.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/native-cases.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/preflight.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/preservation-final.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/probe-control-candidates.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/raw-files.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reachability.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reachability.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reader-summary.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/recommended-union.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/reconcile.py",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/register-finding.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/runs.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/scratch.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/send-core-readers.txt",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/send-probe-controls.json",
+      "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck/symbol-readers.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review.md",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/SHA256SUMS",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/dependency-pins.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/entry-inputs.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout-measure.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout_measure.py",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/mutation-selection.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preflight.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preservation.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/row-width-measurement.json",
+      "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/source-review.json",
+      "docs/superpowers/plans/2026-10-04-standalone-mobile-home-w7w8-editor-rename-messages.md"
+    ]
+  },
+  "sim_diff": {
+    "changed": [],
+    "missing": [],
+    "added": []
+  },
+  "pins": [
+    {
+      "path": "src/firmware_ui_editor.h",
+      "pin": "absent",
+      "actual": "absent",
+      "match": true,
+      "lines": null,
+      "declared_lines": "\u2014",
+      "line_count_matches": true
+    },
+    {
+      "path": "src/firmware_ui_model.h",
+      "pin": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+      "actual": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+      "match": true,
+      "lines": 6478,
+      "declared_lines": "6478",
+      "line_count_matches": true
+    },
+    {
+      "path": "src/firmware_ui_send.h",
+      "pin": "2d6b09354adf590f48972013a1e47e3a933614f9ed837d83178a9d5ab18c5563",
+      "actual": "2d6b09354adf590f48972013a1e47e3a933614f9ed837d83178a9d5ab18c5563",
+      "match": true,
+      "lines": 787,
+      "declared_lines": "787",
+      "line_count_matches": true
+    },
+    {
+      "path": "src/firmware_ui_chrome.h",
+      "pin": "b4c1ff24451725a03d2e966fd1da3a8102c61815b74cc995f1fd8f2c0ee6a181",
+      "actual": "b4c1ff24451725a03d2e966fd1da3a8102c61815b74cc995f1fd8f2c0ee6a181",
+      "match": true,
+      "lines": 621,
+      "declared_lines": "621",
+      "line_count_matches": true
+    },
+    {
+      "path": "src/firmware_ui.cpp",
+      "pin": "11789f4392624b2e312492ad19c221659df9ccd01276070ef145f1c9fa8a32b1",
+      "actual": "11789f4392624b2e312492ad19c221659df9ccd01276070ef145f1c9fa8a32b1",
+      "match": true,
+      "lines": 2936,
+      "declared_lines": "2936",
+      "line_count_matches": true
+    },
+    {
+      "path": "test/test_firmware_ui_editor.cpp",
+      "pin": "absent",
+      "actual": "absent",
+      "match": true,
+      "lines": null,
+      "declared_lines": "\u2014",
+      "line_count_matches": true
+    },
+    {
+      "path": "test/test_firmware_ui_model.cpp",
+      "pin": "5f7d61cadf1b50a66cd07e2f229c9478c8c27c5e1f66a0597ff580a1b8397287",
+      "actual": "5f7d61cadf1b50a66cd07e2f229c9478c8c27c5e1f66a0597ff580a1b8397287",
+      "match": true,
+      "lines": 12527,
+      "declared_lines": "12527",
+      "line_count_matches": true
+    },
+    {
+      "path": "test/test_firmware_ui_send.cpp",
+      "pin": "a79e804ac53cd714455232e4cfdc92ec27f599dd262119e52f5ce7ec9bfbe736",
+      "actual": "a79e804ac53cd714455232e4cfdc92ec27f599dd262119e52f5ce7ec9bfbe736",
+      "match": true,
+      "lines": 2994,
+      "declared_lines": "2994",
+      "line_count_matches": true
+    },
+    {
+      "path": "test/test_firmware_ui_chrome.cpp",
+      "pin": "b19c08ad5a4e2e841d92f1a1b9972e6f1ec46cdadb7d58ed12d09db2d4b2e478",
+      "actual": "b19c08ad5a4e2e841d92f1a1b9972e6f1ec46cdadb7d58ed12d09db2d4b2e478",
+      "match": true,
+      "lines": 1389,
+      "declared_lines": "1389",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_firmware_ui/probe_main.cpp",
+      "pin": "188bb4eab5128de44536dd7897180bdf2bf29227093466f92e44c7e593a6776d",
+      "actual": "188bb4eab5128de44536dd7897180bdf2bf29227093466f92e44c7e593a6776d",
+      "match": true,
+      "lines": 7886,
+      "declared_lines": "7886",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_firmware_ui/run.sh",
+      "pin": "ffcb62af6655a1a3a5eec8164f0152cc2136e2ad13b5adee922e75436afcaab5",
+      "actual": "ffcb62af6655a1a3a5eec8164f0152cc2136e2ad13b5adee922e75436afcaab5",
+      "match": true,
+      "lines": 2116,
+      "declared_lines": "2116",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_board_ui/run.sh",
+      "pin": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf",
+      "actual": "366a8bf089604c5391b3933b284561c33b6ce5e05cdf5a9e0c8255210beea5bf",
+      "match": true,
+      "lines": 1665,
+      "declared_lines": "1665",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_board_ui/expected.tsv",
+      "pin": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196",
+      "actual": "2a30e4d1f10683a17b46eccbdd1b31de4ac7252a7491d9ff60e2d202edcb2196",
+      "match": true,
+      "lines": 598,
+      "declared_lines": "598",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_board_ui/accounting.py",
+      "pin": "2a23f7521805f38c6a48cd24008cd9eeeac1e8ad7b0b2aa8e3a85e38398f1e09",
+      "actual": "2a23f7521805f38c6a48cd24008cd9eeeac1e8ad7b0b2aa8e3a85e38398f1e09",
+      "match": true,
+      "lines": 256,
+      "declared_lines": "256",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_ui_model_mutations.py",
+      "pin": "27807b320427fb090840e927bf559bfff909f78761d98b29e3aff8b3cb4d177d",
+      "actual": "27807b320427fb090840e927bf559bfff909f78761d98b29e3aff8b3cb4d177d",
+      "match": true,
+      "lines": 13163,
+      "declared_lines": "13163",
+      "line_count_matches": true
+    },
+    {
+      "path": "tools/probe_board_abi.py",
+      "pin": "fabd78ac4f48177cb27d21181c724dd7a9898d6c062c58c721ca3522f0bd9e2f",
+      "actual": "fabd78ac4f48177cb27d21181c724dd7a9898d6c062c58c721ca3522f0bd9e2f",
+      "match": true,
+      "lines": 1087,
+      "declared_lines": "1087",
+      "line_count_matches": true
+    },
+    {
+      "path": "src/firmware_ui_status.h",
+      "pin": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd",
+      "actual": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd",
+      "match": true
+    },
+    {
+      "path": "src/firmware_ui_input.h",
+      "pin": "30c74299c9bb580e016ed7efa847f1e6af29b5b560891cdbd2bb732d0ce4ecc0",
+      "actual": "30c74299c9bb580e016ed7efa847f1e6af29b5b560891cdbd2bb732d0ce4ecc0",
+      "match": true
+    },
+    {
+      "path": "src/firmware_ui_team.h",
+      "pin": "63f9074be7ba73072816ba3a3d3654853da1a721b8dfeff7db57e854e9c72cdf",
+      "actual": "63f9074be7ba73072816ba3a3d3654853da1a721b8dfeff7db57e854e9c72cdf",
+      "match": true
+    },
+    {
+      "path": "src/firmware_ui_presets.h",
+      "pin": "1d67253f74490dbb43d83eae06b7bb5389151d4256da37b3c97e114000aebe23",
+      "actual": "1d67253f74490dbb43d83eae06b7bb5389151d4256da37b3c97e114000aebe23",
+      "match": true
+    },
+    {
+      "path": "src/firmware_ui_invite.h",
+      "pin": "f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c",
+      "actual": "f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c",
+      "match": true
+    },
+    {
+      "path": "src/firmware_config.h",
+      "pin": "c72d59600745da4d7b65b8cbd37d3da5b9f5a74da33cc5a71a98a4fa8aac8bd6",
+      "actual": "c72d59600745da4d7b65b8cbd37d3da5b9f5a74da33cc5a71a98a4fa8aac8bd6",
+      "match": true
+    },
+    {
+      "path": "src/firmware_config.cpp",
+      "pin": "accb667703290ba57e590b4ec07d20ab6bf21dc8ae7d8b9ae1840e2bf3dfdc18",
+      "actual": "accb667703290ba57e590b4ec07d20ab6bf21dc8ae7d8b9ae1840e2bf3dfdc18",
+      "match": true
+    },
+    {
+      "path": "src/device_nv.h",
+      "pin": "36296bcbc1c6975a6cf0bea2caf1ca5eebd182832f2550c12de1a7185429fffa",
+      "actual": "36296bcbc1c6975a6cf0bea2caf1ca5eebd182832f2550c12de1a7185429fffa",
+      "match": true
+    },
+    {
+      "path": "src/firmware_commands.cpp",
+      "pin": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+      "actual": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+      "match": true
+    },
+    {
+      "path": "src/fw_main.cpp",
+      "pin": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+      "actual": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+      "match": true
+    },
+    {
+      "path": "lib/core/command.h",
+      "pin": "f537b1cc28d5ac6ff22f8243913933455aa371a2e50989a88a6bc1d28c9c612d",
+      "actual": "f537b1cc28d5ac6ff22f8243913933455aa371a2e50989a88a6bc1d28c9c612d",
+      "match": true
+    },
+    {
+      "path": "variants/heltec_common/board_ui.cpp",
+      "pin": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46",
+      "actual": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46",
+      "match": true
+    },
+    {
+      "path": "test/test_firmware_ui_input.cpp",
+      "pin": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed",
+      "actual": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed",
+      "match": true
+    },
+    {
+      "path": "test/test_firmware_ui_status.cpp",
+      "pin": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8",
+      "actual": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8",
+      "match": true
+    },
+    {
+      "path": "test/test_firmware_ui_team.cpp",
+      "pin": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8",
+      "actual": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8",
+      "match": true
+    },
+    {
+      "path": "tools/probe_board_ui/probe_main.cpp",
+      "pin": "a06c448fb7bb28e25cb2f86fa2fd18a12bd57aadfc0d2bed3ae157389e67b204",
+      "actual": "a06c448fb7bb28e25cb2f86fa2fd18a12bd57aadfc0d2bed3ae157389e67b204",
+      "match": true
+    },
+    {
+      "path": "tools/probe_board_ui/negctl.py",
+      "pin": "7634d66b9391b6fc90f293f51ef2b9376324c83da521fc8ba6abbcc0e1ff54c4",
+      "actual": "7634d66b9391b6fc90f293f51ef2b9376324c83da521fc8ba6abbcc0e1ff54c4",
+      "match": true
+    },
+    {
+      "path": "tools/probe_board_ui/fakes/Arduino.h",
+      "pin": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+      "actual": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+      "match": true
+    },
+    {
+      "path": "tools/probe_accounting.sh",
+      "pin": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+      "actual": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+      "match": true
+    },
+    {
+      "path": "tools/test_probe_firmware_ui.py",
+      "pin": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047",
+      "actual": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047",
+      "match": true
+    },
+    {
+      "path": "tools/test_probe_board_ui.py",
+      "pin": "82a344994d963adc80b02d1758b9a3c81a73cb3af7834f5df06cf66fbf7c51e2",
+      "actual": "82a344994d963adc80b02d1758b9a3c81a73cb3af7834f5df06cf66fbf7c51e2",
+      "match": true
+    },
+    {
+      "path": "tools/test_mutation_unusable_reason.py",
+      "pin": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+      "actual": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+      "match": true
+    },
+    {
+      "path": "tools/test_worker_formula_derived.py",
+      "pin": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+      "actual": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+      "match": true
+    },
+    {
+      "path": "tools/gen_command_inventory.py",
+      "pin": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+      "actual": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+      "match": true
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+      "pin": "7ed161d6e777f1eb98fa65319de9bed2f7864bcb532004eeb00efc912a2325f6",
+      "actual": "7ed161d6e777f1eb98fa65319de9bed2f7864bcb532004eeb00efc912a2325f6",
+      "match": true
+    },
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "pin": "b3ac76d9a49793a256b53d678b729138cd959ae895bcd8ccc6f2686c6919a3ef",
+      "actual": "b3ac76d9a49793a256b53d678b729138cd959ae895bcd8ccc6f2686c6919a3ef",
+      "match": true
+    },
+    {
+      "path": "tracker.md",
+      "pin": "a0b5231a8c5a12a3f1b895a4a5c06b418a835b3a8ee4ce1f24fb4cf6d5844be9",
+      "actual": "a0b5231a8c5a12a3f1b895a4a5c06b418a835b3a8ee4ce1f24fb4cf6d5844be9",
+      "match": true
+    },
+    {
+      "path": "MEMORY.md",
+      "pin": "f8c41ba28bf903a3c66fd98bce740d50af0c59024922688f2dfec70729a740ad",
+      "actual": "f8c41ba28bf903a3c66fd98bce740d50af0c59024922688f2dfec70729a740ad",
+      "match": true
+    }
+  ],
+  "all_brief_hashes_present": true,
+  "seals": [
+    {
+      "path": "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck",
+      "sha256": "037b975bd3737808627ff90fb389ed0fea649121b5e0f1d60dd434c564b5af6f",
+      "entries": 26,
+      "exit": 0,
+      "stdout": "baseline-summary.json: OK\nbaselines.py: OK\ncensus.py: OK\ncontrol-reconciliation.json: OK\ncorpus-manifest.json: OK\nfinalize.py: OK\nfont-glyphs.txt: OK\nfont-measure.json: OK\nfont_measure.py: OK\ninputs.json: OK\nlayout-measure.json: OK\nlayout_measure.py: OK\nmutation-census.json: OK\nnative-cases.json: OK\npreflight.json: OK\npreflight.py: OK\npreservation-before-report.json: OK\npreservation-final.json: OK\nprobe-control-candidates.json: OK\nraw-files.json: OK\nrecommended-union.json: OK\nreconcile.py: OK\nruns.json: OK\nscratch.json: OK\nsymbol-readers.json: OK\n../2026-10-03-standalone-mobile-home-w7-precheck.md: OK\n",
+      "stderr": ""
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w8-precheck",
+      "sha256": "7b51d522015834bdc906f0f534c8b3df0b23a3f0eaf593e84b7cf50a1933db55",
+      "entries": 30,
+      "exit": 0,
+      "stdout": "baseline-summary.json: OK\nbaselines.py: OK\ncensus.py: OK\ncontrol-reconciliation.json: OK\ncorpus-manifest.json: OK\nfailure-classification.json: OK\nfailure-producers.txt: OK\nfailure_classification.py: OK\nfinalize.py: OK\ninputs.json: OK\nlayout-measure.json: OK\nlayout_measure.py: OK\nmutation-census.json: OK\nnative-cases.json: OK\npreflight.json: OK\npreservation-final.json: OK\nprobe-control-candidates.json: OK\nraw-files.json: OK\nreachability.json: OK\nreachability.py: OK\nreader-summary.json: OK\nrecommended-union.json: OK\nreconcile.py: OK\nregister-finding.json: OK\nruns.json: OK\nscratch.json: OK\nsend-core-readers.txt: OK\nsend-probe-controls.json: OK\nsymbol-readers.json: OK\n../2026-10-03-standalone-mobile-home-w8-precheck.md: OK\n",
+      "stderr": ""
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review",
+      "sha256": "ca6e3c27292220e00f99721308a3d1f18bc5ef608b9a9684c0f93065583cdd88",
+      "entries": 10,
+      "exit": 0,
+      "stdout": "dependency-pins.json: OK\nentry-inputs.json: OK\nlayout-measure.json: OK\nlayout_measure.py: OK\nmutation-selection.json: OK\npreflight.json: OK\npreservation.json: OK\nrow-width-measurement.json: OK\nsource-review.json: OK\n../2026-10-04-standalone-mobile-home-w7w8-brief-review.md: OK\n",
+      "stderr": ""
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-10-02-b478-b487-b488-qa-regate",
+      "sha256": "c0e3b26fd893ee5d35f22f92eba726e829737a25f5f56b5ca1c17d0808e8907d",
+      "entries": 40,
+      "exit": 0,
+      "stdout": "B491-refusals.json: OK\nB491-source.diff: OK\ncallers.json: OK\ncensus.json: OK\nchain.py: OK\ncontrols-a.json: OK\ncontrols_a.py: OK\nf07-diagnostic.json: OK\nf07_diagnostic.py: OK\ngate-summary.json: OK\ninputs.json: OK\nland_docs.py: OK\nlanding-notes.json: OK\nledger-full_headless.txt: OK\nledger-mobile.txt: OK\nmutations.json: OK\npart-b-controls.json: OK\npreflight.json: OK\npreflight.py: OK\npreservation-before-landing.json: OK\npreservation.py: OK\nqa-landing.json: OK\nraw-files.json: OK\nreader-audit.json: OK\nreader_audit.py: OK\nreconcile.py: OK\nrefusals.py: OK\nruns.json: OK\nseal.py: OK\nstability.json: OK\nstability.py: OK\nstatic-review.json: OK\nstatic_review.py: OK\nsweep.cpp: OK\nsweep.json: OK\nsweep.py: OK\ntranscript-reconciliation.json: OK\nwarning-repro.json: OK\nwarning_repro.py: OK\n../2026-10-02-b478-b487-b488-qa-regate.md: OK\n",
+      "stderr": ""
+    }
+  ]
+}

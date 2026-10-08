@@ -1,0 +1,14 @@
+{
+ "differences": [
+  {
+   "table": "MUTS_W4AIDENT",
+   "index": 6,
+   "id": "F07",
+   "field": "replacement",
+   "base": "        const uint8_t keep = (len <= cols) ? len : cols;",
+   "now": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - (cap > std::size_t(cols) + 1u ? 0u : 1u));"
+  }
+ ],
+ "f07_pattern_matches_target": 1,
+ "verdict": "IDENTICAL except F07's replacement string"
+}

@@ -103,7 +103,7 @@ static void to_inbox(UiModel& m, const UiSnapshot& s) {
 //   exactly as the landed cases always sent it; the `w6-` cases below name known hashes.
 static void review_capture(UiModel& m, const UiSnapshot& s, const mrnv::UiPresetBlob& cat = preset_defaults_blob()) {
     CHECK(m.state().review_phase == ReviewPhase::requested);
-    CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, 0}, nullptr, 0, s, s.now_ms));
+    CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, true, 0}, nullptr, 0, s, s.now_ms));
     CHECK(m.state().review_phase == ReviewPhase::open);
     CHECK(m.state().review_send == false);                 // ★ BACK preselected
 }
@@ -157,9 +157,10 @@ TEST_CASE("ui-model: double on TEAM opens the DM sub-view bound to the highlight
 TEST_CASE("ui-model: sub-view: `back` leaves without sending") {
     UiModel m; const auto s = snap(); SendReq req{};
     to_team(m, s); m.on_gesture(Gesture::double_press, s);
-    // ⓘ W6 (D9): `dm3` `Where are you?` joins the compiled DM list, so `back` is the FOURTH row — three shorts.
+    // ⓘ W6 (D9): `dm3` `Where are you?` joins the compiled DM list. ⓘ W8 (§7.5): WRITE MESSAGE follows the phrases,
+    //   so `back` is the FIFTH row — four shorts.
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
-    m.on_gesture(Gesture::short_press, s);                                            // -> back
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);    // -> back
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
     CHECK(m.state().screen  == Screen::team);
@@ -343,9 +344,10 @@ TEST_CASE("ui-model: the channel list's last row is `back` — MENU since W4b �
     to_menu_home(m, s);                           // W4b fixture: the retired passive-STATUS start = menu mode on Home
     for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // -> SEND, one press per screen
     m.on_gesture(Gesture::double_press, s);
-    // ⓘ W6 (D9): `channel3` / `channel4` join the compiled list, so the exit row is index 4 (was 2).
-    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);             // -> back (index 4)
-    CHECK(m.state().cursor == 4);
+    // ⓘ W6 (D9): `channel3` / `channel4` join the compiled list. ⓘ W8 (§7.5): WRITE MESSAGE follows the phrases, so the
+    //   exit row is index 5 (was 4, and 2 before W6).
+    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);             // -> back (index 5)
+    CHECK(m.state().cursor == 5);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
     CHECK(m.take_send_request(req) == false);
@@ -358,9 +360,11 @@ TEST_CASE("ui-model: the channel list's last row is `back` — MENU since W4b �
 TEST_CASE("ui-model: the compose cursor wraps within the list, so `back` is always reachable") {
     UiModel m; const auto s = snap();
     to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then the DM list, cursor 0
-    // ⓘ W6 (D9): `dm3` joins the compiled list — four rows, so `back` is index 3 (was 2).
+    // ⓘ W6 (D9): `dm3` joins the compiled list. ⓘ W8 (§7.5): WRITE MESSAGE follows the phrases — five rows, so `back`
+    //   is index 4 (was 3, and 2 before W6).
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
-    CHECK(m.state().cursor == 3);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 4);
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().cursor == 0);                // wrapped, still inside the list
     CHECK(m.state().compose == Compose::dm);     // and the modal did NOT close on the wrap
@@ -748,9 +752,10 @@ TEST_CASE("ui-model: the model's declared bounds are the ones the spec fixed") {
         compose_project(preset_defaults_blob(), mrfw::PresetKind::channel, ch);
         // ⓘ W6 (owner-ruled D9): three DM and four channel phrases now — `dm3` `Where are you?`, `channel3`
         //   `Return to base now`, `channel4` `On my way` join the landed five (was 3 / 3 rows with `back`).
-        CHECK(compose_row_count(dm, /*grant=*/false) == 4);   // "Are you OK?", "I'm OK", "Where are you?", back
-        CHECK(compose_row_count(ch, /*grant=*/false) == 5);   // "Got your message", "All good", "Return to base n»",
-                                                              // "On my way", back
+        // ⓘ W8 (§7.5): WRITE MESSAGE follows the phrases in both lists, one row more each.
+        CHECK(compose_row_count(dm, /*grant=*/false) == 5);   // "Are you OK?", "I'm OK", "Where are you?", WRITE, back
+        CHECK(compose_row_count(ch, /*grant=*/false) == 6);   // "Got your message", "All good", "Return to base n»",
+                                                              // "On my way", WRITE, back
     }
     CHECK(uint8_t(Screen::count) == 5);              // §UI-14: STATUS/TEAM/INBOX/SEND/SETTINGS (spec §3.1)
     UiSnapshot s{};
@@ -1162,13 +1167,18 @@ TEST_CASE("ui-model: a queued alarm drains BEFORE a queued DM and neither is los
     CHECK(m.take_send_request(req) == false);
 }
 
-TEST_CASE("ui-model: a compose send cannot overwrite a queued alarm") {
+// ★ [[B481]] (retitled 2026-10-04 by W7+W8, assertions unchanged): this case NEVER reached a compose send. The alarm is
+//   fired FIRST, so its overlay owns the panel and ABSORBS every short and double below (R2 / §B102-F3) — no screen is
+//   walked, no list opens and nothing queues. What it proves is that the overlay absorbs the compose gestures and the
+//   queued alarm is KEPT; the genuine two-slot ordering (an ordinary request queued BEFORE the alarm, both drained in
+//   order) is the case above, `a queued alarm drains BEFORE a queued DM and neither is lost`.
+TEST_CASE("ui-model: under the alarm overlay the compose gestures are ABSORBED, and the queued alarm is kept") {
     UiModel m; const auto s = snap(); SendReq req{};
     m.on_gesture(Gesture::long_arm,  s); m.on_gesture(Gesture::long_fire, s);
     CHECK(m.emergency_pending() == true);
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // navigate to SEND
-    m.on_gesture(Gesture::double_press, s);                             // channel modal
-    m.on_gesture(Gesture::double_press, s);                             // queue a canned channel post
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // absorbed by the overlay (no screen walk)
+    m.on_gesture(Gesture::double_press, s);                             // absorbed (R2): no modal opens
+    m.on_gesture(Gesture::double_press, s);                             // absorbed: nothing is queued
     CHECK(m.emergency_pending() == true);                               // untouched
     const bool got = m.take_send_request(req);
     CHECK(got == true);
@@ -2256,8 +2266,12 @@ TEST_CASE("ui7-B66: `back, don't send` is the derived LAST row of every compose 
         for (const ComposeList* l : { &dm, &ch })
             for (bool grant : { false, true }) {
                 const uint8_t n = compose_row_count(*l, grant);
-                CHECK(n == uint8_t(enabled + (grant ? 1 : 0) + 1));
+                CHECK(n == uint8_t(enabled + 1 + (grant ? 1 : 0) + 1));                     // ★ W8: + WRITE MESSAGE
                 CHECK(compose_row_kind(uint8_t(n - 1), *l, grant) == ComposeRow::back);   // ★ ONE `back`, and LAST
+                // ★ W8 (§7.5): WRITE MESSAGE is the row right after the phrases — always offered, ONE of it, no slot
+                CHECK(compose_row_kind(enabled, *l, grant) == ComposeRow::write);
+                CHECK(compose_row_slot(enabled, *l) == mrfw::kPresetEmergency);
+                CHECK(compose_row_loc_marker(enabled, *l, grant) == '\0');
                 CHECK(std::strcmp(compose_row_text(uint8_t(n - 1), *l, grant), "back, don't send") == 0);
                 // ⛔ ...and it is ONE row, not two: nothing below the last row is a `back` a walk could reach twice.
                 uint8_t backs = 0;
@@ -7025,8 +7039,12 @@ TEST_CASE("ui17-wake: a message wake keeps the retained modal's page, through th
 namespace {
 // A snapshot carrying N observed teams, newest LAST — i.e. in the ring's own first-observed order.
 // ⚠ THE SIGNALS DECREASE DOWN THE LIST while the ages INCREASE, so a sort by either key would be visible.
+// ★ W7 (design §4.4): a NAMED device, so a Home JOIN/CREATE goes STRAIGHT to its step — the unnamed device's name
+//   prompt is the `w7-prompt:` cases' subject, and these cases measure the setup flow behind it.
+void named_device(UiSnapshot& s) { std::memcpy(s.own_name, "STAN", 4); s.own_name_len = 4; }
 UiSnapshot nearby_snap(uint8_t n, uint32_t own_team_id = 0, uint32_t now_ms = 1000) {
     UiSnapshot s = prov_snap(true, true, true, now_ms);
+    named_device(s);
     s.team_id  = own_team_id;
     s.nearby_n = n;
     for (uint8_t i = 0; i < n && i < mrui::kMaxNearbyRows; ++i) {
@@ -8349,13 +8367,13 @@ TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserve
     //   above and `InviteGrantResult`'s size are the ones those slices landed with, and `UiSnapshot` is untouched
     //   because K7's one published field lands in an existing pad (the full K7 arithmetic is in
     //   `ui16-k7-resources`).
-    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u
+    CHECK(sizeof(mrui::UiState) == 576u);   // W7+W8 re-sync (D16/D18), was 568u (W6), 520u (W4b), 504u
     // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
     //   MOVED: every offset this case pins is ahead of `member[]` and is byte-identical.
     CHECK(sizeof(mrui::UiSnapshot) == 1368u);   // W4b re-sync (owner-ruled §11.1), was 1336u          // ⛔ UNCHANGED BY N6 ITSELF — see the note above
-    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u
+    CHECK(sizeof(mrui::UiModel) == 1216u);  // W7+W8 re-sync (D16/D18), was 1016u (W6), 944u (W4b), 928u
 }
 
 // ================================================= §UI-16 N6 — THE GRANT ACT's MODEL HALF (the pure unit's own
@@ -8668,13 +8686,16 @@ TEST_CASE("ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row an
     //   the list it always did — and it now also proves the row sits at `n` for a catalog of ANY size.
     // ⓘ W6 (owner-ruled D9): the compiled catalog has THREE DM phrases now (`dm3` `Where are you?`), so `n` is 3;
     //   every assertion below is already expressed through `n` and is unchanged.
+    // ⓘ W8 (design §7.5, a named revision of preset spec R-1): WRITE MESSAGE follows the phrases, so GRANT KEY sits at
+    //   `n + 1` and `back` at `n + 2` — K7's SEMANTICS are unchanged, only its index moves by one.
     CHECK(s.preset_dm.n == 3);
-    CHECK(mrui::compose_row_count(s.preset_dm, true) == uint8_t(s.preset_dm.n + 2));
-    CHECK(mrui::compose_row_kind(s.preset_dm.n, s.preset_dm, true) == mrui::ComposeRow::grant);
-    CHECK(mrui::compose_row_kind(uint8_t(s.preset_dm.n + 1), s.preset_dm, true) == mrui::ComposeRow::back);
+    CHECK(mrui::compose_row_count(s.preset_dm, true) == uint8_t(s.preset_dm.n + 3));
+    CHECK(mrui::compose_row_kind(s.preset_dm.n, s.preset_dm, true) == mrui::ComposeRow::write);
+    CHECK(mrui::compose_row_kind(uint8_t(s.preset_dm.n + 1), s.preset_dm, true) == mrui::ComposeRow::grant);
+    CHECK(mrui::compose_row_kind(uint8_t(s.preset_dm.n + 2), s.preset_dm, true) == mrui::ComposeRow::back);
     // ⛔ THE WORD IS S-17, DECLARED ONCE IN THE INVITE UNIT AND REUSED — §K7 adds ⛔ no lexeme.
-    CHECK(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true) == mrui::kInviteGrantKey);
-    CHECK(strcmp(mrui::compose_row_text(s.preset_dm.n, s.preset_dm, true), "GRANT KEY") == 0);
+    CHECK(mrui::compose_row_text(uint8_t(s.preset_dm.n + 1), s.preset_dm, true) == mrui::kInviteGrantKey);
+    CHECK(strcmp(mrui::compose_row_text(uint8_t(s.preset_dm.n + 1), s.preset_dm, true), "GRANT KEY") == 0);
 
     CHECK(compose_cursor_to_grant(f.m, s));
     CHECK(f.invite_dev.grants == 0);                               // walking onto it performs NOTHING
@@ -8833,7 +8854,7 @@ TEST_CASE("ui16-k7-self: pin 5 — the SELF row offers nothing, and the core's o
     CHECK(open_member_acts(f.m, s, 0));
     CHECK(f.m.state().compose_grant_hash == s.my_key_hash32);      // the identity is still frozen, honestly...
     CHECK(f.m.state().compose_grant_row == false);                 // ...⛔ and the act is not offered
-    CHECK(mrui::compose_row_count(s.preset_dm, false) == uint8_t(s.preset_dm.n + 1));   // the list is EXACTLY today's
+    CHECK(mrui::compose_row_count(s.preset_dm, false) == uint8_t(s.preset_dm.n + 2));   // the list without the act (W8: + WRITE)
     CHECK(compose_cursor_to_grant(f.m, s) == false);
     CHECK(f.invite_dev.reads == 0);                                // ⛔ not even the preflight is spent
     // ...and the last row is still `back, don't send`, which sends nothing.
@@ -8887,7 +8908,7 @@ TEST_CASE("ui16-k7-keyless: pin 6 — a KEYLESS node offers nothing, and neither
         CHECK(f.m.state().compose == Compose::channel);
         CHECK(f.m.state().compose_peer == 0);
         CHECK(f.m.state().compose_grant_row == false);
-        CHECK(mrui::compose_row_count(s.preset_ch, false) == uint8_t(s.preset_ch.n + 1));
+        CHECK(mrui::compose_row_count(s.preset_ch, false) == uint8_t(s.preset_ch.n + 2));   // W8: + WRITE MESSAGE
         CHECK(mrui::compose_grant_offered(/*dm=*/false, true, true, 0x1234u, 0x9999u) == false);
     }
     // ⓘ ...and the pure predicate itself, term by term, so each veto is attributable at match count 1.
@@ -9303,8 +9324,8 @@ TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and 
     CHECK(offsetof(mrui::UiState, compose_gen) == 8u);             // ★ §UI-10/11 P3 — 4-aligned, and FREE
     CHECK(offsetof(mrui::UiState, compose_grant_row) == 12u);      // ★ ...and the flag costs NOTHING on top
     CHECK(offsetof(mrui::UiState, compose_result) == 13u);         // pushed by the 4-alignment above
-    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u                // 496 + 8, and ⛔ UNMOVED by P3's uint32
-    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u                // 920 + the same 8, likewise UNMOVED
+    CHECK(sizeof(mrui::UiState) == 576u);   // W7+W8 re-sync (D16/D18), was 568u (W6), 520u (W4b), 504u                // 496 + 8, and ⛔ UNMOVED by P3's uint32
+    CHECK(sizeof(mrui::UiModel) == 1216u);  // W7+W8 re-sync (D16/D18), was 1016u (W6), 944u (W4b), 928u                // 920 + the same 8, likewise UNMOVED
     // ---- and K7 adds NO carrier to the chain it enters ------------------------------------------------------------
     CHECK(sizeof(mrui::InviteWindow) == 104u);                     // ⛔ UNCHANGED
     CHECK(sizeof(mrui::InviteGrantResult) == 8u);                  // ⛔ UNCHANGED
@@ -9611,8 +9632,8 @@ TEST_CASE("ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both la
     //   `UiState` (beside `compose_peer`, where the act's target belongs) rather than appended. ⛔ K5's CLAIM is
     //   unaffected and is what this case is about: its field still sits in the 4 bytes immediately after
     //   `nearby_sel_id`, with ⛔ not one padding byte between them.
-    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u
-    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u
+    CHECK(sizeof(mrui::UiState) == 576u);   // W7+W8 re-sync (D16/D18), was 568u (W6), 520u (W4b), 504u
+    CHECK(sizeof(mrui::UiModel) == 1216u);  // W7+W8 re-sync (D16/D18), was 1016u (W6), 944u (W4b), 928u
     // ⓘ ⚠ **RE-PINNED 2026-08-26 BY §UI-10/11 P3, AND THE SUPERSEDED FIGURE IS KEPT VISIBLE: `1008u`.** The struct
     //   grew by the compose-list projection — `uint32_t preset_generation` at the old 8-aligned END (1008, free) plus
     //   two alignof-1 `ComposeList`s (161 each) at 1012 and 1173 — so it measures **1336 (+328)**. ⛔ NOTHING BELOW
@@ -10069,8 +10090,8 @@ TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, an
     CHECK(offsetof(mrui::UiState, forget_team)    == 376u);    // ★ 4 B, immediately after it
     CHECK(offsetof(mrui::UiState, saved_keys)     == 380u);    // ★ 36 B, immediately after THAT
     CHECK(offsetof(mrui::UiState, invite)         == 416u);    // = 380 + 36, i.e. ⛔ not one padding byte between
-    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u            // 456 + 4 + 36 + K7's 8 = 504 ✓
-    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u            // 880 + the same 40 + K7's 8
+    CHECK(sizeof(mrui::UiState) == 576u);   // W7+W8 re-sync (D16/D18), was 568u (W6), 520u (W4b), 504u            // 456 + 4 + 36 + K7's 8 = 504 ✓
+    CHECK(sizeof(mrui::UiModel) == 1216u);  // W7+W8 re-sync (D16/D18), was 1016u (W6), 944u (W4b), 928u            // 880 + the same 40 + K7's 8
 }
 
 // ============== §UI-16 K6 (QG blocker, 2026-08-25) — THE **RECEIVED** GRANT'S FULL-KEYRING ACKNOWLEDGEMENT
@@ -10299,7 +10320,7 @@ TEST_CASE("ui10-p3-slot: a disabled slot is never rendered, and eight enabled sl
     ComposeList l{};
     compose_project(full, mrfw::PresetKind::dm, l);
     CHECK(l.n == mrfw::kPresetPerKind);
-    CHECK(compose_row_count(l, /*grant=*/false) == uint8_t(mrfw::kPresetPerKind + 1));
+    CHECK(compose_row_count(l, /*grant=*/false) == uint8_t(mrfw::kPresetPerKind + 2));   // ★ W8: + WRITE MESSAGE
     // ...and a walk over the whole list returns to row 0 having visited every row exactly once.
     const auto s = snap_with(full);
     UiModel m;
@@ -10331,8 +10352,10 @@ TEST_CASE("ui10-p3-row: every PRESET row shows `L` or `-`, and the action rows s
             CHECK(mk == (l.row[i].loc ? 'L' : '-'));
         }
         // ⛔ R-1: an ACTION row carries no location column at all — see `compose_row_loc_marker`'s own block.
+        // ⓘ W8 (§7.5): WRITE MESSAGE (row `n`) is an action row too; GRANT KEY moved to `n + 1`.
         const uint8_t n = compose_row_count(l, grant);
-        if (grant) CHECK(compose_row_loc_marker(l.n, l, grant) == '\0');
+        CHECK(compose_row_loc_marker(l.n, l, grant) == '\0');
+        if (grant) CHECK(compose_row_loc_marker(uint8_t(l.n + 1), l, grant) == '\0');
         CHECK(compose_row_loc_marker(uint8_t(n - 1), l, grant) == '\0');
     }
     // ---- the LINE, byte for byte: selection marker · L/- · text
@@ -10341,25 +10364,31 @@ TEST_CASE("ui10-p3-row: every PRESET row shows `L` or `-`, and the action rows s
     CHECK(std::strcmp(b, ">-DM1") == 0);
     compose_row_line(b, sizeof b, 1, l, /*grant=*/false, /*selected=*/false);
     CHECK(std::strcmp(b, " LDM2") == 0);
-    // ...and the two derived rows keep EXACTLY the one marker column they have always had (R-1).
+    // ...and the derived rows keep EXACTLY the one marker column they have always had (R-1). ⓘ W8: WRITE MESSAGE is at
+    //   `n`, GRANT KEY at `n + 1`, `back` last.
     compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/false);
-    CHECK(std::strcmp(b, " GRANT KEY") == 0);
-    compose_row_line(b, sizeof b, l.n, l, /*grant=*/true, /*selected=*/true);
-    CHECK(std::strcmp(b, ">GRANT KEY") == 0);
+    CHECK(std::strcmp(b, " WRITE MESSAGE") == 0);
     compose_row_line(b, sizeof b, uint8_t(l.n + 1), l, /*grant=*/true, /*selected=*/false);
+    CHECK(std::strcmp(b, " GRANT KEY") == 0);
+    compose_row_line(b, sizeof b, uint8_t(l.n + 1), l, /*grant=*/true, /*selected=*/true);
+    CHECK(std::strcmp(b, ">GRANT KEY") == 0);
+    compose_row_line(b, sizeof b, uint8_t(l.n + 2), l, /*grant=*/true, /*selected=*/false);
     CHECK(std::strcmp(b, " back, don't send") == 0);
 }
 
 // ★★★★ PIN 6 — §3.2.1's ZERO-ENABLED EMPTY STATE: the note, the back row only, and the cursor ON it.
-TEST_CASE("ui10-p3-empty: a catalog with no enabled slots shows the note and offers only `back`") {
+// ⓘ W8 (design §7.5, r2.26): an empty catalog still offers WRITE MESSAGE — the list is WRITE MESSAGE and `back`, and the
+//   cursor lands on WRITE (item 1). The note, and `back` sending nothing, are unchanged.
+TEST_CASE("ui10-p3-empty: a catalog with no enabled slots shows the note and offers WRITE MESSAGE and `back`") {
     const auto cat = gapped_cat({});                       // ⛔ every DM and channel slot disabled
     ComposeList l{};
     compose_project(cat, mrfw::PresetKind::dm, l);
     CHECK(l.n == 0);
     CHECK(compose_empty_note(l) != nullptr);
-    CHECK(std::strcmp(compose_empty_note(l), kNoPresetsText) == 0);
-    CHECK(compose_row_count(l, /*grant=*/false) == 1);      // ★ the back row, and nothing else
-    CHECK(compose_row_kind(0, l, /*grant=*/false) == ComposeRow::back);
+    CHECK((compose_empty_note(l) != nullptr && std::strcmp(compose_empty_note(l), kNoPresetsText) == 0));
+    CHECK(compose_row_count(l, /*grant=*/false) == 2);      // ★ WRITE MESSAGE and the back row, nothing else
+    CHECK(compose_row_kind(0, l, /*grant=*/false) == ComposeRow::write);
+    CHECK(compose_row_kind(1, l, /*grant=*/false) == ComposeRow::back);
     // ⛔ AND A NON-EMPTY LIST HAS **NO** NOTE — the answer is `nullptr`, never an empty string a caller would draw.
     ComposeList some{};
     compose_project(gapped_cat({3}), mrfw::PresetKind::dm, some);
@@ -10372,6 +10401,8 @@ TEST_CASE("ui10-p3-empty: a catalog with no enabled slots shows the note and off
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().cursor == 0);
+    CHECK(compose_row_kind(m.state().cursor, s.preset_dm, m.state().compose_grant_row) == ComposeRow::write);
+    m.on_gesture(Gesture::short_press, s);                  // ⓘ W8: one short from WRITE MESSAGE to `back`
     CHECK(compose_row_kind(m.state().cursor, s.preset_dm, m.state().compose_grant_row) == ComposeRow::back);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);              // it LEFT
@@ -10526,14 +10557,18 @@ TEST_CASE("ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index 
     CHECK(std::strcmp(s.preset_dm.row[0].text, "Are you OK?") == 0);
     CHECK(std::strcmp(s.preset_dm.row[1].text, "I'm OK") == 0);
     CHECK(std::strcmp(s.preset_dm.row[2].text, "Where are you?") == 0);
+    // ⓘ W8 (design §7.5 — the NAMED revision of preset spec R-1): WRITE MESSAGE is inserted after the phrases, so the
+    //   grant/back rows move one more down (grant at 4, back at 5). K7's GATING and SEMANTICS are untouched; only its
+    //   index moves, and it still sits between the phrases (+ WRITE) and `back`.
     for (bool grant : { false, true }) {
-        CHECK(compose_row_count(s.preset_dm, grant) == uint8_t(3 + (grant ? 1 : 0) + 1));
+        CHECK(compose_row_count(s.preset_dm, grant) == uint8_t(3 + 1 + (grant ? 1 : 0) + 1));
         CHECK(compose_row_kind(0, s.preset_dm, grant) == ComposeRow::text);
         CHECK(compose_row_kind(1, s.preset_dm, grant) == ComposeRow::text);
         CHECK(compose_row_kind(2, s.preset_dm, grant) == ComposeRow::text);
-        CHECK(compose_row_kind(3, s.preset_dm, grant) == (grant ? ComposeRow::grant : ComposeRow::back));
+        CHECK(compose_row_kind(3, s.preset_dm, grant) == ComposeRow::write);
+        CHECK(compose_row_kind(4, s.preset_dm, grant) == (grant ? ComposeRow::grant : ComposeRow::back));
     }
-    CHECK(compose_row_kind(4, s.preset_dm, true) == ComposeRow::back);
+    CHECK(compose_row_kind(5, s.preset_dm, true) == ComposeRow::back);
     // ★ THE ROW'S POSITION IS THE LIST'S LENGTH, at EVERY catalog size — that is what "between the slots and the
     //   back row" means once the list is configurable, and it is R-1 stated for the general case.
     for (uint8_t k = 0; k <= mrfw::kPresetPerKind; ++k) {
@@ -10546,9 +10581,10 @@ TEST_CASE("ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index 
         (void)all;
         compose_project(c, mrfw::PresetKind::dm, l);
         CHECK(l.n == k);
-        CHECK(compose_row_kind(k, l, /*grant=*/true) == ComposeRow::grant);
-        CHECK(compose_row_kind(uint8_t(k + 1), l, /*grant=*/true) == ComposeRow::back);
-        CHECK(compose_row_text(k, l, /*grant=*/true) == kInviteGrantKey);
+        CHECK(compose_row_kind(k, l, /*grant=*/true) == ComposeRow::write);                    // ★ W8
+        CHECK(compose_row_kind(uint8_t(k + 1), l, /*grant=*/true) == ComposeRow::grant);
+        CHECK(compose_row_kind(uint8_t(k + 2), l, /*grant=*/true) == ComposeRow::back);
+        CHECK(compose_row_text(uint8_t(k + 1), l, /*grant=*/true) == kInviteGrantKey);
         // ⛔ ...and it is NEVER offered on the channel list, at any size (term 1 of `compose_grant_offered`).
         CHECK(compose_grant_offered(/*dm=*/false, true, true, 0x1234u, 0x9999u) == false);
     }
@@ -10585,12 +10621,12 @@ TEST_CASE("ui10-p3-resources: the list projection costs 328 B of UiSnapshot and 
     // ⇒ these three lines pin the HOST shape, which is all a native case can see; the SYMBOL figures need the board
     //   ABI compiler, and the RAM figure needs a LINK — i.e. the per-board `RAM_used` diff, which is the board gate's.
     CHECK(offsetof(mrui::UiState, compose_gen) == 8u);
-    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u (W4b), 504u
-    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u (W4b), 928u
+    CHECK(sizeof(mrui::UiState) == 576u);   // W7+W8 re-sync (D16/D18), was 568u (W6), 520u (W4b), 504u
+    CHECK(sizeof(mrui::UiModel) == 1216u);  // W7+W8 re-sync (D16/D18), was 1016u (W6), 944u (W4b), 928u
     // ★ `SendReq` gains 4 bytes over the withdrawn `{kind, peer, text_index}` — it is a by-value request, held in
     //   ONE model member and one tick local, so this is 4 bytes of `UiModel` that measured ZERO above.
     // ⓘ W6 (owner-ruled D15): 16 B — `peer_known` in the old padding byte, then `team_id` and `peer_hash` (was 8u).
-    CHECK(sizeof(mrui::SendReq) == 16u);
+    CHECK(sizeof(mrui::SendReq) == 20u);   // W8 re-sync (D18): + the appended `draft_id`, was 16u (W6)
 }
 
 // ==================================================================================================================
@@ -10604,6 +10640,7 @@ namespace {
 // about a capability switches ONE off. ⓘ `no_plane` is gateway_heltec's shape: no team plane, no setup children.
 UiSnapshot home_snap(HomeProfile p, uint32_t now_ms = 1000) {
     UiSnapshot s = prov_snap(true, true, true, now_ms, /*invite=*/true);
+    named_device(s);                                   // ★ W7: named — see `named_device`
     s.my_key_hash32 = 0x12AB34CDu;
     switch (p) {
         case HomeProfile::no_plane:
@@ -10869,9 +10906,10 @@ TEST_CASE("w4b-menu: the MENU row of every top-level list lands in MENU MODE on 
             case 2: to_menu_home(f.m, s);
                     for (int i = 0; i < 3; ++i) f.m.on_gesture(Gesture::short_press, s);
                     f.m.on_gesture(Gesture::double_press, s);
-                    // ⓘ W6 (D9): four compiled channel phrases, so MENU is index 4 (was 2).
-                    for (int i = 0; i < 4; ++i) f.m.on_gesture(Gesture::short_press, s);
-                    CHECK(f.m.state().cursor == 4); break;                          // the channel list's last row
+                    // ⓘ W6 (D9): four compiled channel phrases; ⓘ W8 (§7.5): WRITE MESSAGE follows them, so MENU is
+                    //   index 5 (was 4, and 2 before W6).
+                    for (int i = 0; i < 5; ++i) f.m.on_gesture(Gesture::short_press, s);
+                    CHECK(f.m.state().cursor == 5); break;                          // the channel list's last row
             case 3: to_settings_menu(f.m, s);
                     CHECK(cursor_to(f.m, s, CfgRow::back)); break;
         }
@@ -10913,7 +10951,7 @@ TEST_CASE("w4b-wrap: list focus WRAPS on every top-level list — Settings inclu
     UiModel n; n.on_tick(s); to_menu_home(n, s);
     for (int i = 0; i < 3; ++i) n.on_gesture(Gesture::short_press, s);
     n.on_gesture(Gesture::double_press, s);
-    for (int i = 0; i < 5; ++i) n.on_gesture(Gesture::short_press, s);   // ⓘ W6 (D9): 4 phrases + MENU = 5 rows (was 3)
+    for (int i = 0; i < 6; ++i) n.on_gesture(Gesture::short_press, s);   // ⓘ W6 (D9) + W8: 4 phrases + WRITE + MENU = 6 rows
     CHECK(n.state().screen == Screen::send); CHECK(n.state().cursor == 0);
     CHECK(n.state().compose == Compose::channel);
 }
@@ -10940,7 +10978,9 @@ TEST_CASE("w4b-items: INBOX, TEAM and SEND open their LIST in list focus on the 
     CHECK(in_menu_mode_on_home(m));
 }
 
-TEST_CASE("w4b-items: MY DEVICE — short stays on its one BACK row, double returns Home ON MY DEVICE") {
+// ★ W7 (design §6.7): My device's row is now ` CHANGE NAME >BACK` — a short TOGGLES between the two and still never
+//   leaves (H24's meaning); BACK is selected on entry, and a double on BACK returns exactly as before.
+TEST_CASE("w4b-items: MY DEVICE — a short toggles CHANGE NAME / BACK and never leaves; double on BACK returns ON MY DEVICE") {
     UiModel m; const UiSnapshot s = home_snap(HomeProfile::ready);
     m.on_tick(s);
     CHECK(home_to(m, s, HomeItem::my_device));
@@ -10948,8 +10988,13 @@ TEST_CASE("w4b-items: MY DEVICE — short stays on its one BACK row, double retu
     CHECK(m.state().screen == Screen::status);
     CHECK(m.state().home_view == HomeView::my_device);
     CHECK(m.home_return_item() == HomeItem::my_device);
-    for (int i = 0; i < 3; ++i) { m.on_gesture(Gesture::short_press, s); m.on_tick(s); }
-    CHECK(m.state().home_view == HomeView::my_device);        // ⛔ a short never leaves the one-row view
+    CHECK(m.state().editor.primary == false);                 // ★ BACK selected on entry
+    for (int i = 0; i < 4; ++i) {
+        m.on_gesture(Gesture::short_press, s); m.on_tick(s);
+        CHECK(m.state().editor.primary == (i % 2 == 0));      // the short TOGGLES...
+        CHECK(m.state().home_view == HomeView::my_device);    // ⛔ ...and never leaves the view
+        CHECK(m.state().editor.phase == EditorPhase::closed);
+    }
     m.on_gesture(Gesture::double_press, s); m.on_tick(s);
     CHECK(on_home_list(m));
     CHECK(m.state().home.selected == HomeItem::my_device);    // ★ back ON ITS OPENER
@@ -11794,13 +11839,15 @@ TEST_CASE("w4b-send: the Send list's labels — PRESET CHANGED on item 1 while n
     CHECK(std::strlen(l) <= kDetailCols);
     CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, false) == false);   // an ordinary phrase row
     CHECK(send_list_row_override(l, sizeof l, 1, s.preset_ch, true, true) == false);    // ⛔ item 1 only
-    // ⓘ W6 (D9): four compiled channel phrases, so the exit row is index 4 (was 2) — and index 2 is now a PHRASE.
+    // ⓘ W6 (D9): four compiled channel phrases — index 2 is a PHRASE. ⓘ W8 (§7.5): WRITE MESSAGE is index 4 (drawn by
+    //   the compose row, not overridden) and the exit row is index 5 (was 4, and 2 before W6).
     CHECK(send_list_row_override(l, sizeof l, 2, s.preset_ch, true, false) == false);   // `Return to base n»`
-    CHECK(send_list_row_override(l, sizeof l, 4, s.preset_ch, true, false));
+    CHECK(send_list_row_override(l, sizeof l, 4, s.preset_ch, true, false) == false);   // WRITE MESSAGE
+    CHECK(send_list_row_override(l, sizeof l, 5, s.preset_ch, true, false));
     CHECK(std::strcmp(l, ">MENU") == 0);                        // ⛔ never `back, don't send` at the top level
-    CHECK(send_list_row_override(l, sizeof l, 4, s.preset_ch, false, true));
+    CHECK(send_list_row_override(l, sizeof l, 5, s.preset_ch, false, true));
     CHECK(std::strcmp(l, " MENU") == 0);
-    CHECK(send_list_row_override(nullptr, 0, 4, s.preset_ch, true, false) == false);    // fails closed
+    CHECK(send_list_row_override(nullptr, 0, 5, s.preset_ch, true, false) == false);    // fails closed
 }
 
 // ------------------------------------------------------------------------------------------ Inbox watermarks
@@ -11876,14 +11923,14 @@ TEST_CASE("w4b-resources: the owner-ruled shape — HomeCapture 9, UiState 568, 
     CHECK(sizeof(HomeView) == 1u);
     CHECK(sizeof(HomeItem) == 1u);
     CHECK(sizeof(SetupOrigin) == 1u);
-    CHECK(sizeof(mrui::UiState) == 568u);   // W6 re-sync (owner-ruled D15), was 520u
+    CHECK(sizeof(mrui::UiState) == 576u);   // W7+W8 re-sync (D16/D18), was 568u (W6), 520u
     CHECK(offsetof(mrui::UiState, home_view) == offsetof(mrui::UiState, home) + sizeof(HomeCapture));
     CHECK(offsetof(mrui::UiState, home) > offsetof(mrui::UiState, grant));   // appended after the grant verdict
     CHECK(sizeof(mrui::UiSnapshot) == 1368u);
     CHECK(sizeof(mrui::UiSnapshot::own_name) == 32u);
     CHECK(offsetof(mrui::UiSnapshot, own_name_len) == offsetof(mrui::UiSnapshot, own_name) + 32u);
     CHECK(offsetof(mrui::UiSnapshot, own_name) > offsetof(mrui::UiSnapshot, preset_ch));   // appended
-    CHECK(sizeof(mrui::UiModel) == 1016u);  // W6 re-sync (owner-ruled D15), was 944u
+    CHECK(sizeof(mrui::UiModel) == 1216u);  // W7+W8 re-sync (D16/D18), was 1016u (W6), 944u
     // ⓘ UiChrome's 20 / align 2 (the cue in existing padding) is pinned beside its projection: test_firmware_ui_chrome.cpp.
     // ProvBlock gained `unavailable` with no byte growth
     CHECK(sizeof(ProvBlock) == 1u);
@@ -12000,30 +12047,37 @@ TEST_CASE("b457: the OPEN-service counterparts still land in the Settings menu, 
 }
 
 // ------------------------------------------------------------------------------------------ design r2.22 §6.5
-TEST_CASE("w4b-send: with NO phrases, PRESET CHANGED covers the Send list's MENU row for ONE press (design r2.22 §6.5)") {
-    const mrnv::UiPresetBlob empty = gapped_cat({});          // every channel slot disabled: item 1 IS the exit row
+// ⓘ W8 (design §7.5): with no phrases, item 1 is now WRITE MESSAGE and MENU is item 2 — the note still covers item 1
+//   for ONE press that acts on nothing, and the exit is still one walk away.
+TEST_CASE("w4b-send: with NO phrases, PRESET CHANGED covers the Send list's item 1 (WRITE MESSAGE) for ONE press") {
+    const mrnv::UiPresetBlob empty = gapped_cat({});          // every channel slot disabled: item 1 is WRITE MESSAGE
     UiModel m; UiSnapshot s = snap_with(empty); SendReq req{};
     to_send_list(m, s);
     CHECK(m.state().compose == Compose::channel);
-    CHECK(compose_row_count(s.preset_ch, false) == 1);
+    CHECK(compose_row_count(s.preset_ch, false) == 2);
+    CHECK(compose_row_kind(0, s.preset_ch, false) == ComposeRow::write);
     char l[24];
-    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, false));
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, false) == false);   // WRITE MESSAGE: compose's row
+    CHECK(send_list_row_override(l, sizeof l, 1, s.preset_ch, true, false));
     CHECK(std::strcmp(l, ">MENU") == 0);
     mrnv::UiPresetBlob moved = empty;
     moved.generation = mrfw::preset_generation_next(moved.generation);
     s = snap_with(moved, 1100); m.on_tick(s);                 // the catalog moves; the list is still empty
     CHECK(m.state().home.changed == true);
     CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, m.state().home.changed));
-    CHECK(std::strcmp(l, ">PRESET CHANGED") == 0);            // ★ the note covers the only row, MENU
+    CHECK(std::strcmp(l, ">PRESET CHANGED") == 0);            // ★ the note covers item 1, WRITE MESSAGE
     m.on_gesture(Gesture::double_press, s);                   // ONE press: clears the note, acts on nothing
     CHECK(m.state().home.changed == false);
-    CHECK(m.state().screen == Screen::send);                  // ⛔ not the MENU action
+    CHECK(m.state().screen == Screen::send);                  // ⛔ not an action — no editor, no MENU
     CHECK(m.state().compose == Compose::channel);
+    CHECK(m.state().editor.phase == EditorPhase::closed);
     CHECK(m.take_send_request(req) == false);
-    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, m.state().home.changed));
-    CHECK(std::strcmp(l, ">MENU") == 0);                      // ...and the row is MENU again
+    CHECK(send_list_row_override(l, sizeof l, 0, s.preset_ch, true, m.state().home.changed) == false);   // WRITE again
+    m.on_gesture(Gesture::short_press, s);                    // -> MENU
+    CHECK(send_list_row_override(l, sizeof l, m.state().cursor, s.preset_ch, true, m.state().home.changed));
+    CHECK(std::strcmp(l, ">MENU") == 0);
     m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().screen == Screen::status);                // the NEXT press is the exit
+    CHECK(m.state().screen == Screen::status);                // the exit
     CHECK(m.state().list_view == ListView::passive);
 }
 
@@ -12045,7 +12099,7 @@ UiSnapshot tsnap(uint32_t now_ms = 1000, uint32_t team = kTeam, const mrnv::UiPr
 // The resolver's answer as the device builds it (`team_key_of_id`'s boolean + hash), from this snapshot's members.
 SendLive live(const UiSnapshot& s, uint8_t peer) {
     const uint32_t h = team_member_hash_of(s.member, s.team_shown, peer);
-    return SendLive{s.team_id, h != 0, h};
+    return SendLive{s.team_id, h != 0, true, h};
 }
 // Team row `row` -> its DM phrase list -> phrase `phrase` -> DOUBLE (the review is REQUESTED).
 void dm_double(UiModel& m, const UiSnapshot& s, uint8_t row = 0, uint8_t phrase = 0) {
@@ -12058,7 +12112,7 @@ void dm_double(UiModel& m, const UiSnapshot& s, uint8_t row = 0, uint8_t phrase 
 bool capture(UiModel& m, const UiSnapshot& s, const mrnv::UiPresetBlob& cat = preset_defaults_blob(),
              const char* name = nullptr) {
     const SendReq b = m.review_binding();
-    const SendLive l = (b.kind == SendKind::dm) ? live(s, b.peer_id) : SendLive{s.team_id, false, 0};
+    const SendLive l = (b.kind == SendKind::dm) ? live(s, b.peer_id) : SendLive{s.team_id, false, true, 0};
     return ui_review_capture(m, cat, l, name, name ? uint8_t(std::strlen(name)) : uint8_t(0), s, s.now_ms);
 }
 // The wrapped lines of `body`, as the review would lay them out, each as a string.
@@ -12195,13 +12249,13 @@ TEST_CASE("w6-review: row 0 names the destination — team, a verified DM (name 
         CHECK(std::strcmp(m.state().review_header, (std::string("TO ") + tok + " A0000011").c_str()) == 0); }
     {   UiModel m; const UiSnapshot s = w6::tsnap();
         w6::dm_double(m, s, 1, 0);
-        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, false, 0}, nullptr, 0, s, s.now_ms));
+        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, false, true, 0}, nullptr, 0, s, s.now_ms));
         CHECK(std::strcmp(m.state().review_header, "TO T11 UNVERIFIED") == 0);
         CHECK(m.review_binding().peer_known == false); }
     {   // ★ a KNOWN ZERO (labelled synthetic — the resolver never yields one) stays KNOWN, never "unverified"
         UiModel m; const UiSnapshot s = w6::tsnap();
         w6::dm_double(m, s, 1, 0);
-        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, true, 0}, nullptr, 0, s, s.now_ms));
+        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, true, true, 0}, nullptr, 0, s, s.now_ms));
         CHECK(std::strcmp(m.state().review_header, "TO T11 00000000") == 0);
         CHECK(m.review_binding().peer_known == true);
         CHECK(m.review_binding().peer_hash == 0u); }
@@ -12401,7 +12455,7 @@ TEST_CASE("w6-race: a KNOWN recipient re-keyed or unbound closes with RECIPIENT 
     {   // an UNVERIFIED review (no hash known at selection) is not closed by a hash that appears later
         UiModel m; const UiSnapshot s = w6::tsnap();
         w6::dm_double(m, s, 1, 0);
-        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, false, 0}, nullptr, 0, s, s.now_ms));
+        CHECK(ui_review_capture(m, preset_defaults_blob(), SendLive{w6::kTeam, false, true, 0}, nullptr, 0, s, s.now_ms));
         UiSnapshot t = w6::tsnap(1100); t.member[1].key_hash32 = 0xBEEF0001u;
         m.on_tick(t);
         CHECK(m.state().review_phase == ReviewPhase::open); }
@@ -12524,4 +12578,584 @@ TEST_CASE("w6-capture: the review holds COPIES — a catalog edited after the ca
     std::memset(cat.slot[mrfw::kPresetDmFirst].text, 'Z', 5);   // the SAME object the capture read
     CHECK(std::strcmp(m.state().review_line[0], before.c_str()) == 0);
     CHECK(std::strcmp(before.c_str(), "Are you OK?") == 0);
+}
+
+// ==================================================================================================================
+// W7 (design r2.27 §4.3, §4.4, §5.5, §7.4.1) — THE NAME FLOW: My device's CHANGE NAME, its review, the ONE save request
+//   and its result, the unnamed JOIN/CREATE prompt, and every interruption. The editor's own rings are
+//   `test_firmware_ui_editor.cpp`'s; these cases drive the CALLER through the real model, press by press.
+// ==================================================================================================================
+namespace w7 {
+UiSnapshot with_name(UiSnapshot s, const char* name) {
+    const size_t n = std::strlen(name);
+    std::memset(s.own_name, 0, sizeof s.own_name);
+    std::memcpy(s.own_name, name, n);
+    s.own_name_len = uint8_t(n);
+    return s;
+}
+UiSnapshot named(const char* name, HomeProfile p = HomeProfile::ready) { return with_name(home_snap(p), name); }
+UiSnapshot unnamed(HomeProfile p = HomeProfile::ready) {
+    UiSnapshot s = home_snap(p);
+    std::memset(s.own_name, 0, sizeof s.own_name); s.own_name_len = 0;
+    return s;
+}
+void press(UiModel& m, const UiSnapshot& s, Gesture g) { m.on_gesture(g, s); m.on_tick(s); }
+// Home -> MY DEVICE (BACK selected). The caller ASSERTS the landing.
+bool open_my_device(UiModel& m, const UiSnapshot& s) {
+    m.on_tick(s);
+    if (!home_to(m, s, HomeItem::my_device)) return false;
+    press(m, s, Gesture::double_press);
+    return m.state().home_view == HomeView::my_device && m.state().editor.phase == EditorPhase::closed;
+}
+// My device -> CHANGE NAME -> the editor.
+bool open_name_editor(UiModel& m, const UiSnapshot& s) {
+    if (!open_my_device(m, s)) return false;
+    press(m, s, Gesture::short_press);                         // -> CHANGE NAME
+    press(m, s, Gesture::double_press);
+    return m.state().editor.phase == EditorPhase::groups;
+}
+// Type through the real gestures (group ring, character ring), from E1.
+void type(UiModel& m, const UiSnapshot& s, const char* text) {
+    for (const char* p = text; *p; ++p) {
+        uint8_t at = kEditorRepertoireSize;
+        for (uint8_t i = 0; i < kEditorRepertoireSize; ++i) if (kEditorRepertoire[i] == *p) at = i;
+        CHECK(at < kEditorRepertoireSize);
+        if (at >= kEditorRepertoireSize) return;
+        for (int i = 0; i < kGroupRingItems && m.state().editor.item != at / kEditorGroupSize; ++i) press(m, s, Gesture::short_press);
+        press(m, s, Gesture::double_press);
+        for (int i = 0; i < kCharRingItems && m.state().editor.item != at % kEditorGroupSize; ++i) press(m, s, Gesture::short_press);
+        press(m, s, Gesture::double_press);
+    }
+}
+// From E1 (or E3) onto control `c`.
+void control(UiModel& m, const UiSnapshot& s, EditorControl c) {
+    if (m.state().editor.phase == EditorPhase::groups) {
+        for (int i = 0; i < kGroupRingItems && m.state().editor.item != kEditorGroups; ++i) press(m, s, Gesture::short_press);
+        press(m, s, Gesture::double_press);
+    }
+    for (int i = 0; i < kControlRingItems && m.state().editor.item != uint8_t(c); ++i) press(m, s, Gesture::short_press);
+}
+// DONE from wherever the editor is.
+void done(UiModel& m, const UiSnapshot& s) { control(m, s, EditorControl::done); press(m, s, Gesture::double_press); }
+std::string draft_text(const UiModel& m) { return std::string(m.draft().bytes, m.draft().len); }
+// The device's `ui_service_name_request`, as the tick serves it: take ONCE, answer once.
+int serve(UiModel& m, NameResult r, std::string* saw = nullptr) {
+    const char* b = nullptr; uint8_t n = 0;
+    if (!m.take_name_request(b, n)) return 0;
+    if (saw) *saw = std::string(b, n);
+    m.on_name_result(r);
+    return 1;
+}
+}  // namespace w7
+
+TEST_CASE("w7-name: CHANGE NAME opens the editor PRELOADED, all or nothing; origin my_device; cap 32") {
+    {
+        UiModel m; const UiSnapshot s = w7::named("STAN 2");
+        CHECK(w7::open_name_editor(m, s));
+        CHECK(w7::draft_text(m) == "STAN 2");
+        CHECK(m.draft().cursor == 6);                         // the next empty cell
+        CHECK(m.draft().cap == 32);
+        CHECK(m.draft().caller == DraftCaller::name);
+        CHECK(m.name_origin() == NameOrigin::my_device);
+        CHECK(m.state().editor.used == 6);
+        CHECK(m.state().editor.cap == 32);
+        CHECK(m.state().editor.item == 0);                    // group 1
+        CHECK(std::strcmp(m.state().editor_line[0], "STAN 2") == 0);
+        CHECK(m.state().home_view == HomeView::my_device);    // the editor is drawn OVER My device (rail STATUS)
+    }
+    for (const char* other : { "Stan", "STAN'S", "ST\xC3\x84N" }) {
+        CAPTURE(other);
+        UiModel m; const UiSnapshot s = w7::named(other);
+        CHECK(w7::open_name_editor(m, s));
+        CHECK(m.draft().len == 0);                            // ⛔ nothing uppercased, transliterated or dropped
+        CHECK(m.state().editor.used == 0);
+    }
+    UiModel m; const UiSnapshot s = w7::unnamed();
+    CHECK(w7::open_name_editor(m, s));
+    CHECK(m.draft().len == 0);
+}
+
+TEST_CASE("w7-name: DONE opens SAVE NAME? — the name on rows 1-2, WAS from THIS tick, EDIT selected, a new draft_id") {
+    UiModel m; UiSnapshot s = w7::named("STAN");
+    CHECK(w7::open_name_editor(m, s));
+    w7::control(m, s, EditorControl::del);
+    for (int i = 0; i < 4; ++i) w7::press(m, s, Gesture::double_press);
+    w7::control(m, s, EditorControl::back);
+    w7::press(m, s, Gesture::double_press);
+    w7::type(m, s, "STANISLAW KOZICKI WROCLAW");          // 25 bytes: 19 + 6 on the review's two rows
+    // ★ a console rename WHILE THE EDITOR IS OPEN shows up in WAS — it is read when the review opens
+    s = w7::with_name(s, "RENAMED BY USB TOOLS");
+    const uint32_t id0 = m.draft().draft_id;
+    w7::done(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::name_review);
+    CHECK(m.draft().draft_id == id0 + 1);                     // ★ the review FROZE the draft with a new id
+    CHECK_FALSE(m.state().editor.primary);                    // EDIT selected
+    CHECK(std::strcmp(m.state().review_line[0], "STANISLAW KOZICKI W") == 0);
+    CHECK(std::strcmp(m.state().review_line[1], "ROCLAW") == 0);
+    CHECK(std::strcmp(m.state().review_line[2], "") == 0);
+    CHECK(std::strcmp(m.state().review_header, "WAS RENAMED BY USB\xBB") == 0);   // 15 columns, » past 15
+    // ⛔ one made WHILE THE REVIEW IS OPEN does not: the line is frozen with the review
+    s = w7::with_name(s, "ANNA");
+    for (int i = 0; i < 3; ++i) m.on_tick(s);
+    CHECK(std::strcmp(m.state().review_header, "WAS RENAMED BY USB\xBB") == 0);
+    char l[24];
+    name_review_action_line(l, sizeof l, m.state().editor.primary);
+    CHECK(std::strcmp(l, " SAVE >EDIT") == 0);
+    // EDIT: back to the editor on group 1, the cursor kept, the draft unfrozen
+    w7::press(m, s, Gesture::double_press);
+    CHECK(m.state().editor.phase == EditorPhase::groups);
+    CHECK(m.state().editor.item == 0);
+    CHECK(m.draft().cursor == 25);
+    CHECK(w7::draft_text(m) == "STANISLAW KOZICKI WROCLAW");
+    CHECK(w7::serve(m, NameResult::saved) == 0);              // ⛔ nothing was requested
+}
+
+TEST_CASE("w7-name: WAS reads NO NAME SET for an unnamed device; a 32-byte name fills rows 1-2 as 19 + 13") {
+    UiModel m; const UiSnapshot s = w7::unnamed();
+    CHECK(w7::open_name_editor(m, s));
+    w7::type(m, s, "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
+    CHECK(m.draft().len == 32);
+    w7::type(m, s, "6");                                       // the 33rd byte: FULL, nothing written
+    CHECK(m.state().editor.note == EditorNote::full);
+    CHECK(m.draft().len == 32);
+    w7::done(m, s);
+    CHECK(m.state().editor.phase == EditorPhase::name_review);
+    CHECK(std::strcmp(m.state().review_line[0], "ABCDEFGHIJKLMNOPQRS") == 0);
+    CHECK(std::strcmp(m.state().review_line[1], "TUVWXYZ012345") == 0);
+    CHECK(std::strcmp(m.state().review_header, "WAS NO NAME SET") == 0);
+    char l[24];
+    name_was_line(l, sizeof l, "STAN", 4);
+    CHECK(std::strcmp(l, "WAS STAN") == 0);
+    name_was_line(l, sizeof l, "ABCDEFGHIJKLMNO", 15);
+    CHECK(std::strcmp(l, "WAS ABCDEFGHIJKLMNO") == 0);       // exactly 15: no marker
+    name_was_line(l, sizeof l, "abc\x01", 4);
+    CHECK(std::strcmp(l, "WAS abc.") == 0);                   // the ONE sanitizing formatter (W4a)
+    name_was_line(l, sizeof l, nullptr, 0);
+    CHECK(std::strcmp(l, "WAS NO NAME SET") == 0);
+}
+
+TEST_CASE("w7-save: SAVE raises ONE request, taken ONCE as the counted draft; NAME SAVED releases and returns to My device") {
+    UiModel m; const UiSnapshot s = w7::named("OLD");
+    CHECK(w7::open_name_editor(m, s));
+    w7::type(m, s, "NEW");
+    w7::done(m, s);
+    w7::press(m, s, Gesture::short_press);                    // -> SAVE
+    CHECK(m.state().editor.primary);
+    char l[24];
+    name_review_action_line(l, sizeof l, m.state().editor.primary);
+    CHECK(std::strcmp(l, ">SAVE  EDIT") == 0);
+    w7::press(m, s, Gesture::double_press);
+    CHECK(m.state().editor.phase == EditorPhase::name_requested);
+    // ⛔ the name flow never touches a send slot
+    SendReq req{};
+    CHECK(m.take_send_request(req) == false);
+    std::string saw;
+    const char* b = nullptr; uint8_t n = 0;
+    CHECK(m.take_name_request(b, n));
+    saw.assign(b, n);
+    CHECK(saw == "OLDNEW");                                   // the preloaded name, the cursor at its end
+    CHECK(m.take_name_request(b, n) == false);                // ★ once — a second take answers false
+    // presses while the save is in service act on nothing
+    w7::press(m, s, Gesture::double_press);
+    CHECK(m.state().editor.phase == EditorPhase::name_taken);
+    m.on_name_result(NameResult::saved);
+    CHECK(m.state().editor.phase == EditorPhase::name_result);
+    CHECK(m.state().editor.result == NameResult::saved);
+    CHECK(std::strcmp(name_result_head(NameResult::saved), "NAME SAVED") == 0);
+    CHECK(name_result_reason(NameResult::saved) == nullptr);
+    m.on_name_result(NameResult::nv_failed);                  // ⛔ a duplicate answer changes nothing
+    CHECK(m.state().editor.result == NameResult::saved);
+    w7::press(m, s, Gesture::short_press);                    // either press acknowledges
+    CHECK(m.state().editor.phase == EditorPhase::closed);
+    CHECK(m.state().home_view == HomeView::my_device);
+    CHECK_FALSE(m.state().editor.primary);                    // BACK selected
+    CHECK(m.draft().caller == DraftCaller::none);             // released
+    CHECK(m.draft().len == 0);
+    CHECK(m.name_origin() == NameOrigin::none);
+    CHECK(w7::serve(m, NameResult::saved) == 0);              // ⛔ the acknowledgement saved nothing
+}
+
+TEST_CASE("w7-save: every NOT SAVED answer keeps the draft and returns to the editor on group 1 — no retry") {
+    for (NameResult r : { NameResult::nv_failed, NameResult::too_long, NameResult::bad_name, NameResult::none }) {
+        CAPTURE(int(r));
+        UiModel m; const UiSnapshot s = w7::named("A");
+        CHECK(w7::open_name_editor(m, s));
+        w7::type(m, s, "BC");
+        w7::done(m, s);
+        w7::press(m, s, Gesture::short_press);
+        w7::press(m, s, Gesture::double_press);
+        CHECK(w7::serve(m, r) == 1);
+        CHECK(m.state().editor.phase == EditorPhase::name_result);
+        CHECK(std::strcmp(name_result_head(r), "NAME NOT SAVED") == 0);
+        w7::press(m, s, Gesture::double_press);
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(m.state().editor.item == 0);
+        CHECK(w7::draft_text(m) == "ABC");
+        CHECK(m.draft().cursor == 3);
+        CHECK(w7::serve(m, NameResult::saved) == 0);          // ⛔ no automatic retry
+    }
+    CHECK(std::strcmp(name_result_reason(NameResult::nv_failed), "NV WRITE FAILED") == 0);
+    CHECK(std::strcmp(name_result_reason(NameResult::too_long), "NAME TOO LONG") == 0);
+    CHECK(std::strcmp(name_result_reason(NameResult::bad_name), "BAD NAME") == 0);
+    CHECK(name_result_reason(NameResult::none) == nullptr);
+}
+
+TEST_CASE("w7-name: DISCARD from My device leaves the old name untouched — confirmed when the draft holds bytes") {
+    UiModel m; const UiSnapshot s = w7::named("KEEP");
+    CHECK(w7::open_name_editor(m, s));
+    w7::control(m, s, EditorControl::discard);
+    w7::press(m, s, Gesture::double_press);
+    CHECK(m.state().editor.phase == EditorPhase::discard);
+    CHECK_FALSE(m.state().editor.primary);                    // BACK first
+    w7::press(m, s, Gesture::short_press);
+    w7::press(m, s, Gesture::double_press);
+    CHECK(m.state().editor.phase == EditorPhase::closed);
+    CHECK(m.state().home_view == HomeView::my_device);
+    CHECK(m.draft().caller == DraftCaller::none);
+    CHECK(w7::serve(m, NameResult::saved) == 0);              // ⛔ nothing saved
+}
+
+TEST_CASE("w7-prompt: an UNNAMED Home JOIN/CREATE is admitted FIRST, then asked — NO NAME SET / SET NAME / >SKIP") {
+    for (HomeItem it : { HomeItem::join, HomeItem::create }) {
+        CAPTURE(int(it));
+        CreateFix f; const UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, it));
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.store.loads == 1);                            // ★ the gate's ONE open happened first
+        CHECK(f.m.state().screen == Screen::status);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        CHECK(f.m.state().settings == Settings::closed);      // ⛔ no provisioning sub-view behind the prompt
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK_FALSE(f.m.state().editor.primary);              // SKIP selected
+        CHECK(f.m.home_return_item() == it);
+        char l[24];
+        name_prompt_row(l, sizeof l, true, false);  CHECK(std::strcmp(l, " SET NAME") == 0);
+        name_prompt_row(l, sizeof l, false, false); CHECK(std::strcmp(l, ">SKIP") == 0);
+        name_prompt_row(l, sizeof l, true, true);   CHECK(std::strcmp(l, ">SET NAME") == 0);
+        name_prompt_row(l, sizeof l, false, true);  CHECK(std::strcmp(l, " SKIP") == 0);
+        // SKIP: the gate is asked AGAIN, then the existing step, origin home
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().provisioning == (it == HomeItem::join ? Provision::nearby : Provision::create_confirm));
+        CHECK(f.m.setup_origin() == SetupOrigin::home);
+        CHECK(f.store.writes == 0);
+    }
+    // a NAMED device goes straight on, exactly as before
+    CreateFix f; const UiSnapshot s = home_snap(HomeProfile::no_team);
+    f.m.on_tick(s);
+    CHECK(home_to(f.m, s, HomeItem::join));
+    w7::press(f.m, s, Gesture::double_press);
+    CHECK(f.m.state().provisioning == Provision::nearby);
+}
+
+TEST_CASE("w7-prompt: a BLOCKED gate shows its note BEFORE any name is asked; a gate that refuses at SKIP shows it then") {
+    {   // the gate refuses at activation: the setup-block note, no prompt
+        CreateFix f; const UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+        f.store.can_load = false;
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::create));
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.m.state().home_view == HomeView::setup_block);
+        CHECK(f.m.state().prov_block == ProvBlock::unavailable);
+    }
+    {   // the gate passes, the prompt is up, a CONFLICT lands, SKIP: the note, then Home
+        CreateFix f; const UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::join));
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        f.store.rec.intro_attach = 0;
+        f.svc.note_external_write(f.store.rec);
+        w7::press(f.m, s, Gesture::double_press);              // SKIP
+        CHECK(f.m.state().home_view == HomeView::setup_block);
+        CHECK(f.m.state().prov_block == ProvBlock::conflict);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        w7::press(f.m, s, Gesture::short_press);               // dismiss
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().home.selected == HomeItem::join);
+        CHECK(f.store.writes == 0);
+    }
+}
+
+TEST_CASE("w7-prompt: SET NAME -> NAME SAVED continues into the chosen step after the gate; DISCARD returns to the prompt") {
+    for (HomeItem it : { HomeItem::join, HomeItem::create }) {
+        CAPTURE(int(it));
+        CreateFix f; UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, it));
+        w7::press(f.m, s, Gesture::double_press);
+        w7::press(f.m, s, Gesture::short_press);               // -> SET NAME
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.m.state().editor.phase == EditorPhase::groups);
+        CHECK(f.m.name_origin() == (it == HomeItem::join ? NameOrigin::setup_join : NameOrigin::setup_create));
+        CHECK(f.m.state().home_view == HomeView::name_prompt);  // the editor is drawn over the prompt (rail STATUS)
+        // DISCARD on the empty draft: straight back to the prompt, SKIP selected
+        w7::control(f.m, s, EditorControl::discard);
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.m.state().editor.phase == EditorPhase::closed);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        CHECK_FALSE(f.m.state().editor.primary);
+        // again, and this time save
+        w7::press(f.m, s, Gesture::short_press);
+        w7::press(f.m, s, Gesture::double_press);
+        w7::type(f.m, s, "STAN");
+        w7::done(f.m, s);
+        w7::press(f.m, s, Gesture::short_press);
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(w7::serve(f.m, NameResult::saved) == 1);
+        s = w7::with_name(s, "STAN");                          // the live name the next snapshot publishes
+        const int loads = f.store.loads;
+        w7::press(f.m, s, Gesture::double_press);              // acknowledge NAME SAVED
+        CHECK(f.store.loads >= loads);                         // the gate was asked (the service is already open)
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().provisioning == (it == HomeItem::join ? Provision::nearby : Provision::create_confirm));
+        CHECK(f.m.setup_origin() == SetupOrigin::home);
+        CHECK(f.m.home_return_item() == it);
+        CHECK(f.m.draft().caller == DraftCaller::none);
+    }
+}
+
+TEST_CASE("w7-prompt: long_fire at the prompt returns HOME after the alarm and the pending setup is DROPPED") {
+    CreateFix f; const UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+    f.m.on_tick(s);
+    CHECK(home_to(f.m, s, HomeItem::create));
+    w7::press(f.m, s, Gesture::double_press);
+    CHECK(f.m.state().home_view == HomeView::name_prompt);
+    f.m.on_gesture(Gesture::long_arm, s);
+    f.m.on_gesture(Gesture::long_fire, s);
+    f.m.on_tick(s);
+    CHECK(f.m.emergency() == Emergency::firing);
+    CHECK(on_home_list(f.m));
+    CHECK(f.m.state().home.selected == HomeItem::create);     // the opener kept
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);     // ⛔ setup never resumes by itself
+}
+
+TEST_CASE("w7-interrupt: the editor (E1-E4) survives blank, wake, receive and every alarm gesture with its ring") {
+    for (EditorPhase target : { EditorPhase::groups, EditorPhase::chars, EditorPhase::controls, EditorPhase::discard }) {
+        CAPTURE(int(target));
+        UiModel m; UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        if (target == EditorPhase::chars) { w7::press(m, s, Gesture::short_press); w7::press(m, s, Gesture::double_press);
+                                            w7::press(m, s, Gesture::short_press); }
+        if (target == EditorPhase::controls || target == EditorPhase::discard) {
+            w7::control(m, s, EditorControl::right);
+        }
+        if (target == EditorPhase::discard) { w7::control(m, s, EditorControl::discard); w7::press(m, s, Gesture::double_press);
+                                              w7::press(m, s, Gesture::short_press); }
+        CHECK(m.state().editor.phase == target);
+        const EditorView before = m.state().editor;
+        // blank and the consumed wake
+        s.now_ms += kBlankMs + 1; m.on_tick(s);
+        CHECK(m.state().blanked);
+        s.now_ms += 10; w7::press(m, s, Gesture::double_press);
+        CHECK_FALSE(m.state().blanked);
+        CHECK(std::memcmp(&before, &m.state().editor, sizeof before) == 0);
+        // a received DM: counters and wake only
+        m.on_msg_wake(s.now_ms); m.on_tick(s);
+        CHECK(std::memcmp(&before, &m.state().editor, sizeof before) == 0);
+        // arm, cancel
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_cancel, s);
+        s.now_ms += kCancelledMs + 1; m.on_tick(s);
+        CHECK(m.emergency() == Emergency::idle);
+        CHECK(std::memcmp(&before, &m.state().editor, sizeof before) == 0);
+        // fire: kept, and the overlay ABSORBS the presses — no hidden edit
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        const std::string text = w7::draft_text(m);
+        for (int i = 0; i < 3; ++i) { w7::press(m, s, Gesture::double_press); w7::press(m, s, Gesture::short_press); }
+        CHECK(std::memcmp(&before, &m.state().editor, sizeof before) == 0);
+        CHECK(w7::draft_text(m) == text);
+        CHECK(w7::serve(m, NameResult::saved) == 0);
+    }
+}
+
+TEST_CASE("w7-interrupt: the name REVIEW resets to EDIT on blank and long_arm; long_fire closes it to the editor") {
+    UiModel m; UiSnapshot s = w7::named("AB");
+    CHECK(w7::open_name_editor(m, s));
+    w7::done(m, s);
+    w7::press(m, s, Gesture::short_press);
+    CHECK(m.state().editor.primary);                          // on SAVE...
+    s.now_ms += kBlankMs + 1; m.on_tick(s);
+    CHECK(m.state().blanked);
+    CHECK_FALSE(m.state().editor.primary);                    // ★ ...a blank resets it to EDIT
+    CHECK(m.state().editor.phase == EditorPhase::name_review);
+    s.now_ms += 10; w7::press(m, s, Gesture::short_press);    // the wake: consumed
+    CHECK_FALSE(m.state().editor.primary);
+    w7::press(m, s, Gesture::short_press);
+    CHECK(m.state().editor.primary);
+    m.on_gesture(Gesture::long_arm, s);
+    CHECK_FALSE(m.state().editor.primary);                    // ★ long_arm resets it too
+    m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+    CHECK(m.state().editor.phase == EditorPhase::groups);     // ★ the review closed; the editor shows the draft
+    CHECK(m.state().editor.item == 0);
+    CHECK(w7::draft_text(m) == "AB");
+    CHECK(w7::serve(m, NameResult::saved) == 0);              // ⛔ a cancellation never saves
+}
+
+TEST_CASE("w7-interrupt: long_fire on a RESULT — saved releases (My device / Home by origin), not saved keeps the editor") {
+    {   // NAME SAVED from My device: released, My device after the alarm
+        UiModel m; const UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        w7::done(m, s); w7::press(m, s, Gesture::short_press); w7::press(m, s, Gesture::double_press);
+        CHECK(w7::serve(m, NameResult::saved) == 1);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        CHECK(m.state().editor.phase == EditorPhase::closed);
+        CHECK(m.state().home_view == HomeView::my_device);
+        CHECK(m.draft().caller == DraftCaller::none);
+    }
+    {   // NAME SAVED from the setup prompt: released, HOME after the alarm — setup never resumes by itself
+        CreateFix f; const UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::join));
+        w7::press(f.m, s, Gesture::double_press);
+        w7::press(f.m, s, Gesture::short_press); w7::press(f.m, s, Gesture::double_press);
+        w7::type(f.m, s, "X");
+        w7::done(f.m, s); w7::press(f.m, s, Gesture::short_press); w7::press(f.m, s, Gesture::double_press);
+        CHECK(w7::serve(f.m, NameResult::saved) == 1);
+        f.m.on_gesture(Gesture::long_arm, s); f.m.on_gesture(Gesture::long_fire, s); f.m.on_tick(s);
+        CHECK(on_home_list(f.m));
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.draft().caller == DraftCaller::none);
+    }
+    {   // NAME NOT SAVED: the editor with the draft after the alarm
+        UiModel m; const UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        w7::done(m, s); w7::press(m, s, Gesture::short_press); w7::press(m, s, Gesture::double_press);
+        CHECK(w7::serve(m, NameResult::nv_failed) == 1);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(w7::draft_text(m) == "AB");
+    }
+    {   // SAVE pressed, the save not yet served, then the alarm: the request is dropped — never saved afterwards
+        UiModel m; const UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        w7::done(m, s); w7::press(m, s, Gesture::short_press); w7::press(m, s, Gesture::double_press);
+        CHECK(m.state().editor.phase == EditorPhase::name_requested);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_fire, s); m.on_tick(s);
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(w7::serve(m, NameResult::saved) == 0);
+    }
+}
+
+// ★★ §2.5 (W7 §5, design §5.5) — THE PROMPT, THE NAME REVIEW AND ITS RESULT under the interruptions the case above walks
+//    for E1–E4. The blank keeps each one (the review's selection back on EDIT) and, blanked, each lets the device SLEEP
+//    (`ui_allows_sleep`); the waking press and a receive only wake; long_arm / long_cancel return to it. ⛔ Nothing is
+//    saved, nothing taken, no setup step entered and the gate is not asked again.
+TEST_CASE("w7-interrupt: the PROMPT, the name REVIEW and its RESULT ride blank, wake, receive and arm/cancel; blanked, each lets the device sleep") {
+    InputFsm in; FrameGate g;
+    {   // the prompt (SKIP selected)
+        CreateFix f; UiSnapshot s = w7::unnamed(HomeProfile::no_team);
+        f.m.on_tick(s);
+        CHECK(home_to(f.m, s, HomeItem::join));
+        w7::press(f.m, s, Gesture::double_press);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        CHECK(f.store.loads == 1);
+        CHECK_FALSE(ui_allows_sleep(f.m, in, g));                   // lit
+        s.now_ms += kBlankMs; f.m.on_tick(s);
+        CHECK(f.m.state().blanked);
+        CHECK(ui_allows_sleep(f.m, in, g));                         // ★ a blanked prompt lets the device sleep
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        s.now_ms += 40; w7::press(f.m, s, Gesture::double_press);   // the WAKE: consumed — ⛔ not SKIP
+        CHECK_FALSE(f.m.state().blanked);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.store.loads == 1);                                  // ⛔ the gate was not asked again
+        s.now_ms += 10; f.m.on_msg_wake(s.now_ms); f.m.on_tick(s); // a receive: counters and wake only
+        CHECK(f.m.state().screen == Screen::status);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);
+        f.m.on_gesture(Gesture::long_arm, s); f.m.on_gesture(Gesture::long_cancel, s);
+        s.now_ms += kCancelledMs + 1; f.m.on_tick(s);
+        CHECK(f.m.emergency() == Emergency::idle);
+        CHECK(f.m.state().home_view == HomeView::name_prompt);      // ★ CANCELLED returns to the prompt
+        CHECK_FALSE(f.m.state().editor.primary);                    // SKIP still selected
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.store.loads == 1);
+        CHECK(f.store.writes == 0);
+    }
+    {   // the name REVIEW: a receive only wakes, the blank's EDIT kept; long_cancel returns on EDIT
+        UiModel m; UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        w7::done(m, s);
+        w7::press(m, s, Gesture::short_press);
+        CHECK(m.state().editor.primary);                            // on SAVE
+        s.now_ms += kBlankMs; m.on_tick(s);
+        CHECK(m.state().blanked);
+        CHECK(ui_allows_sleep(m, in, g));                           // ★ a blanked review lets the device sleep
+        s.now_ms += 10; m.on_msg_wake(s.now_ms); m.on_tick(s);
+        CHECK_FALSE(m.state().blanked);
+        CHECK(m.state().editor.phase == EditorPhase::name_review);
+        CHECK_FALSE(m.state().editor.primary);                      // the blank's EDIT, kept by the receive
+        w7::press(m, s, Gesture::short_press);
+        CHECK(m.state().editor.primary);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_cancel, s);
+        s.now_ms += kCancelledMs + 1; m.on_tick(s);
+        CHECK(m.emergency() == Emergency::idle);
+        CHECK(m.state().editor.phase == EditorPhase::name_review);  // ★ returns, with the safe selection
+        CHECK_FALSE(m.state().editor.primary);
+        CHECK(w7::serve(m, NameResult::saved) == 0);                // ⛔ nothing saved
+    }
+    {   // the RESULT (NAME NOT SAVED): kept in the dark; the wake and a receive are NOT the acknowledgement
+        UiModel m; UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        w7::done(m, s); w7::press(m, s, Gesture::short_press); w7::press(m, s, Gesture::double_press);
+        CHECK(w7::serve(m, NameResult::nv_failed) == 1);
+        CHECK(m.state().editor.phase == EditorPhase::name_result);
+        s.now_ms += kBlankMs; m.on_tick(s);
+        CHECK(m.state().blanked);
+        CHECK(ui_allows_sleep(m, in, g));                           // ★ a blanked result lets the device sleep
+        CHECK(m.state().editor.phase == EditorPhase::name_result);
+        s.now_ms += 40; w7::press(m, s, Gesture::double_press);     // the WAKE: consumed
+        CHECK_FALSE(m.state().blanked);
+        CHECK(m.state().editor.phase == EditorPhase::name_result);  // ⛔ not acknowledged
+        s.now_ms += 10; m.on_msg_wake(s.now_ms); m.on_tick(s);
+        CHECK(m.state().editor.phase == EditorPhase::name_result);
+        m.on_gesture(Gesture::long_arm, s); m.on_gesture(Gesture::long_cancel, s);
+        s.now_ms += kCancelledMs + 1; m.on_tick(s);
+        CHECK(m.emergency() == Emergency::idle);
+        CHECK(m.state().editor.phase == EditorPhase::name_result);  // ★ returns
+        w7::press(m, s, Gesture::double_press);                     // the acknowledgement: the editor, group 1
+        CHECK(m.state().editor.phase == EditorPhase::groups);
+        CHECK(m.state().editor.item == 0);
+        CHECK(w7::draft_text(m) == "AB");
+        CHECK(w7::serve(m, NameResult::saved) == 0);                // ⛔ no retry
+    }
+    {   // a blanked NAME EDITOR lets the device sleep, its ring kept; a lit one never does
+        UiModel m; UiSnapshot s = w7::named("AB");
+        CHECK(w7::open_name_editor(m, s));
+        const EditorView before = m.state().editor;
+        CHECK_FALSE(ui_allows_sleep(m, in, g));
+        s.now_ms += kBlankMs; m.on_tick(s);
+        CHECK(m.state().blanked);
+        CHECK(ui_allows_sleep(m, in, g));
+        CHECK(std::memcmp(&before, &m.state().editor, sizeof before) == 0);
+    }
+}
+
+TEST_CASE("w7-name: a GATEWAY (no team plane) renames from My device; it has no JOIN/CREATE and so no prompt") {
+    UiModel m; const UiSnapshot s = w7::named("GW", HomeProfile::no_plane);
+    m.on_tick(s);
+    CHECK(home_index_of(m.state().home, HomeItem::join) == m.state().home.count);
+    CHECK(w7::open_name_editor(m, s));
+    w7::type(m, s, "1");
+    w7::done(m, s); w7::press(m, s, Gesture::short_press); w7::press(m, s, Gesture::double_press);
+    std::string saw;
+    CHECK(w7::serve(m, NameResult::saved, &saw) == 1);
+    CHECK(saw == "GW1");
+}
+
+TEST_CASE("w7-rows: My device's action row is ` CHANGE NAME >BACK` (18 columns), BACK first") {
+    char l[24];
+    my_device_action_line(l, sizeof l, false);
+    CHECK(std::strcmp(l, " CHANGE NAME >BACK") == 0);
+    CHECK(std::strlen(l) == 18);
+    my_device_action_line(l, sizeof l, true);
+    CHECK(std::strcmp(l, ">CHANGE NAME  BACK") == 0);
+    CHECK(std::strcmp(editor_note_text(EditorNote::full), "FULL") == 0);
+    CHECK(std::strcmp(editor_note_text(EditorNote::empty), "EMPTY") == 0);
+    CHECK(std::strcmp(editor_note_text(EditorNote::busy), "BUSY") == 0);
+    CHECK(std::strcmp(editor_note_text(EditorNote::team_changed), "TEAM CHANGED") == 0);
+    CHECK(std::strcmp(editor_note_text(EditorNote::recipient_changed), "RECIPIENT CHANGED") == 0);
+    CHECK(editor_note_text(EditorNote::binding_seen) == nullptr);
+    CHECK(editor_note_text(EditorNote::none) == nullptr);
 }

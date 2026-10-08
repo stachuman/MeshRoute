@@ -1,0 +1,273 @@
+[
+  {
+    "step": "scope",
+    "command": [
+      "python3",
+      "-B",
+      "/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-qa-regate/preservation.py"
+    ],
+    "exit": 0,
+    "seconds": 0.291,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/scope.log",
+    "sha256": "b54cd98ff92aafcc507478240997f2585efb70cf565abea1fd595b4619bf35ae"
+  },
+  {
+    "step": "syntax",
+    "command": [
+      "python3",
+      "-B",
+      "/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-qa-regate/static_review.py"
+    ],
+    "exit": 0,
+    "seconds": 0.512,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/syntax.log",
+    "sha256": "524de59c21cda4cf4306e3e34ff557d37207f767294df6f335cd6e0f741a0db3"
+  },
+  {
+    "step": "part-a",
+    "command": [
+      "python3",
+      "-B",
+      "tools/test_mutation_unusable_reason.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 10.586,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/part-a.log",
+    "sha256": "acd42890cdb604b6e13728554887e324e66d1586a9b848fb09df3228a5c4052b"
+  },
+  {
+    "step": "selftest",
+    "command": [
+      "/usr/bin/python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--selftest-unusable"
+    ],
+    "exit": 0,
+    "seconds": 0.077,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/selftest.log",
+    "sha256": "3cf088097a88bab5da142387d9673de7eface5a3702c9a3bb974834725944179"
+  },
+  {
+    "step": "controls-a",
+    "command": [
+      "python3",
+      "-B",
+      "/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-qa-regate/controls_a.py"
+    ],
+    "exit": 0,
+    "seconds": 7.375,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/controls-a.log",
+    "sha256": "e5b60ec714fb489f30d499d066c7bdac69bdd8384a6c4a74a6968b49c815563d"
+  },
+  {
+    "step": "mut-default",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w4aident"
+    ],
+    "exit": 0,
+    "seconds": 273.782,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/mut-default.log",
+    "sha256": "e3fa90b3d6f4fc637afcffa836946f8997893c0ebc94c21755dfcd18d2062c11"
+  },
+  {
+    "step": "mut-w1",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_ui_model_mutations.py",
+      "--target=w4aident",
+      "--workers=1"
+    ],
+    "exit": 0,
+    "seconds": 44.77,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/mut-w1.log",
+    "sha256": "62e75f8782205e837b64ebc7493ad43b7b5f2f3cdeaba69dd189a57dca5a9466"
+  },
+  {
+    "step": "transcript-full_headless-1",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "full_headless",
+      "--out",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/full_headless-1",
+      "--emit",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/full_headless-1/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 24.253,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/transcript-full_headless-1.log",
+    "sha256": "5daef1f0e8ae3e42cfb930986ec242e89119edffc2b824671df0f14e630fac34"
+  },
+  {
+    "step": "transcript-full_headless-2",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "full_headless",
+      "--out",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/full_headless-2",
+      "--emit",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/full_headless-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 24.225,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/transcript-full_headless-2.log",
+    "sha256": "bc8545317be6b9f11669671d525afb6646627880f0590b05a62c67f959d97acf"
+  },
+  {
+    "step": "compare-full_headless",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--compare",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/full_headless-1/ledger.txt",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/full_headless-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 2.263,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/compare-full_headless.log",
+    "sha256": "1e2dbdccc738d334dbbf2b4e922ea3d7a7fd3b829daa9936cc9092a07a31f255"
+  },
+  {
+    "step": "transcript-mobile-1",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "mobile",
+      "--out",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/mobile-1",
+      "--emit",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/mobile-1/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 23.542,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/transcript-mobile-1.log",
+    "sha256": "32b85d959136e636d16c38348fa5d3582787a291acd10b77b761f240b935be13"
+  },
+  {
+    "step": "transcript-mobile-2",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--profile",
+      "mobile",
+      "--out",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/mobile-2",
+      "--emit",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/mobile-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 23.547,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/transcript-mobile-2.log",
+    "sha256": "011bbce122a13973b95e973f9eabb62202052e237251bb077ddfe090f3ce8eb2"
+  },
+  {
+    "step": "compare-mobile",
+    "command": [
+      "python3",
+      "-B",
+      "tools/probe_inbox_verbs/transcript.py",
+      "--compare",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/mobile-1/ledger.txt",
+      "/tmp/mr-qa-regate-transcripts-_z7e68sw/mobile-2/ledger.txt"
+    ],
+    "exit": 0,
+    "seconds": 2.267,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/compare-mobile.log",
+    "sha256": "a2fc1e8e66032657d8446bbbd5dcb685c71dca3b531a0d5750ce239e5dfe325d"
+  },
+  {
+    "step": "part-b",
+    "command": [
+      "python3",
+      "-B",
+      "tools/test_probe_inbox_transcript.py",
+      "-v"
+    ],
+    "exit": 0,
+    "seconds": 66.365,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/part-b.log",
+    "sha256": "43ef306034041cca5623f3f9ddefe126ac254d775b9d59ca91fee9c24f77e1d1"
+  },
+  {
+    "step": "discovery",
+    "command": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools",
+      "-p",
+      "test_*.py"
+    ],
+    "exit": 0,
+    "seconds": 886.037,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/discovery.log",
+    "sha256": "d7a39ec6b055fc66f0b2b14ddad87037f87dc55e5a495ab9856611f5a050a1ee"
+  },
+  {
+    "step": "inventory",
+    "command": [
+      "python3",
+      "-B",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 2.114,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/inventory.log",
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "step": "census",
+    "command": [
+      "python3",
+      "-B",
+      "/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-qa-regate/static_review.py"
+    ],
+    "exit": 0,
+    "seconds": 0.506,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/census.log",
+    "sha256": "524de59c21cda4cf4306e3e34ff557d37207f767294df6f335cd6e0f741a0db3"
+  },
+  {
+    "step": "reader-audit",
+    "command": [
+      "python3",
+      "-B",
+      "/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-qa-regate/reader_audit.py"
+    ],
+    "exit": 0,
+    "seconds": 0.061,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/reader-audit.log",
+    "sha256": "ef15dac33e8fe909042711b1983c66ac22c1de4b72be0d2ab632763443785f44"
+  },
+  {
+    "step": "stability",
+    "command": [
+      "python3",
+      "-B",
+      "/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-qa-regate/preservation.py"
+    ],
+    "exit": 0,
+    "seconds": 0.276,
+    "log": "artifacts/2026-10-02-b478-b487-b488-qa-regate/stability.log",
+    "sha256": "b54cd98ff92aafcc507478240997f2585efb70cf565abea1fd595b4619bf35ae"
+  }
+]

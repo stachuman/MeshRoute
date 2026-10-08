@@ -1,0 +1,37 @@
+[
+  {
+    "line": 1451,
+    "label": "C139 the row is composed here as %c%s (the location column dropped)",
+    "source": "  ctl \"C139 the row is composed here as %c%s (the location column dropped)\" yes \\\n      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        snprintf(l, sizeof l, \"%c%s\", ((first + row) == st.cursor) ? 0x3e : 0x20, mrui::compose_row_text(uint8_t(first + row), list, grant));|'\n  # \u26d4 C140 THE EMPTY STATE BYPASSED \u2014 \u00a73.2.1's note never drawn, so a wearer who cleared every preset sees a\n  #    sub-view with one unexplained `back, don't send` row and no reason for it."
+  },
+  {
+    "line": 1460,
+    "label": "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED",
+    "source": "  ctl \"C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED\" yes \\\n      's|            case mrui::DmState::preset_changed:|            case mrui::DmState::preset_changed: draw_failure_lines(v); break;|'\n\n  # ======================================================= W6 (design r2.23 \u00a77.3, D5): THE REVIEW's DEVICE HALF (W6-D1/D2)\n  # \u2605\u2605\u2605 THE MODEL's HALF IS NATIVELY PINNED AND MUTATED (`--target=model` W6-M01..M26, `--target=uisend` W6-S01..S11);\n  #   what no native case compiles is THIS file's wiring (\u00a7B115): that the tick SERVES the capture a phrase double\n  #   requested, and that serving it only CAPTURES \u2014 it never executes.\n  # \u26d4\u26d4 W6-D1 THE CAPTURE EXECUTES \u2014 the device confirms the phrase itself the moment its review opens, so ONE double\n  #     sends and the review the wearer reads is a receipt, not a question. Every native case stays green.\n  w6d1s='s|    (void)mrui::ui_review_capture(s_model, mrfw::preset_catalog().live(), live, raw, n, s, now_ms);|&  ui_perform_send(b, now_ms);|'\n  once '    (void)mrui::ui_review_capture(s_model, mrfw::preset_catalog().live(), live, raw, n, s, now_ms);' \"$w6d1s\" &&"
+  },
+  {
+    "line": 1540,
+    "label": "W3-D2 every detail body row is clipped to 18 columns (a lost final byte)",
+    "source": "  ctl \"W3-D2 every detail body row is clipped to 18 columns (a lost final byte)\" yes \\\n      \"$w3s\"\n  # W3-C1 the compose row composed into 19 bytes \u2014 a 17-byte phrase loses its last column (16 text columns).\n  w3s='s|mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|mrui::compose_row_line(l, 19, uint8_t(first + row), list, grant, (first + row) == st.cursor);|'\n  once 'mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);' \"$w3s\" &&"
+  },
+  {
+    "line": 1545,
+    "label": "W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)",
+    "source": "  ctl \"W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)\" yes \\\n      \"$w3s\"\n  # W3-C2 the location column inverted after the row is composed \u2014 a located phrase reads as plain and vice versa.\n  w3s=\"s|mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor); if (l[1] == 'L') l[1] = '-'; else if (l[1] == '-') l[1] = 'L';|\"\n  once 'mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);' \"$w3s\" &&"
+  },
+  {
+    "line": 1999,
+    "label": "K10 \u2605\u2605\u2605 the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one",
+    "source": "  ctl \"K10 \u2605\u2605\u2605 the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one\" yes \\\n      's|            const char\\* knote = mrui::saved_keys_head(st.saved_keys);|            const char* knote = \"\";|'\n\n  # ============================== \u00a7UI-16 K7 ([[B245]]): R1-R4, THE ROSTER GRANT'S RENDERER + PUBLISH ARMS\n  # \u2605\u2605\u2605\u2605 THEY EXIST ONLY HERE for the reason every N-, L- and K- control above does: the DM act sub-view's optional\n  #   row is reachable only where a provisioning child is (`prov_invite` carries `MR_N_LAYERS < 2`), and\n  #   `src/firmware_ui.cpp` is compiled by NO other gate. The pure decisions have their own battery entries\n  #   (`--target=model` W01-W11); what nothing else in the tree can see is whether THIS file draws the act's row set\n  #   from the model's resolver, and whether it publishes the identity the SELF veto is asked at.\n  # \u26d4\u26d4 R1 IS THE HALF-DONE SLICE and the likeliest defect of all: the row's TEXT is taken from the pure unit (so the\n  #   act is visibly there) while the LENGTH forgets it \u2014 which is \u00a7B66 exactly: the optional row steals `back`'s\n  #   slot and the operator's way out is off the panel.\n  # \u24d8 RE-ANCHORED 2026-08-26 (\u00a7UI-10/11 P3), because the SIGNATURE it mutated is gone and a control that matches\n  #   nothing is VACUOUS \u2014 measured, not anticipated: the first full pass after the slice reported exactly that.\n  #   The withdrawn sed is kept visible: `s|\u2026 mrui::compose_row_count(dm, grant);|\u2026 dm ? mrui::kDmTextCount :\n  #   mrui::kChannelTextCount;|`. The DEFECT is identical \u2014 the length counts the presets and `back` and forgets\n  #   the optional row \u2014 it is simply spelled against the projection the list now comes from."
+  },
+  {
+    "line": 2016,
+    "label": "R1 \u2605\u2605\u2605 the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (\u00a7B66)",
+    "source": "  ctl \"R1 \u2605\u2605\u2605 the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (\u00a7B66)\" yes \\\n      's|    const uint8_t n     = mrui::compose_row_count(list, grant);|    const uint8_t n     = uint8_t(list.n + 1);|'\n  # \u26d4\u26d4 R2 IS THE OTHER HALF: the length knows about the act and the ROW does not, so the row is drawn as a SECOND\n  #   `back, don't send` \u2014 a list with two identical exits, one of which is the door to a private key.\n  # \u24d8 RE-ANCHORED 2026-08-26 (\u00a7UI-10/11 P3) for R1's reason; the withdrawn sed is kept visible:\n  #   `s|\u2026 mrui::compose_row_text(uint8_t(first + row), dm, grant));|\u2026 dm, false));|`. P3 moved the row's WHOLE line\n  #   into the pure composer, so the same `grant`-blind resolution is now spelled on `compose_row_line`."
+  },
+  {
+    "line": 2023,
+    "label": "R2 \u2605\u2605\u2605 the row TEXT is resolved without the act, so the grant row renders as a second way out",
+    "source": "  ctl \"R2 \u2605\u2605\u2605 the row TEXT is resolved without the act, so the grant row renders as a second way out\" yes \\\n      's|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, grant, (first + row) == st.cursor);|        mrui::compose_row_line(l, sizeof l, uint8_t(first + row), list, false, (first + row) == st.cursor);|'\n  # \u26d4\u26d4\u26d4 R3 IS THE RENDERER DECIDING WHAT THE MODEL DECIDED \u2014 the \"every DM has a member, so just draw it\" edit. It\n  #   offers the act for a ROUTE-ONLY member (no binding, no seal target) and for OURSELVES, i.e. it defeats the\n  #   whole hide predicate at the one door where the act ships a private key."
+  }
+]

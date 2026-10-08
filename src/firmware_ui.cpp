@@ -581,10 +581,13 @@ char s_send_line[mrui::kSendLineCap];
 // ★★ W6 — THE GATE's LIVE ANSWERS, read at the instant of asking (brief §2.5): the node's own team and, for a DM, the
 //    existing `Node::team_key_of_id` authority's OWN boolean and hash — the resolver `label_for_team_id` asks (U1).
 //    ⛔ No ID-indexed cache and no six-cell label: a known zero hash stays known (`peer_found`), never "unknown".
+// ★★ W8: BOTH DM kinds resolve their peer (the family, ⛔ never `== dm`), and D19's fact — does the team-local ID exist —
+//    is read here, at the instant of asking, from the node's own accessor. ⛔ Never invented: the default is false.
 mrui::SendLive ui_send_live(const mrui::SendReq& req) {
     mrui::SendLive l{};
     l.team_id = g_node.config().team_id;
-    if (req.kind == mrui::SendKind::dm) l.peer_found = g_node.team_key_of_id(req.peer_id, l.peer_hash);
+    l.team_local_id = (g_node.team_local_id() != 0);
+    if (mrui::send_kind_dm(req.kind)) l.peer_found = g_node.team_key_of_id(req.peer_id, l.peer_hash);
     if (!l.peer_found) l.peer_hash = 0;
     return l;
 }
@@ -597,13 +600,43 @@ void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
 //     phrase REQUESTED it, and this answers from the LIVE catalog, team and peer before the frame freezes. The pure
 //     `mrui::ui_review_capture` does all of it; this supplies the resolver's answer and the peer's FULL counted name
 //     (`label_from_hash`'s read, W4a — ⛔ never a pre-clipped prefix). ⛔ It never queues and never calls `ui_exec`.
+// ★★ W8: the cached FULL raw name of a peer, by hash — the read `label_from_hash` and the review's row 0 use (W4a).
+uint8_t ui_peer_name(uint32_t hash, char* out, uint8_t cap, void* /*ctx*/) {
+    return g_node.peer_name_find(hash, out, cap);
+}
 void ui_service_review(const mrui::UiSnapshot& s, uint32_t now_ms) {
     mrui::SendReq b{};
+    // ★★★ W8: a DM editor's binding (once, at WRITE MESSAGE) and its 8-column header label, served before the freeze.
+    bool resolve = false;
+    if (s_model.editor_capture_owed(b, resolve)) (void)mrui::ui_editor_capture(s_model, ui_send_live(b), ui_peer_name, nullptr);
     if (!s_model.review_capture_owed(b)) return;
     const mrui::SendLive live = ui_send_live(b);
     char raw[MESHROUTE_NS::protocol::peer_name_max];
     const uint8_t n = live.peer_found ? g_node.peer_name_find(live.peer_hash, raw, uint8_t(sizeof raw)) : uint8_t(0);
     (void)mrui::ui_review_capture(s_model, mrfw::preset_catalog().live(), live, raw, n, s, now_ms);
+}
+// ★★★ W7 (design §4.3, r2.25) — THE NAME SAVE, SERVED ONCE IN THE TICK. `SAVE` raised the model's one request; this
+//     takes it (once — the model marks it taken), calls W0's `mrfw::rename_node` EXACTLY ONCE with the model's counted
+//     bytes, and hands back the typed panel answer. It is placed after the emergency drain and OUTSIDE the normal send
+//     busy gate, so a pending DM never blocks a save. ⛔ It saves nothing else: no redraw, wake or acknowledgement
+//     reaches `rename_node`, because nothing but `SAVE` sets the request.
+// ★ THE MAPPING IS EXHAUSTIVE AND DEFAULT-LESS (-Wswitch): `saved` and `unchanged` both read NAME SAVED (an identical
+//   name costs no write and is still saved, §4.3); the three refusals keep their OWN words — ⛔ never an NV failure.
+mrui::NameResult name_result_of(mrfw::RenameResult r) {
+    switch (r) {
+        case mrfw::RenameResult::saved:
+        case mrfw::RenameResult::unchanged:      return mrui::NameResult::saved;
+        case mrfw::RenameResult::nv_save_failed: return mrui::NameResult::nv_failed;
+        case mrfw::RenameResult::too_long:       return mrui::NameResult::too_long;
+        case mrfw::RenameResult::bad_args:       return mrui::NameResult::bad_name;
+    }
+    return mrui::NameResult::none;   // -Wreturn-type only; `none` reads NAME NOT SAVED, never a success
+}
+void ui_service_name_request() {
+    const char* bytes = nullptr;
+    uint8_t     len   = 0;
+    if (!s_model.take_name_request(bytes, len)) return;
+    s_model.on_name_result(name_result_of(mrfw::rename_node(bytes, len)));
 }
 
 // ---- snapshot ----------------------------------------------------------------------------------------------------
@@ -991,6 +1024,9 @@ OutcomeView freeze_outcome(const mrui::UiSnapshot& s) {
     // ⚠ CONTRACT (see UiModel::on_send_refused): the code is meaningful only when the reason is not `parser`. It is
     //   frozen unconditionally because freezing is cheap and reading it conditionally is the renderer's job.
     v.refuse_code = s_model.refuse_code();
+    // ★★ W8: a WRITTEN result shows its OWN record's words (never the shared ones an alarm also writes); the alarm
+    //    overlay keeps the shared ones. The model decides which — this only freezes the answer.
+    s_model.panel_reasons(v.refuse, v.refuse_code, v.fail);
     v.evidence = s_model.emg_evidence();
     v.tries    = s_model.attempts();
     // ★ §B115: frozen beside `tries`, never derived from it here. Deriving it in the renderer is what shipped.
@@ -1434,10 +1470,70 @@ void draw_rail(const mrui::UiChrome& c) {
 //   My device  `ABCDEFGHIJKLMNOPQRS` / `ID 0x12AB34CD` / `-89.123,-179.123` / `>BACK`     19 / 13 / 16 / 5
 //   key help   `A MEMBER WHO HAS IT`                                    19
 //   setup note `RELOAD OR DISCARD` / `IN SETTINGS`                      17 / 11
+// ★★★ W7/W8 (design §5.3) — THE EDITOR's BODY, from the FROZEN descriptor and window ONLY: ⛔ no live draft, no live
+//     name. Row 0 is the caller and `used/cap` (a note owns the row alone, r2.27), rows 1–2 the two grid rows, rows
+//     3–4 the ring; E4 shows `DISCARD DRAFT?` over the first 19 bytes. ★ THE CURSOR is a 6x1 underline one pixel below
+//     its cell's baseline: `draw_hline(12 + 6 x column, baseline + 1, 6)` on the visible row.
+constexpr int kEditorCellPx = 6;   // the small font's column — the body's 19 columns are 6-px cells
+static_assert(kBodyCols * kEditorCellPx <= kBodyPx, "design §5.3: the editor's 19 cells fit the body");
+static_assert(kBodyCols == mrui::kEditorCols, "design §5.3: the editor's grid is the body's 19 columns");
+void draw_editor(const mrui::UiState& st, const char* caller) {
+    char l[kLineCap], r4[kLineCap];
+    const mrui::EditorView& e = st.editor;
+    if (e.phase == mrui::EditorPhase::discard) {
+        body_text(0, mrui::kEditorDiscardHead);
+        if (st.editor_line[0][0]) body_text(1, st.editor_line[0]);
+    } else {
+        mrui::editor_header_line(l, sizeof l, caller, e.used, e.cap, mrui::editor_note_text(e.note));
+        body_text(0, l);
+        for (uint8_t r = 0; r < 2; ++r) if (st.editor_line[r][0]) body_text(1 + r, st.editor_line[r]);
+        mrui::draw_hline(kBodyX + kEditorCellPx * int(e.cursor_col), body_y(1 + int(e.cursor_row)) + 1, kEditorCellPx);
+    }
+    mrui::editor_ring_rows(l, sizeof l, r4, sizeof r4, e);
+    if (l[0])  body_text(3, l);
+    if (r4[0]) body_text(4, r4);
+}
+// ★★★ W7 (design §4.3) — THE NAME FLOW's BODY over My device or the prompt: the editor, `SAVE NAME?` (the name on
+//     rows 1–2, `WAS` on row 3, ` SAVE >EDIT` on row 4) and the result. Answers false while the flow is closed.
+bool draw_name_flow(const mrui::UiState& st) {
+    char l[kLineCap];
+    switch (st.editor.phase) {
+        case mrui::EditorPhase::groups:
+        case mrui::EditorPhase::chars:
+        case mrui::EditorPhase::controls:
+        case mrui::EditorPhase::discard:
+            draw_editor(st, mrui::kEditorNameCaller);
+            return true;
+        case mrui::EditorPhase::name_review:
+        case mrui::EditorPhase::name_requested:
+        case mrui::EditorPhase::name_taken:
+            body_text(0, mrui::kSaveNameHead);
+            for (uint8_t r = 0; r < 2; ++r) if (st.review_line[r][0]) body_text(1 + r, st.review_line[r]);
+            body_text(3, st.review_header);
+            mrui::name_review_action_line(l, sizeof l, st.editor.primary);
+            body_text(4, l);
+            return true;
+        case mrui::EditorPhase::name_result: {
+            body_text(1, mrui::name_result_head(st.editor.result));
+            const char* why = mrui::name_result_reason(st.editor.result);
+            if (why) body_text(2, why);
+            body_text(4, "press = back");
+            return true;
+        }
+        case mrui::EditorPhase::closed:
+        case mrui::EditorPhase::bind:
+        case mrui::EditorPhase::relabel:
+        case mrui::EditorPhase::message_review:
+        case mrui::EditorPhase::message_result: return false;
+    }
+    return false;
+}
+
 void draw_home_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const SettingsView& c) {
     char l[kLineCap];
     switch (st.home_view) {
         case mrui::HomeView::my_device: {
+            if (draw_name_flow(st)) return;   // ★ W7: the name flow owns the body while it is up
             // The full name over two rows (counted, sanitized, ⛔ never an abbreviation split), the stable identity,
             // the position (UI-17 S-9/S-10's row without its restart arm — restart is Home's row 2) and `>BACK`.
             char r1[kLineCap];
@@ -1448,10 +1544,18 @@ void draw_home_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const 
             body_text(2, l);
             mrui::ui_status_location(l, sizeof l, /*reboot_required=*/false, s);   // ⛔ the FROZEN snapshot, never live
             body_text(3, l);
-            snprintf(l, sizeof l, ">%s", mrui::kListBackText);                    // the only row: BACK (design §6.7)
+            mrui::my_device_action_line(l, sizeof l, st.editor.primary);          // ★ W7: ` CHANGE NAME >BACK` (§6.7)
             body_text(4, l);
             return;
         }
+        case mrui::HomeView::name_prompt:   // ★ W7 (§4.4): `NO NAME SET` / ` SET NAME` / `>SKIP`
+            if (draw_name_flow(st)) return;
+            body_text(0, mrui::kNoNameSetText);
+            mrui::name_prompt_row(l, sizeof l, /*set_row=*/true, st.editor.primary);
+            body_text(1, l);
+            mrui::name_prompt_row(l, sizeof l, /*set_row=*/false, st.editor.primary);
+            body_text(2, l);
+            return;
         case mrui::HomeView::key_help:
             for (int row = 0; row < kBodyRows; ++row) body_text(row, mrui::kKeyHelpRows[row]);
             return;
@@ -2339,6 +2443,10 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
                 body_text(1, mrui::kRecipientChangedText);
                 body_text(2, "not sent");
                 break;
+            case mrui::DmState::draft_changed:   // ★ W8 — a written request's lock or id failed, zero submission
+                body_text(1, mrui::kNotSentText);
+                body_text(2, mrui::kDraftChangedText);
+                break;
         }
     } else {
         switch (v.chan) {
@@ -2375,6 +2483,14 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
                 body_text(1, mrui::kTeamChangedText);
                 body_text(2, "not sent");
                 break;
+            case mrui::ChanState::draft_changed:  // ★ W8 — a written request's lock or id failed, zero submission
+                body_text(1, mrui::kNotSentText);
+                body_text(2, mrui::kDraftChangedText);
+                break;
+            case mrui::ChanState::no_team_id:     // ★ W8 (D19) — no team-local ID yet: refused at EXECUTION, nothing aired
+                body_text(1, mrui::kNotSentText);
+                body_text(2, mrui::kNoTeamIdText);
+                break;
         }
     }
     body_text(4, "press = back");
@@ -2387,14 +2503,29 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
 //   by the wrap · ` SEND >BACK LOC 1/2` 19.
 void draw_review(const mrui::UiState& st) {
     char l[kLineCap];
-    body_text(0, st.review_header);
+    // ★★ W8: a WRITTEN review (§7.3) — `BUSY` owns row 0 while it shows (r2.27), the action row is ` SEND >EDIT n/m`
+    //    with ⛔ no LOC. A phrase review is drawn exactly as before.
+    const bool written = (st.editor.phase == mrui::EditorPhase::message_review);
+    const char* note = written ? mrui::editor_note_text(st.editor.note) : nullptr;
+    body_text(0, note ? note : st.review_header);
     for (uint8_t row = 0; row < mrui::kReviewBodyRows; ++row) body_text(row + 1, st.review_line[row]);
-    mrui::review_action_line(l, sizeof l, st.review_send, st.review_loc, st.detail_page, st.detail_pages);
+    if (written) mrui::review_written_action_line(l, sizeof l, st.review_send, st.detail_page, st.detail_pages);
+    else         mrui::review_action_line(l, sizeof l, st.review_send, st.review_loc, st.detail_page, st.detail_pages);
     body_text(4, l);
 }
 
 void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v) {
     if (st.review_phase == mrui::ReviewPhase::open) { draw_review(st); return; }   // ★ W6: the review owns the body
+    // ★★★ W8 (§5.3): the WRITTEN editor owns the body — `TO TEAM` or `TO <label>` (the bound peer's 8-column label the
+    //     capture froze into `review_header`), from the frozen descriptor and window only.
+    if (mrui::editor_is_editing(st.editor.phase) || st.editor.phase == mrui::EditorPhase::bind ||
+        st.editor.phase == mrui::EditorPhase::relabel) {
+        char caller[kLineCap];
+        if (st.compose == mrui::Compose::dm) snprintf(caller, sizeof caller, "TO %s", st.review_header);
+        else                                 snprintf(caller, sizeof caller, "TO TEAM");
+        draw_editor(st, caller);
+        return;
+    }
     const bool dm = (st.compose == mrui::Compose::dm);
     char head[kLineCap];
     if (dm) {
@@ -2642,6 +2773,8 @@ void mr_ui_tick(uint32_t now_ms) {
         const bool got_req = s_model.take_send_request(req);   // ⚠ §B70: distinct name, still exactly one call
         if (got_req) ui_perform_send(req, now_ms);
     }
+    // ★★★ W7: the name save's ONE request — after the emergency drain and ⛔ outside the busy gate above (§4.3).
+    ui_service_name_request();
 
     // ★★ §UI-7D slice B: serve the inbox detail/delete request, and BEFORE the frame gate below — the answer must be in
     //    `UiState` by the time the frame FREEZES, or the press would appear to do nothing for one whole frame.

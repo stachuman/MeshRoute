@@ -1,0 +1,446 @@
+{
+ "tool_sha256": "4dfba2a428495eca1fdb3c24e23fb96f900b548e7ac77752e46772dbc1a16429",
+ "driver_sha256": "e5b5b51c709a5f379908f2f048f558251cf8a2ee57b9b79e8030bbbedf787863",
+ "runner_sha256": "db7add6c5fb335097bc84a192b925b43604f638f7951e422cd926f7ab6292948",
+ "builder_prefix": {
+  "sha256": "d9214ae16f54e3531db90c841e3dcc9c97a4f4b8e5a124d3bead890e6396fb2a",
+  "lines": 387,
+  "boundary": "rc=0\nif ! build_support;"
+ },
+ "stock_runs": {
+  "full_headless-1": {
+   "exit": 0,
+   "rows": 202,
+   "profile_line": "MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=1 MR_FEAT_RADMIN_CLIENT=0",
+   "ledger_sha256": "62be8ef3ec5a2a2c13662e58da711c053533c3f24d34b256a4c0d197ebf01c47",
+   "stderr": [
+    "# driver stderr: 0 byte(s) -> artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-1/transcript.stderr"
+   ],
+   "out": "artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-1"
+  },
+  "full_headless-2": {
+   "exit": 0,
+   "rows": 202,
+   "profile_line": "MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=1 MR_FEAT_RADMIN_CLIENT=0",
+   "ledger_sha256": "62be8ef3ec5a2a2c13662e58da711c053533c3f24d34b256a4c0d197ebf01c47",
+   "stderr": [
+    "# driver stderr: 0 byte(s) -> artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-2/transcript.stderr"
+   ],
+   "out": "artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-2"
+  },
+  "full_headless-compare": {
+   "exit": 0,
+   "summary": [
+    "COMPARE: identical — 202 rows, 606 records (LINE/SER/BLE), profile full_headless"
+   ]
+  },
+  "mobile-1": {
+   "exit": 0,
+   "rows": 206,
+   "profile_line": "MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=0 MR_FEAT_RADMIN_CLIENT=1",
+   "ledger_sha256": "ad2c51a8150945d4bb4906622559959a31a8f818b5433c7211c27a9619e87603",
+   "stderr": [
+    "# driver stderr: 0 byte(s) -> artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-1/transcript.stderr"
+   ],
+   "out": "artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-1"
+  },
+  "mobile-2": {
+   "exit": 0,
+   "rows": 206,
+   "profile_line": "MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=0 MR_FEAT_RADMIN_CLIENT=1",
+   "ledger_sha256": "ad2c51a8150945d4bb4906622559959a31a8f818b5433c7211c27a9619e87603",
+   "stderr": [
+    "# driver stderr: 0 byte(s) -> artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-2/transcript.stderr"
+   ],
+   "out": "artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-2"
+  },
+  "mobile-compare": {
+   "exit": 0,
+   "summary": [
+    "COMPARE: identical — 206 rows, 618 records (LINE/SER/BLE), profile mobile"
+   ]
+  }
+ },
+ "builder_commands": {
+  "full_headless-1": {
+   "prefix_is_runner_prefix": true,
+   "appended": [
+    "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+    "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-1/mr0c-shadow-ez4wrn74 \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+    "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-1/mr0c-shadow-ez4wrn74 \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+    "cp \"$OUT/transcript\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-1/transcript.bin || exit 2"
+   ],
+   "arm": "accept"
+  },
+  "full_headless-2": {
+   "prefix_is_runner_prefix": true,
+   "appended": [
+    "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+    "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-2/mr0c-shadow-a13ghsc1 \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+    "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-2/mr0c-shadow-a13ghsc1 \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+    "cp \"$OUT/transcript\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/full_headless-2/transcript.bin || exit 2"
+   ],
+   "arm": "accept"
+  },
+  "mobile-1": {
+   "prefix_is_runner_prefix": true,
+   "appended": [
+    "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+    "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-1/mr0c-shadow-k3vtpae7 \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+    "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-1/mr0c-shadow-k3vtpae7 \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+    "cp \"$OUT/transcript\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-1/transcript.bin || exit 2"
+   ],
+   "arm": "client"
+  },
+  "mobile-2": {
+   "prefix_is_runner_prefix": true,
+   "appended": [
+    "build_support || { echo 'TRANSCRIPT BUILD: build_support failed'; exit 2; }",
+    "build_variant \"$FW_CMDS\" \"$FW_INBOX\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-2/mr0c-shadow-3rugreig \"$OUT/transcript\" /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp || { echo \"TRANSCRIPT BUILD: build_variant failed:\"; cat \"$OUT/build.log\"; exit 2; }",
+    "\"$CXX\" \"${STD[@]}\" -Wall -Wextra -Werror -Wno-volatile -Wno-deprecated-declarations -Wno-unused-function -I/home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-2/mr0c-shadow-3rugreig \"${DEFS[@]}\" \"${INCS[@]}\" -c /home/staszek/MeshRoute/tools/probe_inbox_verbs/transcript_main.cpp -o \"$OUT/transcript_werror.o\" 2>\"$OUT/werror.log\" || { echo \"TRANSCRIPT BUILD: the driver -Werror compile failed:\"; cat \"$OUT/werror.log\"; exit 2; }",
+    "cp \"$OUT/transcript\" /home/staszek/MeshRoute/artifacts/2026-10-02-b478-b487-b488-return/transcript/mobile-2/transcript.bin || exit 2"
+   ],
+   "arm": "client"
+  }
+ },
+ "record_reconciliation": [
+  {
+   "profile": "full_headless",
+   "id": "L003",
+   "command": "acl list",
+   "len": 8,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "full_headless",
+   "id": "L133",
+   "command": "regen",
+   "len": 5,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "full_headless",
+   "id": "L166",
+   "command": "whoami",
+   "len": 6,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "full_headless",
+   "id": "L201",
+   "command": "zzzzzzzzzzzzzzzzzzzzzzzz…",
+   "len": 1023,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "full_headless",
+   "id": "L202",
+   "command": "12345678",
+   "len": 8,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "mobile",
+   "id": "L003",
+   "command": "acl list",
+   "len": 8,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "mobile",
+   "id": "L133",
+   "command": "regen",
+   "len": 5,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "mobile",
+   "id": "L170",
+   "command": "whoami",
+   "len": 6,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "mobile",
+   "id": "L205",
+   "command": "zzzzzzzzzzzzzzzzzzzzzzzz…",
+   "len": 1023,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  },
+  {
+   "profile": "mobile",
+   "id": "L206",
+   "command": "12345678",
+   "len": 8,
+   "SER_equal_precheck": true,
+   "BLE_equal_precheck": true,
+   "pinned_in_suite": true
+  }
+ ],
+ "too_long_on_usb_after": {
+  "full_headless": 0,
+  "mobile": 0
+ },
+ "validity_refusals": {
+  "the review's empty ledger": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt): declares lines=0, but profile full_headless's expected matrix has 202 rows"
+  },
+  "the review's one-row ledger": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt): declares lines=1, but profile full_headless's expected matrix has 202 rows"
+  },
+  "a 50-row prefix with its count adjusted": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt): declares lines=50, but profile full_headless's expected matrix has 202 rows"
+  },
+  "an unknown extra row with its count adjusted": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt): declares lines=203, but profile full_headless's expected matrix has 202 rows"
+  },
+  "a missing row with its count adjusted": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt): declares lines=201, but profile full_headless's expected matrix has 202 rows"
+  },
+  "wrong command bytes at an unchanged ID and length": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt): row 10 is LINE L010 len=15 [Qdmin-id rotate], not the expected L010 len=15 [admin-id rotate]"
+  },
+  "a SER record missing its ble field": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 5: expected the SER record of L001 with every field (usb, ble, fp), found a SER record (  SER usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pend=0 recs=0/0 )"
+  },
+  "a BLE record missing its nus field": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 6: expected the BLE record of L001 with every field (ret, buf, nus, usb, fp), found a BLE record (  BLE ret=0 buf=[] usb=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 pen)"
+  },
+  "an fp missing its pend field": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 5: expected the SER record of L001 with every field (usb, ble, fp), found a SER record (  SER usb=[] ble=[] fp=ctr+0 txq=0 txdrop=0 rt=0 hw_dm+0 hw_ch+0 wipes+0 nvw+0 kh=00000000 recs=0/0 )"
+  },
+  "a LINE without its SER and BLE": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 5: expected the SER record of L001 with every field (usb, ble, fp), found a LINE record (LINE L002 len=7 [acl add])"
+  },
+  "no identity line": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 2: expected the identity line `MR0C-TRANSCRIPT v1 adapters=<shape>/<12 hex> lines=<N>`, found a profile line (MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=1 MR_FEAT_RADMIN_CL)"
+  },
+  "a duplicated identity line": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 3: expected the MR0C-PROFILE line, found an identity line (MR0C-TRANSCRIPT v1 adapters=post0c/000000000000 lines=202)"
+  },
+  "no profile line": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 3: expected the MR0C-PROFILE line, found a LINE record (LINE L001 len=3 [acl])"
+  },
+  "a duplicated profile line": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 4: expected `MR0C-TRANSCRIPT END chk=<n> fail=<n>` after the last row, found a profile line (MR0C-PROFILE MR_N_LAYERS=1 MR_FEAT_MOBILE=1 MR_FEAT_OLED=0 MR_FEAT_RADMIN_ACCEPT=1 MR_FEAT_RADMIN_CL)"
+  },
+  "a three-macro profile line": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 3: compiled macros {'MR_N_LAYERS': '1', 'MR_FEAT_MOBILE': '1', 'MR_FEAT_OLED': '0'} are not profile 'full_headless' {'MR_N_LAYERS': '1', 'MR_FEAT_MOBILE': '1', 'MR_FEAT_OLED': '0', 'MR_FEAT_RADMIN_ACCEPT': '1', 'MR_FEAT_RADMIN_CLIENT': '0'"
+  },
+  "no END": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 610: expected `MR0C-TRANSCRIPT END chk=<n> fail=<n>` after the last row, found the end of the ledger"
+  },
+  "a duplicated END": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 611: END must be the last line, but an END line (MR0C-TRANSCRIPT END chk=0 fail=0) follows it"
+  },
+  "a line after END": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 611: END must be the last line, but an unexpected line 'trailing' follows it"
+  },
+  "a head without profile=": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 1: the head carries 0 `profile=` field(s), not exactly one"
+  },
+  "an unsupported declared profile": {
+   "exit": 2,
+   "first_violation": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/a.txt), line 1: the head declares profile 'full_oled'; the supported profiles are full_headless and mobile"
+  },
+  "(positive control) a full valid synthetic ledger against itself": {
+   "exit": 0,
+   "summary": "COMPARE: identical — 202 rows, 606 records (LINE/SER/BLE), profile full_headless"
+  }
+ },
+ "B-C0": {
+  "class": "validator",
+  "required": "the empty and truncated pairs compare with 0, so the B10.2 regression fails",
+  "review_pairs": {
+   "b8-empty-ledger.txt": 0,
+   "b8-one-row-ledger.txt": 0
+  },
+  "regression_failures": [
+   "the review's empty ledger",
+   "the review's one-row ledger",
+   "a 50-row prefix with its count adjusted",
+   "an unknown extra row with its count adjusted",
+   "a missing row with its count adjusted",
+   "wrong command bytes at an unchanged ID and length"
+  ]
+ },
+ "b491_refusals_cli": {
+  "a profile field without `=` [bad ledger as A]": {
+   "exit": 2,
+   "traceback": false,
+   "refusal": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/b491-bad.txt), line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'"
+  },
+  "a profile field without `=` [bad ledger as B]": {
+   "exit": 2,
+   "traceback": false,
+   "refusal": "COMPARE REFUSED: B (/tmp/mr0c-validity-_lbjck8c/b491-bad.txt), line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'"
+  },
+  "a 5,000-digit identity count [bad ledger as A]": {
+   "exit": 2,
+   "traceback": false,
+   "refusal": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/b491-bad.txt), line 2: the identity's lines= has 5000 digits — not a count a ledger can carry"
+  },
+  "a 5,000-digit identity count [bad ledger as B]": {
+   "exit": 2,
+   "traceback": false,
+   "refusal": "COMPARE REFUSED: B (/tmp/mr0c-validity-_lbjck8c/b491-bad.txt), line 2: the identity's lines= has 5000 digits — not a count a ledger can carry"
+  },
+  "a 5,000-digit LINE length [bad ledger as A]": {
+   "exit": 2,
+   "traceback": false,
+   "refusal": "COMPARE REFUSED: A (/tmp/mr0c-validity-_lbjck8c/b491-bad.txt), line 4: LINE L001's len has 5000 digits — not a count a ledger can carry"
+  },
+  "a 5,000-digit LINE length [bad ledger as B]": {
+   "exit": 2,
+   "traceback": false,
+   "refusal": "COMPARE REFUSED: B (/tmp/mr0c-validity-_lbjck8c/b491-bad.txt), line 4: LINE L001's len has 5000 digits — not a count a ledger can carry"
+  }
+ },
+ "B-C1": {
+  "exit": 0,
+  "child_rc": 0,
+  "built": true,
+  "ledger_rows": 202,
+  "messages": [
+   "# driver stderr: 0 byte(s) -> /tmp/mr0c-e2e-ut77799_/c1/transcript.stderr"
+  ],
+  "class": "behavioural: builds and runs",
+  "too_long_rows": 164,
+  "rows_longer_than_7": 164,
+  "record_assertions_failing": [
+   "L003",
+   "L201",
+   "L202"
+  ],
+  "compare_with_final": 1
+ },
+ "B-C2": {
+  "exit": 0,
+  "child_rc": 0,
+  "built": true,
+  "ledger_rows": 202,
+  "messages": [
+   "# driver stderr: 0 byte(s) -> /tmp/mr0c-e2e-ut77799_/c2/transcript.stderr"
+  ],
+  "class": "behavioural: builds and runs",
+  "compare_with_final": 1,
+  "differing": [
+   "L133 SER [regen]",
+   "L133 BLE [regen]",
+   "L166 SER [whoami]",
+   "L166 BLE [whoami]"
+  ]
+ },
+ "B-C3": {
+  "exit": 2,
+  "child_rc": 0,
+  "built": true,
+  "ledger_rows": 0,
+  "messages": [
+   "# driver stderr: 0 byte(s) -> /tmp/mr0c-e2e-ut77799_/c3/transcript.stderr",
+   "TRANSCRIPT REFUSED: INVALID LEDGER — the fresh ledger, line 3: compiled macros {'MR_N_LAYERS': '1', 'MR_FEAT_MOBILE': '1', 'MR_FEAT_OLED': '0'} are not profile 'full_headless' {'MR_N_LAYERS': '1', 'MR_FEAT_MOBILE': '1', 'MR_FEAT_OLED': '0', 'MR_FEAT_RADMIN_ACCEPT': '1', 'MR_FEAT_RADMIN_CLIENT': '0'}"
+  ],
+  "class": "profile refusal: builds and runs"
+ },
+ "B-C4": {
+  "class": "comparison",
+  "cases": {
+   "one output byte (L003 SER count=0->1)": {
+    "exit": 1,
+    "summary": "COMPARE: 1 record(s) differ: L003 SER"
+   },
+   "one sink field moved (L133 SER usb->ble)": {
+    "exit": 1,
+    "summary": "COMPARE: 1 record(s) differ: L133 SER"
+   },
+   "one fingerprint field (L166 BLE kh)": {
+    "exit": 1,
+    "summary": "COMPARE: 1 record(s) differ: L166 BLE"
+   },
+   "one row removed (L050)": {
+    "exit": 2,
+    "refusal": "COMPARE REFUSED: B (/tmp/mr0c-e2e-ut77799_/b-c4-evidence/x.txt): declares lines=202 but carries 201 row(s)"
+   },
+   "one row duplicated (L050)": {
+    "exit": 2,
+    "refusal": "COMPARE REFUSED: B (/tmp/mr0c-e2e-ut77799_/b-c4-evidence/x.txt): declares lines=202 but carries 203 row(s)"
+   }
+  }
+ },
+ "B-C5": {
+  "exit": 2,
+  "child_rc": 4,
+  "built": true,
+  "ledger_rows": 0,
+  "messages": [
+   "# driver stderr: 157 byte(s) -> /tmp/mr0c-e2e-ut77799_/c5/transcript.stderr",
+   "TRANSCRIPT REFUSED: the transcript driver ended with exit 4 — no ledger:",
+   "MR0C-REFUSED row L203 len=1024 cannot be represented in the USB intake array (1024 bytes, 1023 admitted) — a transcript row must be shorter than the array"
+  ],
+  "class": "driver refusal: builds and runs"
+ },
+ "B491-run-path": {
+  "exit": 2,
+  "child_rc": 0,
+  "built": true,
+  "ledger_rows": 0,
+  "messages": [
+   "# driver stderr: 0 byte(s) -> /tmp/mr0c-e2e-ut77799_/tq1/transcript.stderr",
+   "TRANSCRIPT REFUSED: INVALID LEDGER — the fresh ledger, line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'"
+  ],
+  "class": "a fresh run whose driver prints a bare profile token"
+ },
+ "B-C6": {
+  "exit": 2,
+  "child_rc": null,
+  "built": false,
+  "ledger_rows": 0,
+  "messages": [
+   "/home/staszek/MeshRoute/tools/probe_inbox_verbs/probe_main.cpp:101:13: warning: 'void wipe_watch_end()' defined but not used [-Wunused-function]",
+   "  101 | static void wipe_watch_end()   { g_wipe_watch = false; }",
+   "      |             ^~~~~~~~~~~~~~",
+   "/home/staszek/MeshRoute/tools/probe_inbox_verbs/probe_main.cpp:100:13: warning: 'void wipe_watch_begin()' defined but not used [-Wunused-function]",
+   "  100 | static void wipe_watch_begin() { g_nwipes = 0; g_wipe_watch = true; }",
+   "      |             ^~~~~~~~~~~~~~~~"
+  ],
+  "class": "build refusal: must not compile",
+  "diagnostic_present": true
+ }
+}

@@ -1,0 +1,102 @@
+{
+ "proof": "A10.3 — the new F07 is RED for its own reason",
+ "how": "stock harness: MR_MUT_KEEP_SCRATCH=1 python3 -B tools/probe_ui_model_mutations.py --target=w4aident --workers=1 F07",
+ "harness_line": [
+  "ok   F07 ★★ the marker is written ONE PAST the budget — the abbreviated label is `cols + 1` cells wide -> RED (13 assertion(s) failed, match count 1)"
+ ],
+ "clean_baseline": "ok   clean baseline 3059 / 199638 / 0   (DERIVED per worker tree; 1 tree(s) agree)",
+ "program_sha256": "b8acc8383d888f1cb36c2024de9f3eb1cb03eb9d9335b25fa502ccabd8b9dcc1",
+ "failed_assertions": {
+  "13": 456
+ },
+ "failed_cases": [
+  5
+ ],
+ "cases": [
+  {
+   "case": "w4a-ident: lengths — exactly the budget stays whole, one more abbreviates VISIBLY, 32 bytes too",
+   "checks": [
+    {
+     "site": "test/test_firmware_ui_model.cpp:2756",
+     "check": "CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!"
+    }
+   ]
+  },
+  {
+   "case": "w4a-ident: NAMED small budgets — 0 is no_fit, 1..5 follow the ordinary rule (a marker alone at 1)",
+   "checks": [
+    {
+     "site": "test/test_firmware_ui_model.cpp:2805",
+     "check": "CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_model.cpp:2806",
+     "check": "CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_model.cpp:2808",
+     "check": "CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!"
+    }
+   ]
+  },
+  {
+   "case": "ui17-team: a long label is CLAMPED to six columns and cannot push the age off the row",
+   "checks": [
+    {
+     "site": "test/test_firmware_ui_team.cpp:151",
+     "check": "CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s \") == 0 ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_team.cpp:156",
+     "check": "CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s \") == 0 ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_team.cpp:166",
+     "check": "CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d \") == 0 ) is NOT correct!"
+    }
+   ]
+  },
+  {
+   "case": "ui17-team: a located teammate fills DIST and DIR, and the row is STILL exactly 19 columns",
+   "checks": [
+    {
+     "site": "test/test_firmware_ui_team.cpp:256",
+     "check": "CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!"
+    }
+   ]
+  },
+  {
+   "case": "ui17-team: W4a — an exact six-byte name renamed LONGER repaints; two long names drawn alike do not",
+   "checks": [
+    {
+     "site": "test/test_firmware_ui_team.cpp:629",
+     "check": "CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_team.cpp:630",
+     "check": "CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_team.cpp:631",
+     "check": "CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_team.cpp:632",
+     "check": "CHECK( m.state().dirty == true ) is NOT correct!"
+    },
+    {
+     "site": "test/test_firmware_ui_team.cpp:638",
+     "check": "CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+    }
+   ]
+  }
+ ],
+ "roomy_capacity_check": {
+  "site": "test/test_firmware_ui_model.cpp:2756",
+  "call": "id_fmt(b, 48, src, 32, 0, 6)",
+  "expects": "ABCDE»",
+  "failing": true
+ },
+ "reason": "every failure is the rule F07 attacks — an abbreviated name is exactly `cols` cells with the marker on the last one — at a ROOMY capacity (cap >= cols + 2): the native IdBuf calls at capacity 48/20 and the TEAM row's 15-byte carrier at six columns; no exact-capacity caller changes (a10-sweep.json, a10-census.json)",
+ "retired": "F07's old count — 44, or 42 one run in 16 (B492, round2/tq2-f07-account.json) — is retired with the unbounded mutant; the new stable count is 13 (a10-stability.json: 456/456 runs)"
+}

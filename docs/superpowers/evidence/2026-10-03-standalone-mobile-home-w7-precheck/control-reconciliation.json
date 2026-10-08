@@ -1,0 +1,967 @@
+{
+  "declared": 240,
+  "observed": 240,
+  "complete": true,
+  "labels": [
+    {
+      "label": "C0  restoring #include \"fw_context.h\" breaks the host build",
+      "contract": "no"
+    },
+    {
+      "label": "C1  mac_idle() -> true (no gate at all)",
+      "contract": "yes"
+    },
+    {
+      "label": "C2  mac_idle() keeps only the radio clause",
+      "contract": "yes"
+    },
+    {
+      "label": "C3  mac_idle() keeps only the queue clause",
+      "contract": "yes"
+    },
+    {
+      "label": "C10 mac_idle() -> false (suppressed for ever; the panel never paints)",
+      "contract": "yes"
+    },
+    {
+      "label": "C11 next_page()'s verdict is never fed back to the gate",
+      "contract": "yes"
+    },
+    {
+      "label": "C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank)",
+      "contract": "yes"
+    },
+    {
+      "label": "C5  the idle arm forces a repaint, bypassing the 2 Hz throttle",
+      "contract": "yes"
+    },
+    {
+      "label": "C6  the ADC burst is no longer gated on a MAC-idle radio",
+      "contract": "yes"
+    },
+    {
+      "label": "C7  the cadence gates on SUCCEEDED instead of ATTEMPTED",
+      "contract": "yes"
+    },
+    {
+      "label": "C8  the 30 s period is never re-armed (sample every pass)",
+      "contract": "yes"
+    },
+    {
+      "label": "C9  the dead-panel report tests board_init() the wrong way round",
+      "contract": "yes"
+    },
+    {
+      "label": "C12 mr_ui_init no longer brings the panel up",
+      "contract": "yes"
+    },
+    {
+      "label": "C13 an unavailable read ERASES the last good value",
+      "contract": "yes"
+    },
+    {
+      "label": "C14 the battery token is invented instead of formatted (a plausible voltage for --)",
+      "contract": "yes"
+    },
+    {
+      "label": "C15 the strip renders a PERCENTAGE instead of volts (ruled out)",
+      "contract": "yes"
+    },
+    {
+      "label": "C16 the strip hardcodes a voltage instead of reading the frozen chrome",
+      "contract": "yes"
+    },
+    {
+      "label": "C17 the record lookup matches seq only (the kind clause dropped)",
+      "contract": "yes"
+    },
+    {
+      "label": "C18 the erase targets the DM store unconditionally (B133's shape)",
+      "contract": "yes"
+    },
+    {
+      "label": "C19 the preview row carries msg_id where the identity should be",
+      "contract": "yes"
+    },
+    {
+      "label": "C20 the preview row hardcodes the kind (every row reads DM)",
+      "contract": "yes"
+    },
+    {
+      "label": "C21 every erase is reported as a SUCCESS regardless of the outcome",
+      "contract": "yes"
+    },
+    {
+      "label": "C27 the erase targets the CHANNEL store unconditionally",
+      "contract": "yes"
+    },
+    {
+      "label": "C28 opening a record DELETES it (the switch arms crossed)",
+      "contract": "yes"
+    },
+    {
+      "label": "CC1 the ordinary-view gate is dropped (E2E receipts come back as inbox rows)",
+      "contract": "yes"
+    },
+    {
+      "label": "CC2 the gate is applied AFTER the budget (the row slot and the total are already spent)",
+      "contract": "yes"
+    },
+    {
+      "label": "C22 the tick never serves the inbox request (the modal cannot open)",
+      "contract": "yes"
+    },
+    {
+      "label": "C23 the body length is left for the model to measure (the strlen shape)",
+      "contract": "yes"
+    },
+    {
+      "label": "C24 draw_frame stops giving the modal the body",
+      "contract": "yes"
+    },
+    {
+      "label": "C25 the MESSAGE GONE refusal row is dropped from the list",
+      "contract": "yes"
+    },
+    {
+      "label": "C29 the SETTINGS screen is never drawn (the switch arm dropped)",
+      "contract": "yes"
+    },
+    {
+      "label": "C30 the model is never given the config service (the menu is inert)",
+      "contract": "yes"
+    },
+    {
+      "label": "C31 the draft marker renders UiState::dirty instead of config_unsaved()",
+      "contract": "yes"
+    },
+    {
+      "label": "C32 the value row shows a default instead of the DRAFT",
+      "contract": "yes"
+    },
+    {
+      "label": "C33 the SETTINGS badge always draws the clean gear (the state becomes invisible)",
+      "contract": "yes"
+    },
+    {
+      "label": "C34 the editor is indistinguishable from the browsing row (no bracket)",
+      "contract": "yes"
+    },
+    {
+      "label": "C35 RESTART NEEDED never reaches the landing screen (the reboot fact is dropped)",
+      "contract": "yes"
+    },
+    {
+      "label": "C36 the BLE row is rendered unconditionally (the transport condition ignored)",
+      "contract": "yes"
+    },
+    {
+      "label": "C37 the hook never tells the service (the notification is dropped)",
+      "contract": "yes"
+    },
+    {
+      "label": "C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)",
+      "contract": "yes"
+    },
+    {
+      "label": "C39 the is_open() guard is dropped (flash is read on every cfg set)",
+      "contract": "yes"
+    },
+    {
+      "label": "C40 an unreadable record is treated as a conflict (a latch from no evidence)",
+      "contract": "yes"
+    },
+    {
+      "label": "C41 ChanState::waiting says SENT again (the pre-T3 false confirmation)",
+      "contract": "yes"
+    },
+    {
+      "label": "C42 ChanState::aired says QUEUED (the earned state never shows)",
+      "contract": "yes"
+    },
+    {
+      "label": "C43 the no-relay outcome reads SENT, no relay again",
+      "contract": "yes"
+    },
+    {
+      "label": "C44 DmState::aired_waiting is rendered as QUEUED too",
+      "contract": "yes"
+    },
+    {
+      "label": "C45 the fail-closed guard is dropped (sleeps after a hardware refusal)",
+      "contract": "yes"
+    },
+    {
+      "label": "C46 the board is never asked (the arm is answered from a constant)",
+      "contract": "yes"
+    },
+    {
+      "label": "C47 a held button is treated as a hardware failure (latches sleep off for the boot)",
+      "contract": "yes"
+    },
+    {
+      "label": "C48 the arm failure is never said on the console",
+      "contract": "yes"
+    },
+    {
+      "label": "C52 the arm report is inverted (silent on the first failure, cries later)",
+      "contract": "yes"
+    },
+    {
+      "label": "C53 the failure is said on every pass, not once (a USB-CDC flood)",
+      "contract": "yes"
+    },
+    {
+      "label": "C54 an arm is put back into mr_ui_init() (B200, literally)",
+      "contract": "yes"
+    },
+    {
+      "label": "C55 the disarm's answer is discarded (a stuck level is reported as clean)",
+      "contract": "yes"
+    },
+    {
+      "label": "C56 the policy hook arms the wake itself (a per-pass arm on a possibly-held pin)",
+      "contract": "yes"
+    },
+    {
+      "label": "C57 the boot announces a wake source again (nothing arms one there)",
+      "contract": "yes"
+    },
+    {
+      "label": "C58 a SUCCESSFUL arm is reported as a failure (the vacuity control)",
+      "contract": "yes"
+    },
+    {
+      "label": "C59 the disarm is never performed (the board is not even asked)",
+      "contract": "yes"
+    },
+    {
+      "label": "C60 a successful disarm reports a problem anyway (cries wolf)",
+      "contract": "yes"
+    },
+    {
+      "label": "C49 the hook always permits sleep (the whole policy bypassed)",
+      "contract": "yes"
+    },
+    {
+      "label": "C50 the hook never permits sleep (the panel-lit answer for ever)",
+      "contract": "yes"
+    },
+    {
+      "label": "C51 the policy is re-derived here without the input term (B197 back)",
+      "contract": "yes"
+    },
+    {
+      "label": "C26 the highlight is NOT suppressed while the refusal stands",
+      "contract": "yes"
+    },
+    {
+      "label": "C61 the strip is drawn from the LIVE chrome instead of the frozen copy",
+      "contract": "yes"
+    },
+    {
+      "label": "C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)",
+      "contract": "yes"
+    },
+    {
+      "label": "C63 the comparison reference is updated where the change is OBSERVED, not at the freeze",
+      "contract": "yes"
+    },
+    {
+      "label": "C64 every home state draws the same house (the four-state table bypassed)",
+      "contract": "yes"
+    },
+    {
+      "label": "C65 a missing team content key draws the NORMAL key (the slot claims a capability)",
+      "contract": "yes"
+    },
+    {
+      "label": "C66 the battery token's column is moved (the frozen slot redefined)",
+      "contract": "yes"
+    },
+    {
+      "label": "C67 every glyph is drawn at the same x (the layout table bypassed)",
+      "contract": "yes"
+    },
+    {
+      "label": "C68 the battery is drawn at the shared 7-px width (its 2-byte stride ignored)",
+      "contract": "yes"
+    },
+    {
+      "label": "C69 the strip is drawn after the body, so body-replacing views lose it",
+      "contract": "yes"
+    },
+    {
+      "label": "C70 the strip's icons are drawn below their y=0..8 band",
+      "contract": "yes"
+    },
+    {
+      "label": "C71 the blanked arm falls through and paints into a dark panel",
+      "contract": "yes"
+    },
+    {
+      "label": "C74 a chrome change is treated as user input (the panel never blanks)",
+      "contract": "yes"
+    },
+    {
+      "label": "C72 the live chrome is built once and cached (a stale projection for ever)",
+      "contract": "yes"
+    },
+    {
+      "label": "C73 the strip opens a frame of its own while composing",
+      "contract": "yes"
+    },
+    {
+      "label": "C75 the strip parks the panel mid-compose (a bus command from a draw)",
+      "contract": "yes"
+    },
+    {
+      "label": "C76 the emergency rail suppression is dropped entirely (\u00a75.3)",
+      "contract": "yes"
+    },
+    {
+      "label": "C77 the rail is never drawn (the screens lose their only heading)",
+      "contract": "yes"
+    },
+    {
+      "label": "C78 every rail slot gets a selection frame (exactly-one becomes all-five)",
+      "contract": "yes"
+    },
+    {
+      "label": "C79 the selection comes from a renderer-local cursor, not the frozen nav",
+      "contract": "yes"
+    },
+    {
+      "label": "C80 the rail packs its slots consecutively (a second layout)",
+      "contract": "yes"
+    },
+    {
+      "label": "C81 the ordinary body is drawn at x=0, under the rail's icons",
+      "contract": "yes"
+    },
+    {
+      "label": "C82 the emergency headline is shifted to kBodyX (a clipped distress string)",
+      "contract": "yes"
+    },
+    {
+      "label": "C84 the withdrawn CFG marker is put back on the landing body (\u00a76.1's other direction)",
+      "contract": "yes"
+    },
+    {
+      "label": "C85 SETTINGS drops its actionable marker text, leaving only the badge (\u00a76 forbids)",
+      "contract": "yes"
+    },
+    {
+      "label": "C86 the SETTINGS marker row is drawn unconditionally (a clean draft reads UNSAVED)",
+      "contract": "yes"
+    },
+    {
+      "label": "C87 the rail's glyphs are drawn at the body's x, over the text",
+      "contract": "yes"
+    },
+    {
+      "label": "C88 the PROVISION row is rendered unconditionally (the ruling not applied)",
+      "contract": "yes"
+    },
+    {
+      "label": "C89 the child predicates are published as TRUE on a build with no children",
+      "contract": "yes"
+    },
+    {
+      "label": "C90 the closed view draws the MENU's rows anyway (the ruling not applied at the renderer)",
+      "contract": "yes"
+    },
+    {
+      "label": "C91 the closed view keeps the note/reboot row to itself (\u00a76's icon-only error)",
+      "contract": "yes"
+    },
+    {
+      "label": "C92 the entry row's label is re-spelled at the draw site",
+      "contract": "yes"
+    },
+    {
+      "label": "C93 the list is drawn as ENTERED whatever the model says",
+      "contract": "yes"
+    },
+    {
+      "label": "C94 an entered list is drawn as PASSIVE (no marker, no exit)",
+      "contract": "yes"
+    },
+    {
+      "label": "C95 the interactive list's exit row (MENU) is never drawn",
+      "contract": "yes"
+    },
+    {
+      "label": "C99 the mark is drawn in the chrome, so EVERY screen shows it",
+      "contract": "yes"
+    },
+    {
+      "label": "C102 My device's position row reads the LIVE config again (the row can TEAR mid-frame)",
+      "contract": "yes"
+    },
+    {
+      "label": "C103 own_fix is published as a constant (a fix that was never configured)",
+      "contract": "yes"
+    },
+    {
+      "label": "C104 own_fix is published from ONE coordinate (the OR narrowed to lat)",
+      "contract": "yes"
+    },
+    {
+      "label": "C105 the pre-S4 row (9-column label + hops) is composed inline again",
+      "contract": "yes"
+    },
+    {
+      "label": "C106 every row is drawn from snapshot row 0 (the wrong teammate)",
+      "contract": "yes"
+    },
+    {
+      "label": "C107 the row marker is hard-wired off (no pick is ever shown)",
+      "contract": "yes"
+    },
+    {
+      "label": "C108 the team rows are ALSO drawn at the old STATUS x=40 origin",
+      "contract": "yes"
+    },
+    {
+      "label": "C109 the S4 repaint invalidation is never called (F-8 re-opened)",
+      "contract": "yes"
+    },
+    {
+      "label": "C110 the invalidation compares the live snapshot with ITSELF",
+      "contract": "yes"
+    },
+    {
+      "label": "C111 the tick marks the model dirty unconditionally instead",
+      "contract": "yes"
+    },
+    {
+      "label": "C112 the roster is drawn in REVERSE order (a re-sort by any other name)",
+      "contract": "yes"
+    },
+    {
+      "label": "C113 the own fix is read LIVE in the renderer (the rows can TEAR mid-frame)",
+      "contract": "yes"
+    },
+    {
+      "label": "C114 the cache is never read, so no teammate ever has a position",
+      "contract": "yes"
+    },
+    {
+      "label": "C115 the location age is published as ZERO, so a stale position renders as current",
+      "contract": "yes"
+    },
+    {
+      "label": "C116 latitude and longitude are published crossed",
+      "contract": "yes"
+    },
+    {
+      "label": "C117 the cache miss is published as a hit (0,0 becomes a position)",
+      "contract": "yes"
+    },
+    {
+      "label": "C118 the renderer transmits a request for a peer it has no position for",
+      "contract": "yes"
+    },
+    {
+      "label": "C119 the wake is hard-wired into the device push entry (wake-on-any-push)",
+      "contract": "yes"
+    },
+    {
+      "label": "C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel",
+      "contract": "yes"
+    },
+    {
+      "label": "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)",
+      "contract": "yes"
+    },
+    {
+      "label": "C125 the duty gauge's slot is moved (the amendment's frozen x redefined)",
+      "contract": "yes"
+    },
+    {
+      "label": "C126 a node with no duty limit draws the EMPTY gauge (no limit collapsed into 0 % used)",
+      "contract": "yes"
+    },
+    {
+      "label": "C127 the duty-BLOCKED state loses its warning mark (100 % looks like 99 %)",
+      "contract": "yes"
+    },
+    {
+      "label": "C128 every fill level draws the same picture (the bucket's level ignored)",
+      "contract": "yes"
+    },
+    {
+      "label": "C129 the gauge is read live from the node instead of the frozen bucket",
+      "contract": "yes"
+    },
+    {
+      "label": "C130 the utilization is never published (the gauge is empty at every percentage)",
+      "contract": "yes"
+    },
+    {
+      "label": "C131 the duty limit is published as always-on (an unlimited node claims a utilization)",
+      "contract": "yes"
+    },
+    {
+      "label": "C132 the gauge is driven by the five-minute anti-spam budget, not duty_status()",
+      "contract": "yes"
+    },
+    {
+      "label": "C133 the home slot keeps its superseded x (the re-anchoring only half done)",
+      "contract": "yes"
+    },
+    {
+      "label": "C134 an ARMED alarm is not treated as busy (the fire has not happened yet)",
+      "contract": "yes"
+    },
+    {
+      "label": "C135 a FIRING alarm is not treated as busy (the attempt series is editable mid-flight)",
+      "contract": "yes"
+    },
+    {
+      "label": "C136 an IDLE node answers busy (every preset verb dead with no alarm at all)",
+      "contract": "yes"
+    },
+    {
+      "label": "C137 the catalog is never published into the frame (every compose list is empty on the device)",
+      "contract": "yes"
+    },
+    {
+      "label": "C138 the DM compose renders the CHANNEL list (the two projections crossed)",
+      "contract": "yes"
+    },
+    {
+      "label": "C139 the row is composed here as %c%s (the location column dropped)",
+      "contract": "yes"
+    },
+    {
+      "label": "C140 the zero-enabled empty state is bypassed (no note is ever placed)",
+      "contract": "yes"
+    },
+    {
+      "label": "C141 the stale-generation refusal renders the generic failure lines instead of PRESET CHANGED",
+      "contract": "yes"
+    },
+    {
+      "label": "W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND)",
+      "contract": "yes"
+    },
+    {
+      "label": "W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent)",
+      "contract": "yes"
+    },
+    {
+      "label": "B241a the pre-fix label_from_hash restored: a cached name is copied with NO terminator",
+      "contract": "yes"
+    },
+    {
+      "label": "B241b the tempting wrong repair: the full capacity is passed and only out[cap - 1] is terminated",
+      "contract": "yes"
+    },
+    {
+      "label": "W4a-S1 the TEAM label is formatted at 14 cells, so the row clips it silently (no marker)",
+      "contract": "yes"
+    },
+    {
+      "label": "W4a-S2 the label adapter copies RAW name bytes, skipping ui_display_byte (high bytes reach the panel)",
+      "contract": "yes"
+    },
+    {
+      "label": "W4a-S3 the DELIVERED row is formatted at the header's 15 cells instead of its own 19",
+      "contract": "yes"
+    },
+    {
+      "label": "W4a-S4 the REPLY sender is re-sanitized after formatting, so the marker becomes a dot",
+      "contract": "yes"
+    },
+    {
+      "label": "W3-D1 the detail modal's second body row repeats the first row's slice",
+      "contract": "yes"
+    },
+    {
+      "label": "W3-D2 every detail body row is clipped to 18 columns (a lost final byte)",
+      "contract": "yes"
+    },
+    {
+      "label": "W3-C1 the compose row keeps only 16 text columns (a 17-byte phrase is clipped)",
+      "contract": "yes"
+    },
+    {
+      "label": "W3-C2 the compose location marker is inverted (L and - swapped)",
+      "contract": "yes"
+    },
+    {
+      "label": "W3-U1 CFG UNAVAILABLE is drawn on body row 1 instead of row 2",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N1 the menu cue is drawn in list focus and missing in menu mode",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N2a the 24x24 mark is drawn on Home again",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N2b Home's list rows are drawn at the old STATUS x=40 origin",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N3 the TEAM/INBOX exit row reads BACK instead of MENU",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N4 the Settings preview keeps its body arrow",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N5 My device abbreviates the name instead of splitting it over two rows",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N7 Home's list window starts on the wrong body row",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-W1 build_snapshot never publishes the own name",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-W2 Home row 0 reads the LIVE own name, so a frame can tear between pages",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-W3 the Home body invalidation is never called from the tick",
+      "contract": "yes"
+    },
+    {
+      "label": "L1 the result's headline is dropped (the verdict never shows)",
+      "contract": "yes"
+    },
+    {
+      "label": "L2 the id and fingerprint rows are swapped",
+      "contract": "yes"
+    },
+    {
+      "label": "L3 the fingerprint row is dropped (only the full id is drawn)",
+      "contract": "yes"
+    },
+    {
+      "label": "L4 the REPLACES warning is composed unconditionally",
+      "contract": "yes"
+    },
+    {
+      "label": "L5 the REPLACES warning is never drawn (\u00a73.6.3 not applied)",
+      "contract": "yes"
+    },
+    {
+      "label": "L6 the refusal detail row is dropped (a verdict with no reason)",
+      "contract": "yes"
+    },
+    {
+      "label": "L7 the confirm and result arms are crossed (the wrong screen)",
+      "contract": "yes"
+    },
+    {
+      "label": "L8 the model is never given the provisioning adapter",
+      "contract": "yes"
+    },
+    {
+      "label": "L9 the CREATE child is published as absent on a build that has it",
+      "contract": "yes"
+    },
+    {
+      "label": "L10 the parent row is hidden on a build that HAS a child",
+      "contract": "yes"
+    },
+    {
+      "label": "L11 the slot label is drawn from the ROW INDEX instead of the slot number (\u00a7B66)",
+      "contract": "yes"
+    },
+    {
+      "label": "L12 the store-state note is never drawn (an unreadable store looks like an empty list)",
+      "contract": "yes"
+    },
+    {
+      "label": "L13 the note is drawn but the list is not moved down (the rows collide with it)",
+      "contract": "yes"
+    },
+    {
+      "label": "L14 the confirmation shows only the label \u2014 design \u00a73.6.3's COMPLETE values are dropped",
+      "contract": "yes"
+    },
+    {
+      "label": "L15 the confirmation always renders SLOT 1 (the pick is ignored)",
+      "contract": "yes"
+    },
+    {
+      "label": "L16 the waiting screen says JOINED before any correlated adopt (plan \u00a72.3 rule 1)",
+      "contract": "yes"
+    },
+    {
+      "label": "L17 the RESULT never shows the adopted node id (the one thing \u00a72.3 rule 2 requires)",
+      "contract": "yes"
+    },
+    {
+      "label": "L18 \u2605\u2605 the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology",
+      "contract": "yes"
+    },
+    {
+      "label": "L19 the session guard is dropped (a /mrcfg read on every inbound push)",
+      "contract": "yes"
+    },
+    {
+      "label": "L20 the push tap is never called, so no adopt can ever complete the screen",
+      "contract": "yes"
+    },
+    {
+      "label": "L21 \u2605\u2605 the waiting head is hard-wired to false, so STILL JOINING can never appear",
+      "contract": "yes"
+    },
+    {
+      "label": "L22 the kind prefilter is dropped (every push pays a /mrcfg read again)",
+      "contract": "yes"
+    },
+    {
+      "label": "N1 the projection is never published (an audible team reads as an empty band)",
+      "contract": "yes"
+    },
+    {
+      "label": "N2 the age is published as the raw ARRIVAL STAMP instead of the elapsed time (every row reads old)",
+      "contract": "yes"
+    },
+    {
+      "label": "N3 the ring is walked BACKWARDS (strongest/newest first) \u2014 the ruled first-observed order is gone",
+      "contract": "yes"
+    },
+    {
+      "label": "N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1)",
+      "contract": "yes"
+    },
+    {
+      "label": "N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling)",
+      "contract": "yes"
+    },
+    {
+      "label": "N10 the scan pings each observed team to refresh it (a read-only scan that transmits)",
+      "contract": "yes"
+    },
+    {
+      "label": "N5 the scan draws the LIVE snapshot array instead of the model FROZEN copy (R-10, and the own-team row returns)",
+      "contract": "yes"
+    },
+    {
+      "label": "N6 F-1's honest second line is never drawn (the panel claims a general PHY scan)",
+      "contract": "yes"
+    },
+    {
+      "label": "N7 the empty note is drawn but the list is not moved down (the note and BACK collide)",
+      "contract": "yes"
+    },
+    {
+      "label": "N8 the JOIN TEAM child is published as absent on a build that has it",
+      "contract": "yes"
+    },
+    {
+      "label": "N11 the join confirmation is drawn with the CREATE title",
+      "contract": "yes"
+    },
+    {
+      "label": "N13 the confirmation names the team we are LEAVING, not the selected one",
+      "contract": "yes"
+    },
+    {
+      "label": "N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)",
+      "contract": "yes"
+    },
+    {
+      "label": "N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)",
+      "contract": "yes"
+    },
+    {
+      "label": "N15 the result screen never learned about team_joined (no id, no fingerprint)",
+      "contract": "yes"
+    },
+    {
+      "label": "N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer)",
+      "contract": "yes"
+    },
+    {
+      "label": "K5a the offer draws USE SAVED KEY on the BACK row too (the safe word gone from the safe arm)",
+      "contract": "yes"
+    },
+    {
+      "label": "K5b the offer draws no team identity at all (which team is this key for?)",
+      "contract": "yes"
+    },
+    {
+      "label": "K5c the offer is drawn with the CREATE title instead of S-28",
+      "contract": "yes"
+    },
+    {
+      "label": "O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14)",
+      "contract": "yes"
+    },
+    {
+      "label": "O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36)",
+      "contract": "yes"
+    },
+    {
+      "label": "O3 every candidate row is drawn UNMARKED \u2014 the cursor is invisible on the one list that grants a key",
+      "contract": "yes"
+    },
+    {
+      "label": "O4 the note row is drawn but the list is not moved down (the note and the first candidate collide)",
+      "contract": "yes"
+    },
+    {
+      "label": "O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)",
+      "contract": "yes"
+    },
+    {
+      "label": "O7 the INVITE child is published as absent on a build and a node that have it",
+      "contract": "yes"
+    },
+    {
+      "label": "O8 the unnamed member's name field is filled from the formatter's HASH branch \u2014 a third hash spelling (F-15)",
+      "contract": "yes"
+    },
+    {
+      "label": "W4a-S5 the invite carrier is formatted at the row's six cells, so NEW MEMBER loses the 14-cell name",
+      "contract": "yes"
+    },
+    {
+      "label": "W4a-S6 the candidate row is handed the unprojected carrier, so it clips a long name silently (no marker)",
+      "contract": "yes"
+    },
+    {
+      "label": "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)",
+      "contract": "yes"
+    },
+    {
+      "label": "O9b B249's announcement forward calls team-DAD instead of the existing triggered scheduler",
+      "contract": "yes"
+    },
+    {
+      "label": "O10 \u2605\u2605 the reqpubkey device forward DROPS the real executor call (the panel waits after airing nothing)",
+      "contract": "yes"
+    },
+    {
+      "label": "O11 \u2605\u2605 the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)",
+      "contract": "yes"
+    },
+    {
+      "label": "O12 NEED PUBKEY is rendered as WAITING before the operator has authorised a request",
+      "contract": "yes"
+    },
+    {
+      "label": "O13 the waiting screen prints the forbidden ambiguous words WAITING FOR KEY (S-34)",
+      "contract": "yes"
+    },
+    {
+      "label": "O14 the NEED PUBKEY renderer marks REQUEST instead of the model default BACK",
+      "contract": "yes"
+    },
+    {
+      "label": "O15 the grant-ready renderer marks GRANT KEY instead of the model default REJECT",
+      "contract": "yes"
+    },
+    {
+      "label": "O16 \u2605\u2605 the forward INVENTS the outcome code instead of reporting the executor's (a refusal reads as queued)",
+      "contract": "yes"
+    },
+    {
+      "label": "O17 the verdict screen draws a FIXED word instead of the outcome's own (S-24 collapsed at the renderer)",
+      "contract": "yes"
+    },
+    {
+      "label": "O18 the verdict draws the DISCARDED window selection instead of the verdict's own identity (P-7c)",
+      "contract": "yes"
+    },
+    {
+      "label": "O19 \u2605\u2605 the device forward PICKS ITS OWN PLANE instead of passing the pure unit's (delegated made reachable)",
+      "contract": "yes"
+    },
+    {
+      "label": "O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c)",
+      "contract": "yes"
+    },
+    {
+      "label": "O21 \u2605\u2605 the grant forward SWALLOWS the origination handle \u2014 nothing can ever correlate",
+      "contract": "yes"
+    },
+    {
+      "label": "O23 \u2605\u2605 the grant forward SWALLOWS the SEND-TIME resolved dst \u2014 the TxDone edge can never match (N6b)",
+      "contract": "yes"
+    },
+    {
+      "label": "O22 \u2605\u2605 the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer)",
+      "contract": "yes"
+    },
+    {
+      "label": "K1 \u2605\u2605\u2605 the team_key_received case is dropped from mr_ui_on_push (the receipt never reaches the note)",
+      "contract": "yes"
+    },
+    {
+      "label": "K2 \u2605\u2605 the grant receipt's name= is drawn as a row of its own (F-3/P-5, S-36's forbidden usage)",
+      "contract": "yes"
+    },
+    {
+      "label": "K3 \u2605\u2605\u2605 the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)",
+      "contract": "yes"
+    },
+    {
+      "label": "K4 \u2605\u2605\u2605 the failed-save door does nothing at all ([[B243]] restored from the new end)",
+      "contract": "yes"
+    },
+    {
+      "label": "K5 \u2605\u2605 the fifth child is never published, so SAVED KEYS is unreachable from the panel",
+      "contract": "yes"
+    },
+    {
+      "label": "K6 \u2605\u2605\u2605 the ACTIVE marker is drawn on EVERY row \u2014 the protected record is indistinguishable (S-44 collapsed)",
+      "contract": "yes"
+    },
+    {
+      "label": "K7 \u2605\u2605\u2605\u2605 the IRREVERSIBLE confirmation draws the six-hex FINGERPRINT instead of the FULL id \u2014 a short-token collision can then name the wrong record on the one screen that destroys one",
+      "contract": "yes"
+    },
+    {
+      "label": "K8 \u2605\u2605\u2605\u2605 the PROTECTED screen grows the destructive action row \u2014 the panel offers FORGET KEY for the ACTIVE key",
+      "contract": "yes"
+    },
+    {
+      "label": "K9 \u2605\u2605\u2605 the removal's verdict screen draws a FIXED word instead of the outcome's own \u2014 a failed removal reads as KEY FORGOTTEN",
+      "contract": "yes"
+    },
+    {
+      "label": "K10 \u2605\u2605\u2605 the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one",
+      "contract": "yes"
+    },
+    {
+      "label": "R1 \u2605\u2605\u2605 the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (\u00a7B66)",
+      "contract": "yes"
+    },
+    {
+      "label": "R2 \u2605\u2605\u2605 the row TEXT is resolved without the act, so the grant row renders as a second way out",
+      "contract": "yes"
+    },
+    {
+      "label": "R3 \u2605\u2605\u2605\u2605 the act's row is drawn on EVERY DM sub-view, ignoring the model's offer (the four vetoes bypassed)",
+      "contract": "yes"
+    },
+    {
+      "label": "R4 \u2605\u2605\u2605 our own stable identity is never published, so the SELF veto can never fire",
+      "contract": "yes"
+    },
+    {
+      "label": "W3-N1 the settings note is drawn on body row 3 instead of row 4",
+      "contract": "yes"
+    },
+    {
+      "label": "W4b-N6 the blocked-setup note's reason is drawn on body row 2 instead of row 1",
+      "contract": "yes"
+    }
+  ]
+}

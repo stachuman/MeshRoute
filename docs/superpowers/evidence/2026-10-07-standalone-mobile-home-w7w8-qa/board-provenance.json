@@ -1,0 +1,86 @@
+{
+ "chain_paths": 2587,
+ "now_paths": 2612,
+ "missing_from_now": [],
+ "post_chain_paths": [
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8.md",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/SHA256SUMS",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/boards/compare-final-gateway.txt",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/boards/compare-final-heltec_mobile.txt",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/boards/final-1-gateway.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/boards/final-1-heltec_mobile.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/boards/final-2-gateway.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/boards/final-2-heltec_mobile.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final-figures.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/b499-proof.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/board-attribution.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/changed-cases.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/corpus-compare.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/reader-audit.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/scope-end.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/scope-start.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/stability.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/union-census-final.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/final/union-verify.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/receipts/corpus-manifest-final.json",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/receipts/dev-union.sh",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/receipts/final-runs.tsv",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/receipts/final-union-summary.txt",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/receipts/raw-logs.txt",
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/receipts/run-final.sh"
+ ],
+ "post_chain_all_coder_evidence": true,
+ "chain_tree_sha256_current_contents": "974b194e055e247588a9449333e44b6efa98495565c554b4d610825f6d1f5359",
+ "chain_tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a",
+ "chain_files_rewritten_after_start": [
+  "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8/ledger.md"
+ ],
+ "chain_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+ "now_tree_sha256": "869f747a5f1bf099c97e9bb33bbfc2dfb7bc0ca5ffc61501cd331fbf16c5fcbc",
+ "now_status_sha256": "6cbc3ca8ab6138c4006c9f10af414b3762655f3b0a7bdd6b470a00afab8a43ad",
+ "final-1": {
+  "gateway": {
+   "deleted_files": [],
+   "file_count": 2587,
+   "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+   "git_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+   "tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a"
+  },
+  "heltec_mobile": {
+   "deleted_files": [],
+   "file_count": 2587,
+   "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+   "git_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+   "tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a"
+  }
+ },
+ "qa-1": {
+  "gateway": {
+   "deleted_files": [],
+   "file_count": 2612,
+   "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+   "git_status_sha256": "6cbc3ca8ab6138c4006c9f10af414b3762655f3b0a7bdd6b470a00afab8a43ad",
+   "tree_sha256": "869f747a5f1bf099c97e9bb33bbfc2dfb7bc0ca5ffc61501cd331fbf16c5fcbc"
+  },
+  "heltec_mobile": {
+   "deleted_files": [],
+   "file_count": 2612,
+   "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+   "git_status_sha256": "6cbc3ca8ab6138c4006c9f10af414b3762655f3b0a7bdd6b470a00afab8a43ad",
+   "tree_sha256": "869f747a5f1bf099c97e9bb33bbfc2dfb7bc0ca5ffc61501cd331fbf16c5fcbc"
+  }
+ },
+ "checks": {
+  "final1_envs_agree": true,
+  "qa1_envs_agree": true,
+  "chain_set_size_equals_final1_file_count": true,
+  "chain_tree_equals_final1": true,
+  "chain_status_equals_final1": true,
+  "now_tree_equals_qa1": true,
+  "now_status_equals_qa1": true,
+  "now_count_equals_qa1": true,
+  "nothing_missing": true,
+  "post_chain_only_coder_evidence": true
+ },
+ "verdict": "PASS"
+}

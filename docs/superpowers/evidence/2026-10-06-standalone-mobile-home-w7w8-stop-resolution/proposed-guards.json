@@ -1,0 +1,17 @@
+[
+  [
+    "test/test_firmware_ui_model.cpp",
+    "    CHECK(std::strcmp(compose_empty_note(l), kNoPresetsText) == 0);",
+    "    CHECK((compose_empty_note(l) != nullptr && std::strcmp(compose_empty_note(l), kNoPresetsText) == 0));"
+  ],
+  [
+    "test/test_firmware_ui_presets.cpp",
+    "    CHECK(std::strcmp(f.cat.slot(mrfw::kPresetEmergency).text, mrfw::kPresetDefaults[0].text) == 0);",
+    "    CHECK((mrfw::kPresetDefaults[0].text != nullptr && std::strcmp(f.cat.slot(mrfw::kPresetEmergency).text, mrfw::kPresetDefaults[0].text) == 0));"
+  ],
+  [
+    "test/test_firmware_ui_presets.cpp",
+    "        CHECK(std::strcmp(mrfw::preset_boot_line(st),\n                          \"  ui presets = DEFAULTS (old v1 record \u2014 re-enter custom phrases)\") == 0);",
+    "        CHECK((mrfw::preset_boot_line(st) != nullptr && std::strcmp(mrfw::preset_boot_line(st),\n                          \"  ui presets = DEFAULTS (old v1 record \u2014 re-enter custom phrases)\") == 0));"
+  ]
+]

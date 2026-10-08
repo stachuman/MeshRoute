@@ -1,0 +1,34 @@
+{
+  "finding": "B496",
+  "severity": "MINOR / test stream hygiene",
+  "outside_package": true,
+  "measurements": [
+    {
+      "case": "corpus-vacuity",
+      "command": [
+        "python3",
+        "-B",
+        "tools/test_compare_corpus_slice_s1b.py",
+        "TestVacuity.test_zz_blinding_the_checks_breaks_this_suite"
+      ],
+      "exit": 0,
+      "allocation": "tools/test_compare_corpus_slice_s1b.py:375",
+      "same_at_original_base": true,
+      "log_sha256": "43abf0799100c05c705e2a91244872f6f3c454a380a0daad53f60b87b7ad0da7",
+      "warning": "test_zz_blinding_the_checks_breaks_this_suite (__main__.TestVacuity.test_zz_blinding_the_checks_breaks_this_suite) ... /usr/lib/python3.11/unittest/case.py:579: ResourceWarning: unclosed file <_io.TextIOWrapper name='/dev/null' mode='w' encoding='UTF-8'>\n  if method() is not None:\nObject allocated at (most recent call last):\n  File \"/home/staszek/MeshRoute/tools/test_compare_corpus_slice_s1b.py\", lineno 375\n    result = unittest.TextTestRunner(stream=open(\"/dev/null\", \"w\"), verbosity=0).run(suite)\nok\n\n----------------------------------------------------------------------\nRan 1 test in 0.081s\n\nOK\n"
+    },
+    {
+      "case": "worker-ledger",
+      "command": [
+        "python3",
+        "-B",
+        "tools/test_worker_formula_derived.py"
+      ],
+      "exit": 0,
+      "allocation": "tools/test_worker_formula_derived.py:144",
+      "same_at_original_base": true,
+      "log_sha256": "30334a19ba85226801c2ec301a6164738bb3ff1539bc39eda92fc254b9972eff",
+      "warning": "\ntarget   tools/probe_ui_model_mutations.py\nconstants  _WORKERS_RESERVED_CORES=2  _WORKERS_CAP=8  prose=(2, 8)  formatter call sites=2\n\n  GREEN (as required)    test_both_banners_call_the_single_formatter\n  RED   (control fired)  test_control_a_new_literal_anywhere_is_seen\n  RED   (control fired)  test_control_prose_drift_is_seen\n  RED   (control fired)  test_control_run_banner_literal_is_seen\n  RED   (control fired)  test_control_where_banner_literal_is_seen\n  GREEN (as required)    test_no_undeclared_formula_literal_survives\n  GREEN (as required)    test_prose_at_the_constant_agrees_with_the_constants\n\nPASS \u2014 every printed worker-count formula derives from the constants, and the prose agrees with them.\n/home/staszek/MeshRoute/tools/test_worker_formula_derived.py:164: ResourceWarning: unclosed file <_io.TextIOWrapper name='/dev/null' mode='w' encoding='UTF-8'>\n  raise SystemExit(_ledger())\nObject allocated at (most recent call last):\n  File \"/home/staszek/MeshRoute/tools/test_worker_formula_derived.py\", lineno 144\n    result = unittest.TextTestRunner(verbosity=0, stream=open(\"/dev/null\", \"w\")).run(\n"
+    }
+  ]
+}

@@ -548,6 +548,10 @@ TARGET_SRC = {
     "w4aident":     "src/firmware_ui_model.h",       # W4a — sanitize, abbreviate with `»`, member tokens, no fabrication
     # ★★ ADDED 2026-09-27 BY W4b (brief §2.9): Home, the focus model, the typed setup origin and the Send list.
     "w4bhome":      "src/firmware_ui_model.h",       # W4b — profiles, capture/notes, MENU, blank, OQ-3, origin, Send list
+    # ★★ ADDED 2026-10-04 BY W7+W8 (brief §2.8): the one-button editor's PURE core — its own source file, so its own
+    #    battery (the runner's guards are file-keyed). The callers' rules (origin, returns, the written lock, the gate)
+    #    are `--target=model` / `--target=uisend` entries.
+    "uieditor":     "src/firmware_ui_editor.h",      # W7 — repertoire, rings, E1–E4, insertion/DEL/cursor, preload, rows
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -742,7 +746,12 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 # W0 (identity record, brief rev 3): +4 cases/+106 = 3059/199638; measured by the full native binary with --source-file:
 #   test_device_nv 27/471 -> 31/577 (the four `device_nv/W0:` cases through the real `mrnv::id_blob_from_live`); every
 #   other file unchanged (no other test file is in W0's fence).
-PIN_CASES, PIN_ASSERTS = 3059, 199638
+# W7+W8 (editor, rename, written messages; brief rev 2): +64 cases/+3530 = 3123/203168; measured per file by the full
+#   native binary with --source-file against the W6/W0 per-file figures above (the totals reconcile exactly with the
+#   base build's 3059/199638): model 437/8244 -> 453/8808 (+16: w7- editor/name/prompt/interruption cases), send
+#   120/1051 -> 150/2121 (+30: w8- written gate/composer/outcome/capture/interruption cases), chrome 41/2000 -> 42/2052
+#   (+1 w7w8 rails), editor 0/0 -> 17/1844 (the new test_firmware_ui_editor.cpp); every other file unchanged.
+PIN_CASES, PIN_ASSERTS = 3123, 203168
 # PIN_CASES, PIN_ASSERTS = 2825, 119784    # ★★ RE-SYNCED 2026-09-07 by **§RADMIN SLICE 5** (the target's
                                          # authenticated session, admission and on-air bootstrap). 2763, 118344 ->
                                          # 2825, 119784 = +62 cases / +1440 assertions, and the derivation is exact:
@@ -3655,8 +3664,11 @@ MUTS_MODEL = [
  ("S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (§B101's close dropped)",
   # ⓘ RE-ANCHORED BY W6 (brief §2.9), MEANING KEPT: `long_fire` now closes a phrase REVIEW alone (design r2.23 §7.4.1)
   #   and every other compose exactly as before — this entry drops the latter, the site §B101 put there.
-  "    if (review_active()) close_review(); else close_compose();\n    retain(s.now_ms);",
-  "    if (review_active()) close_review();\n    retain(s.now_ms);"),
+  # ⓘ RE-ANCHORED BY W7+W8 (brief §2.8), MEANING KEPT: the statement gained the written flow's own first arm (§7.4.1);
+  #   the entry still drops the §B101 close of every other compose.
+  "    if (written_flow_open()) written_on_fire(); else if (review_active()) close_review(); else close_compose();\n"
+  "    retain(s.now_ms);",
+  "    if (written_flow_open()) written_on_fire(); else if (review_active()) close_review();\n    retain(s.now_ms);"),
  # ⛔⛔ S04 IS THE RULING TAKEN ONE STEP TOO FAR — the "obvious" companion edit, and the reason the source states the
  #     blank is UNCONDITIONAL. If preserving a modal is right, keeping the panel lit for it looks right too; it is
  #     not. `ui_allows_sleep` requires `blanked`, so a node with a forgotten modal open would never blank AND never
@@ -4305,8 +4317,10 @@ MUTS_MODEL = [
  #   expression it is spelled against moved.
  ("W10 ★★ THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (§B66) — the grant's slot is claimed whether or not the "
   "act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row",
-  "    if (grant && idx == l.n) return ComposeRow::grant;",
-  "    if (idx == l.n) return ComposeRow::grant;"),
+  # ⓘ RE-ANCHORED BY W7+W8 (brief §2.8), MEANING KEPT: WRITE MESSAGE now sits at `n`, so the optional grant row is
+  #   resolved at `n + 1` — the entry still claims it whether or not the act is offered.
+  "    if (grant && idx == l.n + 1u) return ComposeRow::grant;",
+  "    if (idx == l.n + 1u) return ComposeRow::grant;"),
  ("W11 ★★ THE RULED FIVE-MINUTE BOUND IS NOT ARMED — the approval opened from the roster has no deadline at all, "
   "so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
   "        _invite_until_ms    = s.now_ms + kInviteWindowMs;",
@@ -4441,12 +4455,17 @@ MUTS_MODEL = [
   "                                  return idx < 2 ? t[idx] : l.row[idx].text; }"),
  ("Y05 \u2605\u2605\u2605\u2605 K7's GRANT KEY ROW IS DISPLACED \u2014 pinned at the COMPILED list's length instead of the "
   "projection's, which is R-1's \"may not move K7's row\" broken the moment the wearer enables a third preset",
-  "    if (grant && idx == l.n) return ComposeRow::grant;",
-  "    if (grant && idx == 2) return ComposeRow::grant;"),
+  # ⓘ RE-ANCHORED BY W7+W8 (brief §2.8), MEANING KEPT: the row is now `n + 1` (after WRITE MESSAGE); the mutant still
+  #   pins it at a COMPILED constant (the landed two-phrase list's length, plus the WRITE row) instead.
+  "    if (grant && idx == l.n + 1u) return ComposeRow::grant;",
+  "    if (grant && idx == 3u) return ComposeRow::grant;"),
  ("Y06 \u2605\u2605\u2605\u2605 THE MODAL CLOSES ON A NO-OP \u2014 the equality dropped, so ANY ui preset verb (including an "
   "identical set that wrote nothing) shuts an open compose. Spec \u00a72's table rules the opposite in two of its rows",
-  "        return _st.compose != Compose::none && !_st.compose_result && _st.compose_gen != s.preset_generation;",
-  "        return _st.compose != Compose::none && !_st.compose_result;"),
+  # ⓘ RE-ANCHORED BY W7+W8 (brief §2.8), MEANING KEPT: the predicate gained the written-text exemption (§7.4); the
+  #   entry still drops the generation EQUALITY.
+  "        return _st.compose != Compose::none && !_st.compose_result && !written_flow_open() &&\n"
+  "               _st.compose_gen != s.preset_generation;",
+  "        return _st.compose != Compose::none && !_st.compose_result && !written_flow_open();"),
  ("Y07 \u2605\u2605\u2605 THE EMPTY STATE IS BYPASSED \u2014 \u00a73.2.1's note never answered, so a wearer who cleared every "
   "preset gets a sub-view with one unexplained back row and no reason for it",
   "inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? kNoPresetsText : nullptr; }",
@@ -4480,12 +4499,14 @@ MUTS_MODEL = [
  ('W6-M07 ★★ `long_arm` leaves SEND selected under the overlay (the alarm must return a review at BACK)',
   '    if (review_active()) _st.review_send = false;   // ★ W6: an arming alarm keeps the review, reset to BACK',
   '    ;'),
+ # ⓘ W6-M08 / W6-M09 RE-ANCHORED BY W7+W8 (brief §2.8), MEANINGS KEPT: the statement gained the written flow's own first
+ #   arm; both still attack the phrase review / list half of it.
  ('W6-M08 `long_fire` closes the whole phrase LIST too — after the alarm the wearer lands elsewhere (§7.4.1: the list)',
-  '    if (review_active()) close_review(); else close_compose();',
-  '    if (review_active()) close_review(); close_compose();'),
+  'else if (review_active()) close_review(); else close_compose();',
+  'else { if (review_active()) close_review(); close_compose(); }'),
  ('W6-M09 ★★★ `long_fire` LEAVES THE REVIEW OPEN under a committed alarm — an armed confirmation survives the overlay',
-  '    if (review_active()) close_review(); else close_compose();',
-  '    if (!review_active()) close_compose();'),
+  'else if (review_active()) close_review(); else close_compose();',
+  'else if (!review_active()) close_compose();'),
  ('W6-M10 ★★★★ THE TEAM RACE: a changed team no longer closes the review — a phrase aimed at team A confirms into team B',
   '        if (s.team_id != _review.team_id) { review_close_with(ReviewPhase::note_team, s, s.preset_generation); return true; }',
   '        ;'),
@@ -4537,6 +4558,120 @@ MUTS_MODEL = [
  ('W6-M26 the page count forgets the partial last page — the tail of a long phrase is never shown in review',
   '    return lines == 0 ? uint8_t(1) : uint8_t((lines + kReviewBodyRows - 1) / kReviewBodyRows);   // never 0 pages',
   '    return lines == 0 ? uint8_t(1) : uint8_t(lines / kReviewBodyRows);'),
+ # ===== [[B480]] (folded into W7+W8, brief §2.7) — THE DM GENERATION CLOSE, attacked AS A STATEMENT ===============
+ # ★★★ The tick's `if (preset_generation_moved(s)) close_compose();` had no entry of its own: its predicate was attacked
+ #     (Y06) but deleting the whole statement was not. The DM generation-close cases must go RED; the written-text
+ #     exception (§7.4) is the `w8-binding` case's, which this entry leaves untouched.
+ ("B480 ★★★★ the tick's DM generation close is DELETED — a catalog change leaves a DM phrase list open on words the "
+  "wearer never saw",
+  "        if (preset_generation_moved(s)) close_compose();",
+  "        // (the DM generation close deleted — B480)"),
+ # ===== W7 (brief §2.3, §2.8) — THE NAME FLOW: origin, gate order, the one request, results, alarm returns =========
+ ("W7-M01 ★★★ a saved name from the SETUP prompt never continues into its step — the setup origin is ignored",
+  "            home_activate(o == NameOrigin::setup_create ? HomeItem::create : HomeItem::join, s);",
+  "            (void)s;"),
+ ("W7-M02 ★★ CREATE's prompt opens the name editor with the JOIN origin — NAME SAVED continues into the wrong step",
+  "open_name_editor(_home_return == HomeItem::create ? NameOrigin::setup_create : NameOrigin::setup_join, s);",
+  "open_name_editor(NameOrigin::setup_join, s);"),
+ ("W7-M03 ★★★ THE NAME IS ASKED BEFORE THE GATE (§6.6 rule 5) — a blocked device is asked for a name first",
+  "                _st.prov_block = ProvBlock::none;\n                if (!provision_admit()) {",
+  "                _st.prov_block = ProvBlock::none;\n"
+  "                if (s.own_name_len == 0 && _st.home_view != HomeView::name_prompt) { open_name_prompt(); return; }\n"
+  "                if (!provision_admit()) {"),
+ ("W7-M04 ★★★ SKIP does not ask the gate AGAIN — a console change made while the prompt was up is not caught",
+  "                home_activate(_home_return, s);\n                return;",
+  "                _st.home_view = HomeView::list; enter_setup_from_home();\n"
+  "                if (_home_return == HomeItem::create) enter_provision(Provision::create_confirm); "
+  "else enter_provision(Provision::nearby);\n                return;"),
+ ("W7-M05 ★★ an unnamed device is NEVER prompted — JOIN/CREATE go straight on as before W7",
+  "                if (s.own_name_len == 0 && _st.home_view != HomeView::name_prompt) { open_name_prompt(); return; }",
+  "                if (false) { open_name_prompt(); return; }"),
+ ("W7-M06 ★★★★ THE REQUEST IS NOT MARKED TAKEN — a second take saves the name twice",
+  "        _st.editor.phase = EditorPhase::name_taken;\n        bytes = _draft.bytes; len = _draft.len;",
+  "        bytes = _draft.bytes; len = _draft.len;"),
+ ("W7-M07 ★★★ A STALE OR DUPLICATE ANSWER IS ACCEPTED — a second answer rewrites the result on the panel",
+  "        if (_st.editor.phase != EditorPhase::name_taken) return;",
+  "        if (false) return;"),
+ ("W7-M08 ★★★★ EDIT SAVES — a double on the review's safe action raises the save request",
+  "                if (!_st.editor.primary) { editor_return(); return; }                            // EDIT",
+  "                // (EDIT dropped)"),
+ ("W7-M09 ★★★ NAME NOT SAVED is acknowledged like NAME SAVED — the draft is released, the typed name lost",
+  "    void name_result_ack(const UiSnapshot& s) {\n        if (_st.editor.result != NameResult::saved) { editor_return(); return; }",
+  "    void name_result_ack(const UiSnapshot& s) {"),
+ ("W7-M10 ★★★ long_fire LEAVES THE NAME REVIEW OPEN under the alarm — an armed SAVE survives the overlay",
+  "            case EditorPhase::name_review:\n            case EditorPhase::name_requested: editor_return(); return;",
+  "            case EditorPhase::name_review:\n            case EditorPhase::name_requested: return;"),
+ ("W7-M11 ★★ long_fire at the prompt does not return Home — the pending setup survives the alarm",
+  "                if (_st.home_view == HomeView::name_prompt) home_return();",
+  "                (void)0;"),
+ ("W7-M12 ★★ the BLANK keeps SAVE selected on the name review — the wake press finds the save one double away",
+  "            if (_st.editor.phase == EditorPhase::name_review) _st.editor.primary = false;   // ★ W7: and the name's, to EDIT",
+  "            // (the name review keeps its selection)"),
+ ("W7-M13 ★★ long_arm keeps SAVE selected on the name review",
+  "    if (_st.editor.phase == EditorPhase::name_review) _st.editor.primary = false;   // ★ W7: the name review, to EDIT",
+  "    // (the name review keeps its selection)"),
+ ("W7-M14 ★★ CHANGE NAME opens EMPTY — the current name is never preloaded",
+  "        (void)draft_preload(_draft, s.own_name, s.own_name_len);",
+  "        // (no preload)"),
+ ("W7-M15 ★★ WAS never reads the old name — every review claims there was none",
+  "        name_was_line(_st.review_header, sizeof _st.review_header, s.own_name, s.own_name_len);",
+  "        name_was_line(_st.review_header, sizeof _st.review_header, s.own_name, 0);"),
+ # ===== W8 (brief §2.4, §2.8) — WRITTEN MESSAGES: the lock, withdrawal, gate and binding, results, attribution =====
+ ("W8-M01 ★★★★ SEND does not LOCK the draft — the execution gate finds it unlocked and the message never airs",
+  "        _draft.locked = true;\n        queue(_review);",
+  "        queue(_review);"),
+ ("W8-M02 ★★★ the content lock NEVER LIFTS after execution — a refused draft comes back uneditable",
+  "        _draft.locked = false;\n        _written.state = st;",
+  "        _written.state = st;"),
+ ("W8-M03 ★★★★ long_fire does NOT WITHDRAW a queued written message — it airs after the alarm, unreviewed by then",
+  "        if (_req_pending && send_kind_written(_req.kind)) _req_pending = false;",
+  "        // (not withdrawn)"),
+ # ⓘ RESHAPED IN DEVELOPMENT (W7+W8 dev union): the first form cleared `_emg_req_pending`, which `long_fire` re-sets
+ #   right after the withdrawal (`queue(SendKind::emergency, …)` follows `written_on_fire()`), so it was EQUIVALENT and
+ #   measured surviving. The alarm's observable state across a withdrawal is `_emg`.
+ ("W8-M04 ★★★★ THE WITHDRAWAL TOUCHES THE ALARM — withdrawing the written request stands the alarm down with it",
+  "        if (_req_pending && send_kind_written(_req.kind)) _req_pending = false;",
+  "        if (_req_pending && send_kind_written(_req.kind)) _req_pending = false;\n        _emg = Emergency::idle;"),
+ ("W8-M05 ★★★★ DONE OPENS A REVIEW OVER A BROKEN BINDING — the message is confirmed to a team or person it left",
+  "        if (b != EditorNote::none) { _st.editor.note = b; _st.dirty = true; return; }",
+  "        (void)b;"),
+ ("W8-M06 ★★★ a broken binding is never ANNOUNCED on the tick — the editor keeps saying TO TEAM",
+  "        if (_st.editor.note == EditorNote::none) { _st.editor.note = b; _st.dirty = true; }",
+  "        (void)b;"),
+ ("W8-M07 ★★★★ A CATALOG CHANGE CLOSES WRITTEN TEXT — the DM generation close reaches the written editor",
+  "!_st.compose_result && !written_flow_open() &&",
+  "!_st.compose_result &&"),
+ ("W8-M08 ★★★ the written review is checked as a PHRASE — a re-keyed recipient closes it to the list, not the editor",
+  "        if (send_kind_written(_review.kind)) {\n            const EditorNote b = written_binding_note(s);",
+  "        if (false) {\n            const EditorNote b = written_binding_note(s);"),
+ ("W8-M09 ★★★ a KNOWN-REFUSED result releases the draft — the text nobody saw air is lost",
+  "            case WrittenState::refused:\n                _st.compose_result = false;\n                _written = WrittenOutcome{};\n"
+  "                written_editor_return();",
+  "            case WrittenState::refused:\n                written_release();\n                close_compose();"),
+ ("W8-M10 ★★★ a press while QUEUED acts — the result view is left before the request executed",
+  "            case WrittenState::queued: return;\n            case WrittenState::refused:\n                _st.compose_result = false;",
+  "            case WrittenState::queued:\n            case WrittenState::refused:\n                _st.compose_result = false;"),
+ ("W8-M11 ★★★★ SEND OVERWRITES OWED WORK — a pending ordinary request is replaced by the written one (BUSY dropped)",
+  "        if (_req_pending) { _st.editor.note = EditorNote::busy; _st.dirty = true; return; }",
+  "        (void)0;"),
+ ("W8-M12 ★★★ ATTRIBUTION DROPPED — an older transaction's verdict describes the queued written message",
+  "            case WrittenState::queued: return false;",
+  "            case WrittenState::queued: return true;"),
+ ("W8-M13 ★★★ every failure counts as accepted, final — a never-aired message's text is released",
+  "                _written.state = send_outcome_never_aired(o) ? WrittenState::refused : WrittenState::accepted_final;",
+  "                _written.state = WrittenState::accepted_final;"),
+ ("W8-M14 ★★★ the normal tracker is NEVER CLOSED at a written acknowledgement — the next send waits on a dead slot",
+  "    bool normal_tracking_open() const { return compose_open() && _written.state != WrittenState::released; }",
+  "    bool normal_tracking_open() const { return compose_open(); }"),
+ ("W8-M15 ★★ accepted, final returns to the ROSTER — not to the list WRITE MESSAGE came from",
+  "            case WrittenState::released:\n                written_release();\n                written_back_to_list(s);",
+  "            case WrittenState::released:\n                written_release();\n                close_compose(); (void)s;"),
+ ("W8-M16 ★★★ DISCARD keeps the draft OWNED — the written flow never ends",
+  "    void written_leave(const UiSnapshot& s) {\n        draft_release(_draft);",
+  "    void written_leave(const UiSnapshot& s) {"),
+ ("W8-M17 ★★★★ long_fire CLOSES a queued written message's view without withdrawing it — it airs unseen after the alarm",
+  "                    case WrittenState::queued:  withdraw_written_request(); return;",
+  "                    case WrittenState::queued:  written_release(); close_compose(); return;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -4900,6 +5035,13 @@ MUTS_CHROME = [
  ("X48 ★★ the blocked-setup note boxes STATUS instead of SETTINGS (the rail describes a body it is not showing)",
   "            case HomeView::setup_block: return NavSlot::settings;",
   "            case HomeView::setup_block: return NavSlot::status;"),
+ # ===== W7+W8 (brief §2.6) — THE RAILS: the name prompt boxes STATUS; written messages ride compose's SEND ========
+ ("W7-X01 ★★ the name prompt boxes SETTINGS — the rail claims the setup step began before it was admitted",
+  "            case HomeView::name_prompt: break;   // ★ W7 (§4.4/§5.4): the prompt and the whole name flow box STATUS",
+  "            case HomeView::name_prompt: return NavSlot::settings;"),
+ ("W8-X01 ★★ a DM compose (and its written editor) on TEAM boxes TEAM — R-4's SEND rail for DM messages is lost",
+  "        case Compose::dm:\n        case Compose::channel: return NavSlot::send;",
+  "        case Compose::dm: return NavSlot::team;\n        case Compose::channel: return NavSlot::send;"),
 ]
 
 # ===== §CHROME-1 — src/firmware_ui_icons.h =========================================================================
@@ -6941,8 +7083,10 @@ MUTS_UISEND = [
  ('W6-S01 ★★★★ THE GATE DROPS THE TEAM QUESTION — an owed phrase executes into a team the wearer never chose',
   '    if (req.team_id != live.team_id) return SendGate::team_changed;          // ★ W6: EQUALITY with the live team',
   '    ;'),
+ # ⓘ RE-ANCHORED BY W7+W8 (brief §2.8), MEANING KEPT: the DM question now asks the FAMILY (`dm` and `dm_text`) in the
+ #   one shared destination gate; the entry still drops it.
  ('W6-S02 ★★★★ THE GATE DROPS THE RECIPIENT QUESTION — a confirmed DM goes to whoever holds the ID now',
-  '    if (req.kind == SendKind::dm && req.peer_known &&                          // ★ W6: only a hash KNOWN at selection',
+  '    if (send_kind_dm(req.kind) && req.peer_known &&                            // ★ W6: only a hash KNOWN at selection',
   '    if (false && req.peer_known &&'),
  ('W6-S03 ★★★ a binding that NO LONGER RESOLVES is treated as a match — a vanished key is not a changed recipient',
   '        (!live.peer_found || live.peer_hash != req.peer_hash)) return SendGate::recipient_changed;',
@@ -6965,12 +7109,58 @@ MUTS_UISEND = [
  ('W6-S09 ★★ `LOC` is never captured — a located phrase is confirmed without the wearer seeing it carries a position (D6)',
   'sl.loc != 0, now_ms);',
   'false, now_ms);'),
+ # ⓘ RE-ANCHORED BY W7+W8 (brief §2.8), MEANING KEPT: the composer now also takes the borrowed draft view.
  ('W6-S10 ★★★ THE OPERATION COMPOSES INTO A 96-B LINE — every long phrase is refused as a truncation (the retired cap)',
-  '    const int n = ui_compose_send_line(line, line_cap, req, cat, team_channel_id, have_fix);',
-  '    const int n = ui_compose_send_line(line, line_cap < 96 ? line_cap : 96, req, cat, team_channel_id, have_fix);'),
+  '    const int n = ui_compose_send_line(line, line_cap, req, cat, team_channel_id, have_fix, draft);',
+  '    const int n = ui_compose_send_line(line, line_cap < 96 ? line_cap : 96, req, cat, team_channel_id, have_fix, draft);'),
  ("W6-S11 ★★ an UNVERIFIED DM's row 0 claims a hash — the wearer is shown a verification that never happened",
   '        n = snprintf(out, cap, "TO T%u UNVERIFIED", unsigned(b.peer_id));',
   '        n = snprintf(out, cap, "TO T%u %08lX", unsigned(b.peer_id), (unsigned long)b.peer_hash);'),
+ # ===== W8 (brief §2.4, §2.8) — THE GATE PER KIND (two phases, D19) AND THE WRITTEN COMPOSER ======================
+ ("W8-S01 ★★★★ A WRITTEN REQUEST READS THE CATALOG — its absent slot and generation refuse every written message",
+  "    if (send_kind_written(req.kind)) return send_dest_gate_of(req, live);",
+  "    // (written requests fall through to the catalog)"),
+ ("W8-S02 ★★★★ THE DRAFT LOCK IS NOT ASKED AT EXECUTION — an unlocked or re-frozen draft is sent under an old review",
+  "        (!draft.bytes || !draft.locked || draft.draft_id != req.draft_id || draft.len == 0 || draft.len > kDraftMax))",
+  "        (!draft.bytes || draft.len == 0 || draft.len > kDraftMax))"),
+ ("W8-S03 ★★★★ D19 IS DROPPED — a team post before the team-local ID is handed to the core (B444's panel path)",
+  "    if (send_kind_team_post(req.kind) && !live.team_local_id) return SendGate::no_team_id;",
+  "    // (D19 dropped)"),
+ ("W8-S04 ★★★ D19 REFUSES DMs TOO — a person cannot be messaged before the team-local ID exists",
+  "    if (send_kind_team_post(req.kind) && !live.team_local_id) return SendGate::no_team_id;",
+  "    if (req.kind != SendKind::emergency && !live.team_local_id) return SendGate::no_team_id;"),
+ ("W8-S05 ★★★★ D19 GATES THE ALARM — a distress call is refused before team-DAD (R-3/§4.1 broken)",
+  "    if (send_kind_team_post(req.kind) && !live.team_local_id) return SendGate::no_team_id;",
+  "    if ((send_kind_team_post(req.kind) || req.kind == SendKind::emergency) && !live.team_local_id) "
+  "return SendGate::no_team_id;"),
+ ("W8-S06 ★★★★ D19 IS ASKED AT REVIEW ADMISSION (W7W8R-2) — a valid team phrase no longer opens its review pre-ID",
+  "    if (send_kind_written(req.kind)) return send_dest_gate_of(req, live);",
+  "    if (send_kind_team_post(req.kind) && !live.team_local_id) return SendGate::no_team_id;\n"
+  "    if (send_kind_written(req.kind)) return send_dest_gate_of(req, live);"),
+ ("W8-S07 ★★★★ A WRITTEN TEAM POST CARRIES `-l` — D6: written messages never request location",
+  '            : snprintf(out, cap, "send_channel %u \\"%.*s\\" -t -e", unsigned(team_channel_id), tl, draft.bytes);',
+  '            : snprintf(out, cap, "send_channel %u \\"%.*s\\" -t -l -e", unsigned(team_channel_id), tl, draft.bytes);'),
+ ("W8-S08 ★★★ A WRITTEN DM DROPS `-a` — the one per-destination ack a person message can have is never asked",
+  '            ? snprintf(out, cap, "send %u \\"%.*s\\" -t -a", unsigned(req.peer_id), tl, draft.bytes)',
+  '            ? snprintf(out, cap, "send %u \\"%.*s\\" -t", unsigned(req.peer_id), tl, draft.bytes)'),
+ ("W8-S09 ★★★★ THE COMPOSER INDEXES THE CATALOG FOR A WRITTEN REQUEST — the alarm's phrase is sent in its place",
+  "    if (send_kind_written(req.kind)) {\n        if (!draft.bytes || draft.len == 0 || draft.len > kDraftMax) return 0;",
+  "    if (false) {\n        if (!draft.bytes || draft.len == 0 || draft.len > kDraftMax) return 0;"),
+ ("W8-S10 ★★ an ALL-SPACE draft composes — a blank message is handed to the core",
+  "        if (editor_all_space(draft.bytes, draft.len)) return 0;",
+  "        // (an all-space draft composes)"),
+ ("W8-S11 ★★★ the tracker's channel verdict matches a WRITTEN DM — a team-post outcome completes a person message",
+  "        if (send_kind_dm(_k)) return false;               // ★ W8: the family, never `== dm` (dm_text is a DM too)",
+  "        if (_k == SendKind::dm) return false;"),
+ ("W8-S12 ★★★ the pump keeps the normal tracker open past a written acknowledgement — `compose_open()` alone",
+  "    if (!m.normal_tracking_open() && !normal.idle()) normal.close();",
+  "    if (!m.compose_open() && !normal.idle()) normal.close();"),
+ ("W8-S13 ★★ the DM editor's label is TEAM's six columns — the header never shows the 8-column name the design gives it",
+  "inline constexpr uint8_t kEditorDmLabelCols = 8;",
+  "inline constexpr uint8_t kEditorDmLabelCols = 6;"),
+ ("W8-S14 ★★★★ THE WRITTEN REVIEW's CAPTURE SKIPS THE LIVE CHECK — a review opens over a binding that just broke",
+  "        if (wg != SendGate::send) { m.on_review_refused(review_note_of(wg), s, cat.generation); return true; }",
+  "        (void)wg;"),
 ]
 
 MUTS_TEAMGRANT = [
@@ -12115,9 +12305,10 @@ MUTS_W4AIDENT = [
  ("F06 ★★★ NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost)",
   "    if (key_hash32 == 0) return IdentityFmt::none;",
   "    if (key_hash32 == 0) { snprintf(out, cap, \"0x%08lX\", 0ul); return IdentityFmt::none; }"),
+ # ★ [[B492]]: the over-keep is BOUNDED to destinations with room for the extra cell AND its NUL (`cap >= cols + 2`) — the unbounded `keep = cols` wrote one byte past every exact `cols + 1` array, so its count was stack-dependent.
  ("F07 ★★ the marker is written ONE PAST the budget — the abbreviated label is `cols + 1` cells wide",
   "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);",
-  "        const uint8_t keep = (len <= cols) ? len : cols;"),
+  "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - (cap > std::size_t(cols) + 1u ? 0u : 1u));"),
  ("F08 ★★ the CAPACITY rule is dropped — a destination shorter than the budget gets a partial result past its end",
   "    if (cap < std::size_t(cols) + 1u) return IdentityFmt::no_fit;  // never a partial or clipped result",
   "    // (the capacity is no longer checked against the budget)"),
@@ -12224,15 +12415,112 @@ MUTS_W4BHOME = [
  ("H23 ★★ a press on the SAME tick the item vanished clears the note it could not have seen (ruling)",
   "            if (note_was_up) _st.home.changed = false;",
   "            _st.home.changed = false;"),
+ # ⓘ RE-ANCHORED BY W7+W8 (brief §2.3), MEANING KEPT: My device's row is now ` CHANGE NAME >BACK` — the entry still
+ #   makes a `short` on BACK leave.
  ("H24 ★★ a `short` on My device's one BACK row LEAVES (the sub-view has one row; only `double` returns)",
-  "                if (g == Gesture::double_press) home_return();",
-  "                home_return();"),
+  "                if (g == Gesture::double_press) { if (_st.editor.primary) open_name_editor(NameOrigin::my_device, s); else home_return(); }",
+  "                if (g != Gesture::none) { if (_st.editor.primary) open_name_editor(NameOrigin::my_device, s); else home_return(); }"),
  # ★★★★ [[B457]] (design r2.22 §6.1, brief rev 3 §2.9 entry 11): the one authority that keeps a Settings MENU off a
  #      closed service. Without it an emergency-pre-empted ungated flow (Home INVITE, a TEAM-roster grant) leaves a menu
  #      the renderer cannot draw — `CFG UNAVAILABLE` over rows nobody sees, walked forever by a wrapping list.
  ("H25 ★★★★ the Settings MENU is shown over a CLOSED service (B457 — a pre-empted ungated flow leaves an invisible menu)",
   "        if ((_st.settings == Settings::browsing || _st.settings == Settings::editing) && !(_cfg && _cfg->is_open())) {",
   "        if (false) {"),
+]
+
+# ===== W7+W8 (brief §2.8) — THE ONE-BUTTON EDITOR's PURE CORE (`--target=uieditor`) ===============================
+# ★★★ EVERY ENTRY CHANGES A BOUNDED CHOICE OR A TRANSITION, ⛔ NEVER A COPY BOUND: the storage guard `d.len >= kDraftMax`
+#     and every loop limit over `bytes` stay intact in each mutant, so no mutant can write or read past the 163 bytes —
+#     a crash would be UNUSABLE, never RED. The editor's own native cases (`test_firmware_ui_editor.cpp`) are the
+#     intended witnesses; the callers' rules live in `--target=model` / `--target=uisend`.
+MUTS_UIEDITOR = [
+ # --- the repertoire: order and uniqueness (D4)
+ ("E01 ★★★ the repertoire's ORDER moves — A and B swap, so a group's double types the wrong letter",
+  "    'A', 'B', 'C', 'D', 'E', 'F',",
+  "    'B', 'A', 'C', 'D', 'E', 'F',"),
+ ("E02 ★★★ a byte appears TWICE — Z is lost and Y is offered in two cells",
+  "'Y', 'Z', '0'",
+  "'Y', 'Y', '0'"),
+ # --- each ring's bound and wrap
+ ("E03 ★★★ the group ring wraps before EDIT — the controls (DEL, DONE, DISCARD) are unreachable",
+  "            if (!dbl) { v.item = uint8_t((v.item + 1) % kGroupRingItems); return EditorAct::none; }",
+  "            if (!dbl) { v.item = uint8_t((v.item + 1) % kEditorGroups); return EditorAct::none; }"),
+ ("E04 ★★ a character ring wraps before BACK — a group once opened can only be left by typing",
+  "            if (!dbl) { v.item = uint8_t((v.item + 1) % kCharRingItems); return EditorAct::none; }",
+  "            if (!dbl) { v.item = uint8_t((v.item + 1) % kEditorGroupSize); return EditorAct::none; }"),
+ ("E05 ★★ the control ring wraps before BACK — E3 can only be left through DONE or DISCARD",
+  "            if (!dbl) { v.item = uint8_t((v.item + 1) % kControlRingItems); return EditorAct::none; }",
+  "            if (!dbl) { v.item = uint8_t((v.item + 1) % (kControlRingItems - 1)); return EditorAct::none; }"),
+ # --- the landings (§5.4)
+ ("E06 ★★★ after an insertion the highlight stays on the group just used instead of returning to group 1 (D4's "
+  "withdrawn r1 candidate)",
+  "            editor_enter(v, EditorPhase::groups);                              // ★ either way: E1 on group 1",
+  "            { const uint8_t used_group = v.group; editor_enter(v, EditorPhase::groups); v.item = used_group; }"),
+ ("E07 ★★ E2's BACK forgets its group and lands on group 1",
+  "                v.item = back_to;",
+  "                v.item = 0; (void)back_to;"),
+ ("E08 ★★ E3's BACK lands on EDIT instead of group 1",
+  "                case EditorControl::back:  editor_enter(v, EditorPhase::groups); return EditorAct::none;",
+  "                case EditorControl::back:  editor_enter(v, EditorPhase::groups); v.item = kEditorGroups; "
+  "return EditorAct::none;"),
+ # --- insertion, DEL and the cursor
+ ("E09 ★★★ a character is APPENDED at the end instead of inserted at the cursor",
+  "    for (uint8_t i = d.len; i > d.cursor; --i) d.bytes[i] = d.bytes[i - 1];\n    d.bytes[d.cursor] = c;",
+  "    d.bytes[d.len] = c;"),
+ ("E10 ★★★ DEL removes the byte AT the cursor instead of the one before it",
+  "    for (uint8_t i = uint8_t(d.cursor - 1); i + 1 < d.len; ++i) d.bytes[i] = d.bytes[i + 1];",
+  "    for (uint8_t i = d.cursor; i + 1 < d.len; ++i) d.bytes[i] = d.bytes[i + 1];"),
+ ("E11 ★★ RIGHT clamps at the CAP instead of the length — the cursor walks into cells that hold no byte",
+  "inline void draft_right(Draft& d) { if (d.cursor < d.len) ++d.cursor; }",
+  "inline void draft_right(Draft& d) { if (d.cursor < d.cap) ++d.cursor; }"),
+ # --- FULL and EMPTY
+ ("E12 ★★★ a full draft refuses the byte SILENTLY — FULL is never shown",
+  "            if (!draft_insert(d, editor_char(v.group, v.item))) v.note = EditorNote::full;   // FULL: nothing written",
+  "            (void)draft_insert(d, editor_char(v.group, v.item));"),
+ ("E13 ★★★ the CALLER's cap is ignored (only the storage bound holds) — a name grows past 32 bytes",
+  "    if (d.locked || d.len >= d.cap || d.len >= kDraftMax || d.cursor > d.len) return false;",
+  "    if (d.locked || d.len >= kDraftMax || d.cursor > d.len) return false;"),
+ ("E14 ★★★ DONE accepts an ALL-SPACE draft — a blank name or message reaches its review",
+  "                    if (editor_all_space(d.bytes, d.len)) { v.note = EditorNote::empty; return EditorAct::none; }",
+  "                    if (d.len == 0) { v.note = EditorNote::empty; return EditorAct::none; }"),
+ # --- both DISCARD arms and the safe confirmation
+ ("E15 ★★ DISCARD on an EMPTY draft asks for a confirmation of nothing",
+  "                    if (d.len == 0) return EditorAct::leave;                   // nothing to lose: leave at once",
+  "                    if (false) return EditorAct::leave;"),
+ ("E16 ★★★★ the discard confirmation opens on DISCARD — one stray double destroys the draft",
+  "                    editor_enter(v, EditorPhase::discard);                     // ★ BACK first",
+  "                    editor_enter(v, EditorPhase::discard); v.primary = true;"),
+ ("E17 ★★ E4's BACK lands on the group ring instead of E3 on DEL",
+  "            if (!v.primary) { editor_enter(v, EditorPhase::controls); return EditorAct::none; }   // BACK → E3 on DEL",
+  "            if (!v.primary) { editor_enter(v, EditorPhase::groups); return EditorAct::none; }"),
+ ("E18 ★★★ E4's DISCARD leaves WITHOUT clearing — the discarded text comes back on the next open",
+  "            d.len = 0; d.cursor = 0;                                           // DISCARD: cleared, back to the opener",
+  "            // the draft is left as it was"),
+ # --- the preload (§4.3)
+ ("E19 ★★★★ the preload is no longer all-or-nothing — a lowercase name is loaded into an editor that cannot type it",
+  "    for (uint8_t i = 0; i < len; ++i) if (!editor_in_repertoire(src[i])) return false;",
+  "    // (no repertoire check)"),
+ # --- the notes (r2.26)
+ ("E20 ★★★ the press that clears a note is CONSUMED — r2.26 says it still acts",
+  "    editor_clear_note(v);",
+  "    if (v.note != EditorNote::none && v.note != EditorNote::binding_seen) { editor_clear_note(v); "
+  "return EditorAct::none; }"),
+ ("E21 ★★ a note never clears — FULL stays on row 0 for the rest of the edit",
+  "    editor_clear_note(v);",
+  "    (void)0;"),
+ ("E22 ★★ a shown binding note clears to NONE — the tick re-raises it for ever and no press can dismiss it",
+  "        case EditorNote::recipient_changed: v.note = EditorNote::binding_seen; return;",
+  "        case EditorNote::recipient_changed: v.note = EditorNote::none; return;"),
+ # --- the visible rows (§5.3)
+ ("E23 ★★★ the window puts the cursor's row on TOP — the row before the cursor scrolls away",
+  "(crow > 0 ? uint8_t(crow - 1) : uint8_t(0))",
+  "crow"),
+ ("E24 ★★ SPACE is drawn as a blank cell in the ring — `_` is lost",
+  "inline char editor_ring_glyph(char c) { return c == ' ' ? '_' : c; }",
+  "inline char editor_ring_glyph(char c) { return c; }"),
+ ("E25 ★★★ a note never reaches row 0 — FULL / EMPTY / BUSY / TEAM CHANGED are computed and never shown",
+  "    if (note) { snprintf(out, cap, \"%s\", note); return; }",
+  "    (void)note;"),
 ]
 
 MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE, 'radmin8rng': MUTS_RADMIN8RNG, 'radmin8verbs': MUTS_RADMIN8VERBS, 'radmin8client': MUTS_RADMIN8CLIENT, "radmin73action": MUTS_RADMIN73ACTION, "radmin73node": MUTS_RADMIN73NODE, "radmin73convert": MUTS_RADMIN73CONVERT, "actionadmit": MUTS_ACTIONADMIT, "radmin72session": MUTS_RADMIN72SESSION, "radmin72rx": MUTS_RADMIN72RX,
@@ -12286,7 +12574,7 @@ MUTS_BY_TARGET = {'radmin8brx': MUTS_RADMIN8BRX, 'radmin8node': MUTS_RADMIN8NODE
                   "uinearby": MUTS_UINEARBY, "uinearbyrow": MUTS_UINEARBYROW,
                   "uiinvite": MUTS_UIINVITE,
                   "w1cname": MUTS_W1CNAME, "w1cretain": MUTS_W1CRETAIN,
-                  "w4aident": MUTS_W4AIDENT, "w4bhome": MUTS_W4BHOME}
+                  "w4aident": MUTS_W4AIDENT, "w4bhome": MUTS_W4BHOME, "uieditor": MUTS_UIEDITOR}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

@@ -1,0 +1,44 @@
+[
+  {
+    "case": "profile-bare-token",
+    "bad_side": "A",
+    "exit": 2,
+    "no_traceback": true,
+    "refusal": "COMPARE REFUSED: A (/tmp/mr-qa-malformed-yr219yxg/profile-bare-token.txt), line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'"
+  },
+  {
+    "case": "profile-bare-token",
+    "bad_side": "B",
+    "exit": 2,
+    "no_traceback": true,
+    "refusal": "COMPARE REFUSED: B (/tmp/mr-qa-malformed-yr219yxg/profile-bare-token.txt), line 3: the MR0C-PROFILE line carries a field that is not `name=value`: 'malformed'"
+  },
+  {
+    "case": "identity-count-5000-digits",
+    "bad_side": "A",
+    "exit": 2,
+    "no_traceback": true,
+    "refusal": "COMPARE REFUSED: A (/tmp/mr-qa-malformed-yr219yxg/identity-count-5000-digits.txt), line 2: the identity's lines= has 5000 digits \u2014 not a count a ledger can carry"
+  },
+  {
+    "case": "identity-count-5000-digits",
+    "bad_side": "B",
+    "exit": 2,
+    "no_traceback": true,
+    "refusal": "COMPARE REFUSED: B (/tmp/mr-qa-malformed-yr219yxg/identity-count-5000-digits.txt), line 2: the identity's lines= has 5000 digits \u2014 not a count a ledger can carry"
+  },
+  {
+    "case": "LINE-length-5000-digits",
+    "bad_side": "A",
+    "exit": 2,
+    "no_traceback": true,
+    "refusal": "COMPARE REFUSED: A (/tmp/mr-qa-malformed-yr219yxg/LINE-length-5000-digits.txt), line 4: LINE L001's len has 5000 digits \u2014 not a count a ledger can carry"
+  },
+  {
+    "case": "LINE-length-5000-digits",
+    "bad_side": "B",
+    "exit": 2,
+    "no_traceback": true,
+    "refusal": "COMPARE REFUSED: B (/tmp/mr-qa-malformed-yr219yxg/LINE-length-5000-digits.txt), line 4: LINE L001's len has 5000 digits \u2014 not a count a ledger can carry"
+  }
+]

@@ -1,0 +1,185 @@
+{
+  "scope": "Throwaway byte/cell arithmetic for the specified 6-pixel ASCII cells; not a render or implementation gate.",
+  "rows": [
+    {
+      "note": "FULL",
+      "used": 1,
+      "cap": 32,
+      "note_cells": 4,
+      "counter_cells": 4,
+      "one_separator_cells": 9,
+      "fits_19": true
+    },
+    {
+      "note": "FULL",
+      "used": 32,
+      "cap": 32,
+      "note_cells": 4,
+      "counter_cells": 5,
+      "one_separator_cells": 10,
+      "fits_19": true
+    },
+    {
+      "note": "FULL",
+      "used": 1,
+      "cap": 163,
+      "note_cells": 4,
+      "counter_cells": 5,
+      "one_separator_cells": 10,
+      "fits_19": true
+    },
+    {
+      "note": "FULL",
+      "used": 163,
+      "cap": 163,
+      "note_cells": 4,
+      "counter_cells": 7,
+      "one_separator_cells": 12,
+      "fits_19": true
+    },
+    {
+      "note": "EMPTY",
+      "used": 1,
+      "cap": 32,
+      "note_cells": 5,
+      "counter_cells": 4,
+      "one_separator_cells": 10,
+      "fits_19": true
+    },
+    {
+      "note": "EMPTY",
+      "used": 32,
+      "cap": 32,
+      "note_cells": 5,
+      "counter_cells": 5,
+      "one_separator_cells": 11,
+      "fits_19": true
+    },
+    {
+      "note": "EMPTY",
+      "used": 1,
+      "cap": 163,
+      "note_cells": 5,
+      "counter_cells": 5,
+      "one_separator_cells": 11,
+      "fits_19": true
+    },
+    {
+      "note": "EMPTY",
+      "used": 163,
+      "cap": 163,
+      "note_cells": 5,
+      "counter_cells": 7,
+      "one_separator_cells": 13,
+      "fits_19": true
+    },
+    {
+      "note": "BUSY",
+      "used": 1,
+      "cap": 32,
+      "note_cells": 4,
+      "counter_cells": 4,
+      "one_separator_cells": 9,
+      "fits_19": true
+    },
+    {
+      "note": "BUSY",
+      "used": 32,
+      "cap": 32,
+      "note_cells": 4,
+      "counter_cells": 5,
+      "one_separator_cells": 10,
+      "fits_19": true
+    },
+    {
+      "note": "BUSY",
+      "used": 1,
+      "cap": 163,
+      "note_cells": 4,
+      "counter_cells": 5,
+      "one_separator_cells": 10,
+      "fits_19": true
+    },
+    {
+      "note": "BUSY",
+      "used": 163,
+      "cap": 163,
+      "note_cells": 4,
+      "counter_cells": 7,
+      "one_separator_cells": 12,
+      "fits_19": true
+    },
+    {
+      "note": "TEAM CHANGED",
+      "used": 1,
+      "cap": 32,
+      "note_cells": 12,
+      "counter_cells": 4,
+      "one_separator_cells": 17,
+      "fits_19": true
+    },
+    {
+      "note": "TEAM CHANGED",
+      "used": 32,
+      "cap": 32,
+      "note_cells": 12,
+      "counter_cells": 5,
+      "one_separator_cells": 18,
+      "fits_19": true
+    },
+    {
+      "note": "TEAM CHANGED",
+      "used": 1,
+      "cap": 163,
+      "note_cells": 12,
+      "counter_cells": 5,
+      "one_separator_cells": 18,
+      "fits_19": true
+    },
+    {
+      "note": "TEAM CHANGED",
+      "used": 163,
+      "cap": 163,
+      "note_cells": 12,
+      "counter_cells": 7,
+      "one_separator_cells": 20,
+      "fits_19": false
+    },
+    {
+      "note": "RECIPIENT CHANGED",
+      "used": 1,
+      "cap": 32,
+      "note_cells": 17,
+      "counter_cells": 4,
+      "one_separator_cells": 22,
+      "fits_19": false
+    },
+    {
+      "note": "RECIPIENT CHANGED",
+      "used": 32,
+      "cap": 32,
+      "note_cells": 17,
+      "counter_cells": 5,
+      "one_separator_cells": 23,
+      "fits_19": false
+    },
+    {
+      "note": "RECIPIENT CHANGED",
+      "used": 1,
+      "cap": 163,
+      "note_cells": 17,
+      "counter_cells": 5,
+      "one_separator_cells": 23,
+      "fits_19": false
+    },
+    {
+      "note": "RECIPIENT CHANGED",
+      "used": 163,
+      "cap": 163,
+      "note_cells": 17,
+      "counter_cells": 7,
+      "one_separator_cells": 25,
+      "fits_19": false
+    }
+  ]
+}

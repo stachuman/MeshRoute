@@ -1,0 +1,169 @@
+{
+  "native": {
+    "cases": 3059,
+    "assertions": 199638,
+    "failed": 0,
+    "skipped": 0
+  },
+  "firmware_ui": {
+    "arms": [
+      591,
+      1059,
+      591
+    ],
+    "check_summary_lines": [
+      "591 passed / 0 failed / 591 total",
+      "       1059 passed / 0 failed / 1059 total",
+      "       591 passed / 0 failed / 591 total"
+    ],
+    "controls": 240,
+    "independent_declared_observed_equal": true
+  },
+  "abi": {
+    "checks": 290,
+    "controls_red": 9
+  },
+  "board_ui": {
+    "identities": 592,
+    "canvas": [
+      124,
+      110
+    ],
+    "traits": 14,
+    "missing_trait": 12,
+    "structural": 23,
+    "wiring": 60,
+    "wiring_controls": 186,
+    "negctl": [
+      60,
+      3
+    ]
+  },
+  "corpus": {
+    "scenarios": 36,
+    "all_14_scenario_fields_equal": true,
+    "s18": {
+      "anchor_assertion_failures": 0,
+      "anchor_events": 269517,
+      "anchor_match": true,
+      "anchor_md5_prefix": "32afbf11",
+      "assertion_failures": 0,
+      "events": 269517,
+      "exit_status": 0,
+      "name": "s18_meshroute",
+      "output_bytes": 38698103,
+      "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+      "output_sha256": "27ecfa988f062d3b27ed9b19159965ac393a0f03e2499011d87d9797fe64cc54",
+      "promoted": true,
+      "scenario_path": "simulation/s18_meshroute.json",
+      "scenario_sha256": "78848631fdd65f286b310eac1a31b104c651f93ca72b0da40da554e2fde5baaa"
+    },
+    "lus_sha256": "e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2"
+  },
+  "inventory": {
+    "rows": 197
+  },
+  "runs": [
+    {
+      "label": "native-build",
+      "args": [
+        "pio",
+        "test",
+        "-e",
+        "native"
+      ],
+      "exit": 0,
+      "seconds": 1.746
+    },
+    {
+      "label": "native-binary",
+      "args": [
+        "./.pio/build/native/program"
+      ],
+      "exit": 0,
+      "seconds": 0.742
+    },
+    {
+      "label": "abi",
+      "args": [
+        "python3",
+        "-B",
+        "tools/probe_board_abi.py"
+      ],
+      "exit": 0,
+      "seconds": 19.613
+    },
+    {
+      "label": "firmware-ui",
+      "args": [
+        "tools/probe_firmware_ui/run.sh"
+      ],
+      "exit": 0,
+      "seconds": 390.032
+    },
+    {
+      "label": "board-ui",
+      "args": [
+        "tools/probe_board_ui/run.sh"
+      ],
+      "exit": 0,
+      "seconds": 25.48
+    },
+    {
+      "label": "sim-configure",
+      "args": [
+        "cmake",
+        "-S",
+        "/home/staszek/lora-universal-simulator",
+        "-B",
+        "/tmp/w7-precheck-m6n5vvdo/sim-build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+      ],
+      "exit": 0,
+      "seconds": 0.498
+    },
+    {
+      "label": "sim-build",
+      "args": [
+        "cmake",
+        "--build",
+        "/tmp/w7-precheck-m6n5vvdo/sim-build",
+        "--target",
+        "lus",
+        "-j",
+        "4"
+      ],
+      "exit": 0,
+      "seconds": 32.043
+    },
+    {
+      "label": "corpus",
+      "args": [
+        "python3",
+        "-B",
+        "tools/run_corpus.py",
+        "--out",
+        "/tmp/w7-precheck-m6n5vvdo/corpus",
+        "--lus",
+        "/tmp/w7-precheck-m6n5vvdo/sim-build/orchestrator/lus",
+        "--require-anchors",
+        "--jobs",
+        "4"
+      ],
+      "exit": 0,
+      "seconds": 52.191
+    },
+    {
+      "label": "inventory",
+      "args": [
+        "python3",
+        "-B",
+        "tools/gen_command_inventory.py",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 2.216
+    }
+  ]
+}

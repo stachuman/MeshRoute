@@ -377,7 +377,8 @@ inline NavSlot ui_nav_slot(const UiState& st, Emergency emg) {
             case HomeView::setup_block: return NavSlot::settings;
             case HomeView::list:
             case HomeView::my_device:
-            case HomeView::key_help:    break;
+            case HomeView::key_help:
+            case HomeView::name_prompt: break;   // ★ W7 (§4.4/§5.4): the prompt and the whole name flow box STATUS
         }
     }
     switch (st.screen) {

@@ -1,0 +1,192 @@
+[
+  {
+    "tag": "base-clean",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      0,
+      3059,
+      199638
+    ],
+    "rc": 0,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 27.1,
+    "stdout_sha256": "425e35e8b9c837b3a6641751252f9a60c0fc587dda184576fbbb599be3a4dc0e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-unsafe-Y02",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": null,
+    "rc": -11,
+    "reason": "run",
+    "note": "the doctest summary (11 failed test case(s), 85 failed assertion(s)) disagrees with exit -11",
+    "elapsed_seconds": 17.52,
+    "stdout_sha256": "82780302140754b864ebac6d6606f6ea4982fd7943d02b37d3a16d717c3dc608",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-unsafe-Y07",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": null,
+    "rc": -11,
+    "reason": "run",
+    "note": "the doctest summary (2 failed test case(s), 2 failed assertion(s)) disagrees with exit -11",
+    "elapsed_seconds": 17.4,
+    "stdout_sha256": "7b6e9d17e16090c1f44f63685d534a5b5a94100e126b1b63dce9d3db72bdba07",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-unsafe-U13",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": null,
+    "rc": -11,
+    "reason": "run",
+    "note": "the doctest summary (8 failed test case(s), 21 failed assertion(s)) disagrees with exit -11",
+    "elapsed_seconds": 17.51,
+    "stdout_sha256": "96644d6d651e72ace62995d3b3d4444e1ff05d48c952c71d179163b7f8b9078f",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-unsafe-W6-P1",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": null,
+    "rc": -11,
+    "reason": "run",
+    "note": "the doctest summary (3 failed test case(s), 5 failed assertion(s)) disagrees with exit -11",
+    "elapsed_seconds": 17.5,
+    "stdout_sha256": "f35c0a6fdb531bfc67ac81b3718f6f4be325c0fd124b3b77cf326996f259730f",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-unsafe-W6-P3",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": null,
+    "rc": -11,
+    "reason": "run",
+    "note": "the doctest summary (2 failed test case(s), 7 failed assertion(s)) disagrees with exit -11",
+    "elapsed_seconds": 17.47,
+    "stdout_sha256": "e500adafa5d0aaa4d595c4beb2a6cc91d9d7760503d51fe129ae5626e510d9f3",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-guarded-clean",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      0,
+      3059,
+      199638
+    ],
+    "rc": 0,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 18.11,
+    "stdout_sha256": "425e35e8b9c837b3a6641751252f9a60c0fc587dda184576fbbb599be3a4dc0e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-guarded-Y02",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      157,
+      3059,
+      199720
+    ],
+    "rc": 1,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 18.08,
+    "stdout_sha256": "2ae992045bf29dce50b37cd6ca88ad6496dcaee22ed7c25e2cb509ccfb54ca39",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-guarded-Y07",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      3,
+      3059,
+      199638
+    ],
+    "rc": 1,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 18.1,
+    "stdout_sha256": "ea7fc638a6209aa5369de9cb75fa45036f58b5f235933a2279b6c0f7fbf1e51e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-guarded-U13",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      163,
+      3059,
+      199614
+    ],
+    "rc": 1,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 18.26,
+    "stdout_sha256": "80c6da651bf22df74736445f4c70e0bd46c204c72c96d589f5f399a4fdaddfeb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-guarded-W6-P1",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      7,
+      3059,
+      199634
+    ],
+    "rc": 1,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 18.1,
+    "stdout_sha256": "180061b5e762eb3c0f36a6b45e757577ed6282cfb676bbc1139efc7c2e3de8c1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "base-guarded-W6-P3",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/base",
+    "counts": [
+      10,
+      3059,
+      199636
+    ],
+    "rc": 1,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 18.19,
+    "stdout_sha256": "00b41683a4e45072522c0c0df6f4ebeac731c3b4e05c20d7570bc1f55cbae52f",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "candidate-guarded-clean",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/candidate",
+    "counts": [
+      0,
+      3123,
+      203168
+    ],
+    "rc": 0,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 25.75,
+    "stdout_sha256": "baf8cf4b063cb243b5945f8c888e795994d7129093cf11a9f33e1810c015bc3b",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "tag": "candidate-W8-M04",
+    "tree": "/tmp/w7w8-stop-qa-oykg0j_x/candidate",
+    "counts": [
+      1,
+      3123,
+      203168
+    ],
+    "rc": 1,
+    "reason": null,
+    "note": null,
+    "elapsed_seconds": 19.19,
+    "stdout_sha256": "cf5165254561d54f56bb2e0754a64e6c077a541a1fab7d2ba35926471c8bb682",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

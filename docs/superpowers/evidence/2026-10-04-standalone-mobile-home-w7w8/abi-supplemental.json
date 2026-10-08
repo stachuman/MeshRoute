@@ -1,0 +1,13 @@
+{"include_dirs": ["src"],
+ "headers": ["firmware_ui_send.h"],
+ "types": [{"name": "mrui::Draft",          "included_if": "MR_FEAT_OLED"},
+           {"name": "mrui::EditorView",     "included_if": "MR_FEAT_OLED"},
+           {"name": "mrui::NameOrigin",     "included_if": "MR_FEAT_OLED"},
+           {"name": "mrui::WrittenOutcome", "included_if": "MR_FEAT_OLED"},
+           {"name": "mrui::SendLive",       "included_if": "MR_FEAT_OLED"}],
+ "pins": {"native":        {"mrui::Draft": [176, 4, false], "mrui::EditorView": [10, 1, false], "mrui::NameOrigin": [1, 1, false],
+                            "mrui::WrittenOutcome": [4, 1, false], "mrui::SendLive": [12, 4, false]},
+          "heltec_mobile": {"mrui::Draft": [176, 4, true],  "mrui::EditorView": [10, 1, true],  "mrui::NameOrigin": [1, 1, true],
+                            "mrui::WrittenOutcome": [4, 1, true],  "mrui::SendLive": [12, 4, true]},
+          "gateway":       {"mrui::Draft": [176, 4, false], "mrui::EditorView": [10, 1, false], "mrui::NameOrigin": [1, 1, false],
+                            "mrui::WrittenOutcome": [4, 1, false], "mrui::SendLive": [12, 4, false]}}}

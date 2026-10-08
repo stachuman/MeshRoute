@@ -1,0 +1,205 @@
+{
+ "outside_fence": {
+  "SendReq": [
+   {
+    "at": "src/device_nv.h:385",
+    "kind": "comment",
+    "text": "//     (`mrfw::preset_generation_next`), so `0` is available as \"no generation\" and a `SendReq` can never seal one."
+   },
+   {
+    "at": "src/device_nv.h:1007",
+    "kind": "comment",
+    "text": "//    by the very predicate that protects a `SendReq` from sealing one."
+   },
+   {
+    "at": "src/firmware_commands.h:203",
+    "kind": "comment",
+    "text": "//   comparing equal the moment a change lands \u2014 which is \u00a73.2.3's modal-close trigger AND its stale-`SendReq`"
+   },
+   {
+    "at": "src/firmware_ui_preset_verbs.h:33",
+    "kind": "comment",
+    "text": "//     \u00b7 \u26d4 NO COMPOSE-LIST PROJECTION, \u26d4 no `SendReq` change, \u26d4 no `PRESET CHANGED` refusal, \u26d4 no modal"
+   },
+   {
+    "at": "src/firmware_ui_preset_verbs.h:38",
+    "kind": "comment",
+    "text": "//       selection-phase compose modal is open closes that modal\"* trigger and the stale-`SendReq` refusal,"
+   },
+   {
+    "at": "src/firmware_ui_preset_verbs.h:43",
+    "kind": "comment",
+    "text": "//       `UiState::compose_gen` against the published `UiSnapshot::preset_generation`, and the stale-`SendReq`"
+   },
+   {
+    "at": "src/firmware_ui_preset_verbs.h:161",
+    "kind": "comment",
+    "text": "//    `SendReq` seals and a companion editor re-reads. A list without it cannot tell the reader WHICH catalog"
+   },
+   {
+    "at": "src/firmware_ui_presets.h:76",
+    "kind": "comment",
+    "text": "//     \u00b7 \u26d4 NO COMPOSE-LIST PROJECTION and \u26d4 no `SendReq` change. Rendering the enabled slots in stable-slot order,"
+   },
+   {
+    "at": "src/firmware_ui_presets.h:88",
+    "kind": "comment",
+    "text": "//       `mrui::SendReq` carries `{slot, generation}`, and `mrui::send_gate_of` (`src/firmware_ui_send.h`) is the"
+   },
+   {
+    "at": "src/firmware_ui_presets.h:92",
+    "kind": "comment",
+    "text": "//       `SendReq` \u2014 P3 consumes the RECORD and the slot space, and re-decides nothing here."
+   },
+   {
+    "at": "src/firmware_ui_presets.h:385",
+    "kind": "comment",
+    "text": "//     catalog that wrapped onto it would be indistinguishable from an unstamped one \u2014 and P3's `SendReq` seals the"
+   },
+   {
+    "at": "src/firmware_ui_presets.h:650",
+    "kind": "comment",
+    "text": "//   resetting the generation would make a `SendReq` sealed under an OLD catalog compare EQUAL to the new one"
+   }
+  ],
+  "HomeView": [
+   {
+    "at": "test/test_firmware_ui_team.cpp:107",
+    "kind": "code",
+    "text": "m.state().home_view == mrui::HomeView::list) {"
+   }
+  ],
+  "send_gate_of": [
+   {
+    "at": "src/firmware_ui_preset_verbs.h:44",
+    "kind": "comment",
+    "text": "//       refusal is `mrui::send_gate_of` (`src/firmware_ui_send.h`), comparing the SEALED generation against the"
+   },
+   {
+    "at": "src/firmware_ui_presets.h:88",
+    "kind": "comment",
+    "text": "//       `mrui::SendReq` carries `{slot, generation}`, and `mrui::send_gate_of` (`src/firmware_ui_send.h`) is the"
+   }
+  ],
+  "ui_nav_slot": [
+   {
+    "at": "src/firmware_ui_status.h:200",
+    "kind": "comment",
+    "text": "//    which Settings cannot resolve either. No arrow; the rail box is on SETTINGS (`ui_nav_slot`)."
+   }
+  ],
+  "ChanState": [
+   {
+    "at": "lib/core/node.cpp:2416",
+    "kind": "comment",
+    "text": "//    is the `channel_sent` push owned by the re-offer slot. Reusing it made `ChanState::aired` unreachable once."
+   },
+   {
+    "at": "lib/core/node_carriers.h:533",
+    "kind": "comment",
+    "text": "//    misreading; the result made `ChanState::aired` UNREACHABLE, because a canned post and an emergency both"
+   }
+  ]
+ },
+ "outside_fence_code_lines": {
+  "SendReq": [],
+  "HomeView": [
+   {
+    "at": "test/test_firmware_ui_team.cpp:107",
+    "kind": "code",
+    "text": "m.state().home_view == mrui::HomeView::list) {"
+   }
+  ],
+  "send_gate_of": [],
+  "ui_nav_slot": [],
+  "ChanState": []
+ },
+ "inside_exact_spellings": [
+  {
+   "at": "src/firmware_ui_model.h:1865",
+   "code": "case SendKind::dm: case SendKind::dm_text: return true;",
+   "classification": "the family helper itself (send_kind_dm)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:1866",
+   "code": "case SendKind::emergency: case SendKind::channel_canned: case SendKind::channel_text: return false;",
+   "classification": "the family helper itself (send_kind_dm)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:1873",
+   "code": "case SendKind::emergency: case SendKind::dm: case SendKind::channel_canned: return false;",
+   "classification": "the family helper itself (send_kind_written)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:1879",
+   "code": "case SendKind::channel_canned: case SendKind::channel_text: return true;",
+   "classification": "the family helper itself (send_kind_team_post)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:1880",
+   "code": "case SendKind::emergency: case SendKind::dm: case SendKind::dm_text: return false;",
+   "classification": "the family helper itself (send_kind_team_post)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:4107",
+   "code": "if (k == SendKind::dm)                   _dm   = DmState::preset_changed;",
+   "classification": "phrase-only: preset_changed is never a written answer"
+  },
+  {
+   "at": "src/firmware_ui_model.h:4108",
+   "code": "else if (k == SendKind::channel_canned)  _chan = ChanState::preset_changed;",
+   "classification": "phrase-only: preset_changed is never a written answer"
+  },
+  {
+   "at": "src/firmware_ui_model.h:4155",
+   "code": "_review.peer_known = (_review.kind == SendKind::dm) && peer_known;",
+   "classification": "phrase-only: on_review_captured (phrase capture)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:6808",
+   "code": "open_review(dm ? SendKind::dm : SendKind::channel_canned, compose_row_slot(_st.cursor, list), s);",
+   "classification": "phrase-only: a phrase row opens its review"
+  },
+  {
+   "at": "src/firmware_ui_model.h:6841",
+   "code": "const bool dm = (_review.kind == SendKind::dm);",
+   "classification": "phrase-only: review_close_with (phrase review)"
+  },
+  {
+   "at": "src/firmware_ui_model.h:6876",
+   "code": "if (_review.kind == SendKind::dm) {",
+   "classification": "phrase-only: review_check after the written early return"
+  },
+  {
+   "at": "src/firmware_ui_model.h:6887",
+   "code": "if (_review.kind == SendKind::dm && _review.peer_known && hash != _review.peer_hash) {",
+   "classification": "phrase-only: review_check after the written early return"
+  },
+  {
+   "at": "src/firmware_ui_send.h:552",
+   "code": "const mrfw::PresetKind want = (req.kind == SendKind::dm) ? mrfw::PresetKind::dm : mrfw::PresetKind::channel;",
+   "classification": "phrase-only: after send_gate_of's written early return"
+  },
+  {
+   "at": "src/firmware_ui_send.h:626",
+   "code": "if (req.kind == SendKind::dm) {",
+   "classification": "phrase-only: ui_compose_send_line, after the written branch returned"
+  },
+  {
+   "at": "src/firmware_ui_send.h:629",
+   "code": "} else if (req.kind == SendKind::channel_canned) {",
+   "classification": "phrase-only: ui_compose_send_line, after the written branch"
+  },
+  {
+   "at": "src/firmware_ui_send.h:757",
+   "code": "b.peer_known = (b.kind == SendKind::dm) && live.peer_found;",
+   "classification": "phrase-only: ui_review_capture, after the written branch"
+  },
+  {
+   "at": "src/firmware_ui.cpp:2769",
+   "code": "if (!s_tracker_normal.idle() && s_tracker_normal.kind() != mrui::SendKind::dm) s_tracker_normal.close();",
+   "classification": "B501: NOT phrase-only \u2014 the alarm drain treats a dm_text transaction as a channel one; equivalent in every reachable flow (see the receipt), registered LOW/LATENT"
+  }
+ ],
+ "unclassified": []
+}

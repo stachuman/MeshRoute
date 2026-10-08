@@ -533,6 +533,17 @@ wiring/W54/control/3	red
 wiring/W54/control/4	red
 wiring/W54-help	pass
 wiring/W54-help/control/1	red
+wiring/W55	pass
+wiring/W55/control/1	red
+wiring/W55/control/2	red
+wiring/W55/control/3	red
+wiring/W55/control/4	red
+wiring/W56	pass
+wiring/W56/control/1	red
+wiring/W56/control/2	red
+wiring/W56/control/3	red
+wiring/W56/control/4	red
+wiring/W56/control/5	red
 negctl/v3/C1	red
 negctl/v3/C2	red
 negctl/v3/C3	red

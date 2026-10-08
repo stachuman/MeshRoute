@@ -1,0 +1,256 @@
+{
+  "scope": "STRUCT-ONLY W7+W8 object pricing; no implementation or linked RAM.",
+  "scratch": "/tmp/w8-layout-ges_tyz9",
+  "variants": {
+    "base": {
+      "model_sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1016,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::SendLive": {
+            "size": 12,
+            "align": 4
+          },
+          "mrui::SendTracker": {
+            "size": 16,
+            "align": 4
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 560,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1000,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::SendLive": {
+            "size": 12,
+            "align": 4
+          },
+          "mrui::SendTracker": {
+            "size": 16,
+            "align": 4
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 560,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1000,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::SendReq": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::SendLive": {
+            "size": 12,
+            "align": 4
+          },
+          "mrui::SendTracker": {
+            "size": 16,
+            "align": 4
+          }
+        }
+      }
+    },
+    "d16_sendreq_state": {
+      "model_sha256": "6d682c63715bf29ba708fc2da2f7e2c36675179dca14baea4eda8190634eb8c4",
+      "targets": {
+        "native": {
+          "mrui::UiState": {
+            "size": 576,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1216,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::SendReq": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::SendLive": {
+            "size": 12,
+            "align": 4
+          },
+          "mrui::SendTracker": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 176,
+            "align": 4
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::QaWrittenState": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::QaWrittenOutcome": {
+            "size": 4,
+            "align": 1
+          }
+        },
+        "heltec_mobile": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1200,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::SendReq": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::SendLive": {
+            "size": 12,
+            "align": 4
+          },
+          "mrui::SendTracker": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 176,
+            "align": 4
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::QaWrittenState": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::QaWrittenOutcome": {
+            "size": 4,
+            "align": 1
+          }
+        },
+        "gateway": {
+          "mrui::UiState": {
+            "size": 568,
+            "align": 8
+          },
+          "mrui::UiSnapshot": {
+            "size": 1368,
+            "align": 8
+          },
+          "mrui::UiModel": {
+            "size": 1200,
+            "align": 8
+          },
+          "mrui::UiChrome": {
+            "size": 20,
+            "align": 2
+          },
+          "mrui::SendReq": {
+            "size": 20,
+            "align": 4
+          },
+          "mrui::SendLive": {
+            "size": 12,
+            "align": 4
+          },
+          "mrui::SendTracker": {
+            "size": 16,
+            "align": 4
+          },
+          "mrui::QaDraft": {
+            "size": 176,
+            "align": 4
+          },
+          "mrui::QaEditorWindow": {
+            "size": 10,
+            "align": 1
+          },
+          "mrui::QaNameOrigin": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::QaWrittenState": {
+            "size": 1,
+            "align": 1
+          },
+          "mrui::QaWrittenOutcome": {
+            "size": 4,
+            "align": 1
+          }
+        }
+      }
+    }
+  }
+}

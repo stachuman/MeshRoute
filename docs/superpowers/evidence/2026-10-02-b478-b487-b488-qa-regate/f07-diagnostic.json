@@ -1,0 +1,286 @@
+{
+  "labelled_diagnostic": "Stock F07-only run with scratch retained; repeat the same mutant binary without rebuilding. Source in worker has been restored by the stock runner; executable still contains F07, per the documented harness architecture.",
+  "command": [
+    "python3",
+    "-B",
+    "tools/probe_ui_model_mutations.py",
+    "--target=w4aident",
+    "--workers=1",
+    "F07"
+  ],
+  "stock_exit": 0,
+  "scratch": "/tmp/mr_mutation_run-cdbu_idv",
+  "binary_sha256": "1b03d028146da112ec54265febfeb894d34d5c3744ec9a75cb9c77f84199b4b4",
+  "runs": [
+    {
+      "run": 0,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 1,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 2,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 3,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 4,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 5,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 6,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 7,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 8,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    },
+    {
+      "run": 9,
+      "exit": 1,
+      "summaries": [
+        [
+          199638,
+          199625,
+          13
+        ]
+      ],
+      "failures": [
+        "test/test_firmware_ui_model.cpp:2756: ERROR: CHECK( id_is(b, 48, \"ABCDE\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2805: ERROR: CHECK( id_is(b, 20, \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2806: ERROR: CHECK( id_is(b, 20, \"Wo\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_model.cpp:2808: ERROR: CHECK( id_is(b, 20, \"Wolf\" \"\\xBB\") ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:151: ERROR: CHECK( std::strcmp(r.b, \" Wolfg\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:156: ERROR: CHECK( std::strcmp(r.b, \">0xdea\" \"\\xBB\" \" 12s        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:166: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d        \") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:256: ERROR: CHECK( std::strcmp(r.b, \">WWWWW\" \"\\xBB\" \" 99d 3.7k SW\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:629: ERROR: CHECK( std::strcmp(live.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:630: ERROR: CHECK( ui_team_rows_equal(live, frozen) == false ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:631: ERROR: CHECK( ui_team_invalidate(m, live, frozen) == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:632: ERROR: CHECK( m.state().dirty == true ) is NOT correct!",
+        "test/test_firmware_ui_team.cpp:638: ERROR: CHECK( std::strcmp(long_b.team[0].label, \"Wolfg\" \"\\xBB\") == 0 ) is NOT correct!"
+      ],
+      "sha256": "0f957c6b649c4bac7ddc3277b071f9e104da28ef17fbd3b0678054c6a5cea9c4"
+    }
+  ]
+}

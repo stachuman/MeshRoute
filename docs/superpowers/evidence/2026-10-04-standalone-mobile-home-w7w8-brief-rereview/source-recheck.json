@@ -1,0 +1,47 @@
+[
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 669,
+    "source": "// The broken binding's NOTE on the phrase list (`preset_changed` / `team_changed` / `recipient_changed`).\ninline ReviewPhase review_note_of(SendGate g) {\n    switch (g) {\n        case SendGate::send:              return ReviewPhase::none;\n        case SendGate::preset_changed:    return ReviewPhase::note_preset;\n        case SendGate::team_changed:      return ReviewPhase::note_team;\n        case SendGate::recipient_changed: return ReviewPhase::note_recipient;"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 679,
+    "source": "// \u2192 true when a requested review was answered (opened, or closed on its broken binding).\ninline bool ui_review_capture(UiModel& m, const mrnv::UiPresetBlob& cat, const SendLive& live,\n                              const char* name, uint8_t name_len, const UiSnapshot& s, uint32_t now_ms) {\n    SendReq b{};\n    if (!m.review_capture_owed(b)) return false;\n    b.peer_known = (b.kind == SendKind::dm) && live.peer_found;   // \u2605 the resolver's own bit \u2014 a known zero stays known\n    b.peer_hash  = b.peer_known ? live.peer_hash : 0u;"
+  },
+  {
+    "path": "src/firmware_ui_send.h",
+    "line": 685,
+    "source": "    b.peer_hash  = b.peer_known ? live.peer_hash : 0u;\n    const SendGate g = send_gate_of(b, cat, live);\n    if (g != SendGate::send) { m.on_review_refused(review_note_of(g), s, cat.generation); return true; }\n    const mrnv::UiPresetSlot& sl = cat.slot[b.slot];              // the gate proved it valid, enabled and of this kind\n    char header[kReviewHeaderCap];\n    ui_review_header(header, sizeof header, b, name, name_len);\n    m.on_review_captured(b.peer_known, b.peer_hash, header, sl.text, sl.len, sl.loc != 0, now_ms);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 600,
+    "source": "//     (`label_from_hash`'s read, W4a \u2014 \u26d4 never a pre-clipped prefix). \u26d4 It never queues and never calls `ui_exec`.\nvoid ui_service_review(const mrui::UiSnapshot& s, uint32_t now_ms) {\n    mrui::SendReq b{};\n    if (!s_model.review_capture_owed(b)) return;\n    const mrui::SendLive live = ui_send_live(b);\n    char raw[MESHROUTE_NS::protocol::peer_name_max];\n    const uint8_t n = live.peer_found ? g_node.peer_name_find(live.peer_hash, raw, uint8_t(sizeof raw)) : uint8_t(0);"
+  },
+  {
+    "path": "src/firmware_ui.cpp",
+    "line": 2651,
+    "source": "    //     in `UiState` when the frame freezes, and no frame may read the live catalog or a live name while it draws.\n    ui_service_review(s, now_ms);\n\n    // \u2605\u2605\u2605\u2605 \u00a7CHROME-3 / design \u00a78.3 \u2014 THE REPAINT INVALIDATION. Snapshot-only facts move with NO gesture and NO app\n    //   push: a team route arrives on a beacon, the mobile-home link changes state, a battery sample lands, and the\n    //   compact home age turns with the clock. Without this the strip would simply go stale on a lit panel, because\n    //   `FrameGate::step` returns `idle` while the model is clean."
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 802,
+    "source": "    \"source.deleted_files\",\n    \"source.tree_sha256\",\n    \"paths.project_root\",\n    \"paths.build_root\",\n    \"paths.libdeps_root\",\n    \"paths.workspace_root\",\n    \"paths.env_build_dir\","
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 851,
+    "source": "    \"normal_pio_metadata.entry_count\",\n    \"normal_pio_metadata.sha256\",\n    \"concurrency.measurement_lock\",\n    \"concurrency.mutation_batteries_share_lock\",\n    \"concurrency.limitation\",\n    \"host.platform\",\n    \"host.limitation\","
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 860,
+    "source": "\ndef compare_qualification(first: dict[str, Any], second: dict[str, Any]) -> None:\n    mismatches = [field for field in QUALIFICATION_FIELDS if nested(first, field) != nested(second, field)]\n    require(not mismatches, f\"repeatability mismatch in: {', '.join(mismatches)}\")\n\n\ndef compare_command(first_path: Path, second_path: Path) -> None:"
+  },
+  {
+    "path": "tools/measure_board.py",
+    "line": 865,
+    "source": "\ndef compare_command(first_path: Path, second_path: Path) -> None:\n    first = load_manifest(first_path.resolve())\n    second = load_manifest(second_path.resolve())\n    compare_qualification(first, second)\n    print(f\"PASS: exact repeatability env={first['environment']}\")\n    print(f\"  RAM={first['measurements']['ram_bytes']} flash={first['measurements']['flash_bytes']} \""
+  }
+]

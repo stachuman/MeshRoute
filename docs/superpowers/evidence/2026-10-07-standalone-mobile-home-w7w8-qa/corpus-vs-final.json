@@ -1,0 +1,318 @@
+{
+ "fields_compared": [
+  "anchor_assertion_failures",
+  "anchor_events",
+  "anchor_match",
+  "anchor_md5_prefix",
+  "assertion_failures",
+  "events",
+  "exit_status",
+  "name",
+  "output_bytes",
+  "output_md5",
+  "output_sha256",
+  "promoted",
+  "scenario_path",
+  "scenario_sha256"
+ ],
+ "streams": 36,
+ "identical": 36,
+ "scenario_set_equal": true,
+ "lus_sha256": "e304147d99ae166fb815e6a2ef06c5ff905579b68add3b0ba142d7031e26caa2",
+ "lus_is_stock": true,
+ "s18": {
+  "events": 269517,
+  "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a"
+ },
+ "rows": [
+  {
+   "name": "s06_seattle_lifecycle",
+   "identical": true,
+   "differs_in": [],
+   "events": 69039,
+   "output_md5": "e8f862b0d632e39bc18e447e3b07d45d",
+   "anchor_match": true
+  },
+  {
+   "name": "s07_seattle_mobile_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 111681,
+   "output_md5": "16cc0dd14167fca0f6eab0faed19f045",
+   "anchor_match": true
+  },
+  {
+   "name": "s09_two_layer_gateway",
+   "identical": true,
+   "differs_in": [],
+   "events": 2266,
+   "output_md5": "7112017829813278d89fdce06c688670",
+   "anchor_match": true
+  },
+  {
+   "name": "s09_two_layer_gateway_metal",
+   "identical": true,
+   "differs_in": [],
+   "events": 2343,
+   "output_md5": "0182f858e47f73c63239995eacf64a01",
+   "anchor_match": true
+  },
+  {
+   "name": "s10_two_layer_separation",
+   "identical": true,
+   "differs_in": [],
+   "events": 2266,
+   "output_md5": "c44c0b39ca02f37d9956e92ab53deddf",
+   "anchor_match": true
+  },
+  {
+   "name": "s15_three_layer",
+   "identical": true,
+   "differs_in": [],
+   "events": 51794,
+   "output_md5": "f95e2d60e6d9e30cef6ad6fa3e8e07b5",
+   "anchor_match": true
+  },
+  {
+   "name": "s15_three_layer_metal",
+   "identical": true,
+   "differs_in": [],
+   "events": 52237,
+   "output_md5": "3611a93b2b182d598222322ed704f89a",
+   "anchor_match": true
+  },
+  {
+   "name": "s16_dense_gateway",
+   "identical": true,
+   "differs_in": [],
+   "events": 23898,
+   "output_md5": "5b30637c305410c2351bb208bba291e5",
+   "anchor_match": true
+  },
+  {
+   "name": "s17_metro",
+   "identical": true,
+   "differs_in": [],
+   "events": 1181178,
+   "output_md5": "aa960050290240dc65cf8c7b71fcb590",
+   "anchor_match": true
+  },
+  {
+   "name": "s18_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 269517,
+   "output_md5": "32afbf11e43b4bf9d0bd470ad502ba0a",
+   "anchor_match": true
+  },
+  {
+   "name": "s19_singlelayer_multihop_chain",
+   "identical": true,
+   "differs_in": [],
+   "events": 1065,
+   "output_md5": "c669b1efef750ef59cd907444bfaa288",
+   "anchor_match": true
+  },
+  {
+   "name": "s20_random_mesh",
+   "identical": true,
+   "differs_in": [],
+   "events": 40566,
+   "output_md5": "db24006519d6d650af24a5e72a54b1ac",
+   "anchor_match": true
+  },
+  {
+   "name": "s21_leaf_config_divergence",
+   "identical": true,
+   "differs_in": [],
+   "events": 390,
+   "output_md5": "d7db6a041465666714c5e4da4ffb8aef",
+   "anchor_match": true
+  },
+  {
+   "name": "s21_mobile_dm_milestone_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 678,
+   "output_md5": "fc466e777188ea9b8da8c39244f21e9c",
+   "anchor_match": true
+  },
+  {
+   "name": "s22_leaf_config_join",
+   "identical": true,
+   "differs_in": [],
+   "events": 215,
+   "output_md5": "baadfbeda47f1a9e8b4e3691ad2e2543",
+   "anchor_match": true
+  },
+  {
+   "name": "s22_mobile_team_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 1824,
+   "output_md5": "c406fb6a67467b4b4a9045fac2316710",
+   "anchor_match": true
+  },
+  {
+   "name": "s23_leaf_config_epoch_write",
+   "identical": true,
+   "differs_in": [],
+   "events": 219,
+   "output_md5": "0cd16bd55ac94017a8d2c495b7315e1f",
+   "anchor_match": true
+  },
+  {
+   "name": "s23_mobile_team_multihop_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 924,
+   "output_md5": "568c684f54e4364a70781a51c89a80f1",
+   "anchor_match": true
+  },
+  {
+   "name": "s24_static_and_team_multihop_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 1576,
+   "output_md5": "d06536f4c227b740a2dcccb6dde3c6d4",
+   "anchor_match": true
+  },
+  {
+   "name": "s25_two_team_separation_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 786,
+   "output_md5": "f87360c7ca751eb2a1a8e69bfcaaaa71",
+   "anchor_match": true
+  },
+  {
+   "name": "s26_team_reroute_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 1037,
+   "output_md5": "73a68a35cdd33117e410b56b876e3e73",
+   "anchor_match": true
+  },
+  {
+   "name": "s27_cross_layer_mobiles_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 9433,
+   "output_md5": "662c61587522cd9607900949475ef67d",
+   "anchor_match": true
+  },
+  {
+   "name": "s28_mixed_team_channels_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 3861,
+   "output_md5": "525756e2fb87140d05208911e7cf4942",
+   "anchor_match": true
+  },
+  {
+   "name": "s29_mixed_leaf_team_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 2025,
+   "output_md5": "bb534a886eaba8887711d954bf9a31b0",
+   "anchor_match": true
+  },
+  {
+   "name": "s30_team_dad_mediation_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 1034,
+   "output_md5": "4a1de37d3887b5f82121f0dbc142f13a",
+   "anchor_match": true
+  },
+  {
+   "name": "s31_dual_carrier_gateway",
+   "identical": true,
+   "differs_in": [],
+   "events": 2300,
+   "output_md5": "4eafb125314eb9cbe077cb0a4d95473c",
+   "anchor_match": true
+  },
+  {
+   "name": "s32_dual_cr_gateway",
+   "identical": true,
+   "differs_in": [],
+   "events": 2266,
+   "output_md5": "9574f5dd6e4943f945e654fe3322d698",
+   "anchor_match": true
+  },
+  {
+   "name": "s33_mixed_cr_channel_overhear",
+   "identical": true,
+   "differs_in": [],
+   "events": 2845,
+   "output_md5": "814ef421e649ac96f9ef9a4c64a8bfda",
+   "anchor_match": true
+  },
+  {
+   "name": "s34_team_switch_clears_plane",
+   "identical": true,
+   "differs_in": [],
+   "events": 919,
+   "output_md5": "0c724c05dd6b6a4e48b76aca2f84fde9",
+   "anchor_match": true
+  },
+  {
+   "name": "s35a_cochannel_isolation_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 2356,
+   "output_md5": "bda1713b7a336b8da5ef2e2e3601e750",
+   "anchor_match": true
+  },
+  {
+   "name": "s35b_cochannel_isolation_control_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 1063,
+   "output_md5": "7dbc19ae6f5e1eb3f4b9076075b5bc8b",
+   "anchor_match": true
+  },
+  {
+   "name": "s36_reprovision_purges_carriers",
+   "identical": true,
+   "differs_in": [],
+   "events": 472,
+   "output_md5": "76d02e58e7390286a565548267bb8b93",
+   "anchor_match": true
+  },
+  {
+   "name": "s37_team_homed_origin_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 748,
+   "output_md5": "db535d423de7c46b375fbd3e0f809993",
+   "anchor_match": true
+  },
+  {
+   "name": "s38_team_origin_learn_meshroute",
+   "identical": true,
+   "differs_in": [],
+   "events": 522,
+   "output_md5": "52be507ec843bf0f7d1232bf2a7161d7",
+   "anchor_match": true
+  },
+  {
+   "name": "sim_9node_base",
+   "identical": true,
+   "differs_in": [],
+   "events": 4945,
+   "output_md5": "e7a1c3d6d0a6788a519f3303c63ded35",
+   "anchor_match": true
+  },
+  {
+   "name": "twin_9node_dm",
+   "identical": true,
+   "differs_in": [],
+   "events": 14552,
+   "output_md5": "dd28f145bd44f56253e7deefa48f0296",
+   "anchor_match": true
+  }
+ ],
+ "verdict": "PASS"
+}

@@ -1,0 +1,288 @@
+{
+  "abi": "PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)",
+  "board_ui": {
+    "final": "PASS",
+    "lines": [
+      "declarations census: 603 declared, 603 exactly once with the accepted outcome, 0 guard failure(s)",
+      "traits:      14 passed / 0 failed / 14 controls verified RED",
+      "structural: 23 passed / 0 failed / 23 total",
+      "wiring:     62 passed / 0 failed / 62 total; 195 negative control(s) verified RED",
+      "identities accounted: 603 declared, 603 exactly once with the accepted outcome, 0 guard failure(s)",
+      "  canvas/v3        124 expected,  124 observed",
+      "  canvas/v4        110 expected,  110 observed",
+      "  wiring            62 expected,   62 observed",
+      "  wiring/control   195 expected,  195 observed",
+      "  negctl/v3         60 expected,   60 observed",
+      "  negctl/v4          3 expected,    3 observed",
+      "wiring predicate exits: live 62 x exit 0; mutant 195 x exit 1",
+      "negctl v3 assert_red: 60",
+      "negctl v4 assert_red: 3",
+      "PASS"
+    ]
+  },
+  "boards": {
+    "compare/gateway": "PASS: exact repeatability env=gateway",
+    "compare/heltec_mobile": "PASS: exact repeatability env=heltec_mobile",
+    "final-1/gateway": {
+      "flash": 572096,
+      "manifest_sha256": "09fceb76364df9730b20552bfbe9c9c388e94366a450e481b82cbd208f3ba93e",
+      "objects": 285,
+      "path": ".pio-measure/w7w8/final-1/gateway/manifest.json",
+      "ram": 203740
+    },
+    "final-1/heltec_mobile": {
+      "flash": 1407844,
+      "manifest_sha256": "c381c00d3560e58897d44bac6d4ef55b0396fe8d81ff927a4e9270dc6994a44a",
+      "objects": 329,
+      "path": ".pio-measure/w7w8/final-1/heltec_mobile/manifest.json",
+      "ram": 219748
+    },
+    "final-2/gateway": {
+      "manifest_sha256": "09fceb76364df9730b20552bfbe9c9c388e94366a450e481b82cbd208f3ba93e",
+      "path": ".pio-measure/w7w8/final-2/gateway/manifest.json"
+    },
+    "final-2/heltec_mobile": {
+      "manifest_sha256": "c381c00d3560e58897d44bac6d4ef55b0396fe8d81ff927a4e9270dc6994a44a",
+      "path": ".pio-measure/w7w8/final-2/heltec_mobile/manifest.json"
+    }
+  },
+  "corpus": {
+    "anchors": "anchors: 36/36 rows reproduce simulation/BASELINE.md",
+    "manifest": "/tmp/w7w8-final-1YAiS3/corpus/manifest.json",
+    "manifest_sha256": "155c68e27e9257d22af2399502282fecc4666ef2579b3755d9677c9ab37a535c",
+    "verdict": "PASS: 36/36 streams produced and validated, 0 failures"
+  },
+  "discovery": {
+    "ran": "Ran 447 tests in 896.248s",
+    "verdict": "OK"
+  },
+  "done": true,
+  "firmware_ui": {
+    "accounted": "controls accounted: 263 declared, 263 exactly once with the accepted outcome, 0 guard failure(s)",
+    "controls": "controls: 263 verified / 0 unusable",
+    "final": "PASS",
+    "passed_lines": [
+      "656 passed / 0 failed / 656 total",
+      "1130 passed / 0 failed / 1130 total",
+      "656 passed / 0 failed / 656 total"
+    ]
+  },
+  "inventory": "gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)",
+  "native": {
+    "assertions": 203168,
+    "assertions_failed": 0,
+    "assertions_passed": 203168,
+    "cases": 3123,
+    "cases_failed": 0,
+    "cases_passed": 3123,
+    "skipped": 0
+  },
+  "prefix": "final",
+  "runs": [
+    {
+      "log_sha256": "c3da1d267a3909215b7886575ccef118f24ffdc7261482d2d826e86d6208805f",
+      "rc": 0,
+      "seconds": 0,
+      "step": "b499-proof"
+    },
+    {
+      "log_sha256": "e8ef181d22f3b2420c8f262002c6d5497ac4f9e72545a423b0021e86c6467f41",
+      "rc": 0,
+      "seconds": 0,
+      "step": "scope-start"
+    },
+    {
+      "log_sha256": "42851f1db58d69a83ead7809156eed3350cfa364583f90024a2689b66a729544",
+      "rc": 0,
+      "seconds": 2,
+      "step": "native-build"
+    },
+    {
+      "log_sha256": "baf8cf4b063cb243b5945f8c888e795994d7129093cf11a9f33e1810c015bc3b",
+      "rc": 0,
+      "seconds": 0,
+      "step": "native-binary"
+    },
+    {
+      "log_sha256": "487e5d627c7720306052b37d2f21e5c4f0f00f892e6a7e0f285561d0e3b13548",
+      "rc": 0,
+      "seconds": 1,
+      "step": "sim-configure"
+    },
+    {
+      "log_sha256": "f96214d4e7b9dc44e3ebcced25d6a7f0322a89a2c27a1c6d9fd4a5c56c50eb4a",
+      "rc": 0,
+      "seconds": 32,
+      "step": "sim-build"
+    },
+    {
+      "log_sha256": "01ba94880919b1e28b8f41f9d7749bff0b69fc217ebad1fa76faec312e3a3d59",
+      "rc": 0,
+      "seconds": 0,
+      "step": "lus-sha"
+    },
+    {
+      "log_sha256": "227a63381ad5422f97a4277e9c23e088b9ae68f2277951992bac5d76992ec7f2",
+      "rc": 0,
+      "seconds": 52,
+      "step": "corpus"
+    },
+    {
+      "log_sha256": "8eb96455f3c76b561a69bf8be2d5cd85cd1151701a5dedb6dbc97dd037eb7f9d",
+      "rc": 0,
+      "seconds": 0,
+      "step": "corpus-compare"
+    },
+    {
+      "log_sha256": "a0a87c4b3eb908ce28bd8ed7fdf6033b11acc411e46ef18e4c2126a09f994119",
+      "rc": 0,
+      "seconds": 47,
+      "step": "board-final-1"
+    },
+    {
+      "log_sha256": "ae50b74199886996546f7a015694087ad37118a5be0e000fe4310a7c0aaeb021",
+      "rc": 0,
+      "seconds": 47,
+      "step": "board-final-2"
+    },
+    {
+      "log_sha256": "c780a2163114c99f3a52c187234702b9fa8333433b7c65c1e864a96ee2e21a41",
+      "rc": 0,
+      "seconds": 0,
+      "step": "compare-gateway"
+    },
+    {
+      "log_sha256": "2dc86009804a458137e0934b47a3cbf2e0484093c98d473dbcbb82672dabdff0",
+      "rc": 0,
+      "seconds": 0,
+      "step": "compare-heltec_mobile"
+    },
+    {
+      "log_sha256": "4fb3dbac534cd00b6775f578db89bd0b0972d521f536feb0c0dbfc3dca8a8a4f",
+      "rc": 0,
+      "seconds": 0,
+      "step": "board-attribution"
+    },
+    {
+      "log_sha256": "ca489df0aef16657d12e656f68ad6327ddb45cde0e76bc696fad52076d9b7017",
+      "rc": 0,
+      "seconds": 19,
+      "step": "abi"
+    },
+    {
+      "log_sha256": "05e00f5b4d72b6e0bb21e807f2d366a15058427dd147da95afd9bb2f53027e35",
+      "rc": 0,
+      "seconds": 18,
+      "step": "abi-supplemental"
+    },
+    {
+      "log_sha256": "da28ea0488c7e0b0bfa6431fc8acfeda068e77dd329cf3cc2e85d5a18ffbbcaf",
+      "rc": 0,
+      "seconds": 163,
+      "step": "warning-census"
+    },
+    {
+      "log_sha256": "2e31d0b4e321e907ef1d5134fb970fa84beace62925d1fd7eb610b9444538a4d",
+      "rc": 0,
+      "seconds": 480,
+      "step": "firmware-ui"
+    },
+    {
+      "log_sha256": "15b9beace81a33fc47c30f39f922b8737deff0a81dda46fcb37ba2b4970186ff",
+      "rc": 0,
+      "seconds": 25,
+      "step": "board-ui"
+    },
+    {
+      "log_sha256": "59ae6b8716285d01024e588b58b9e6038112e104c699efc996fcdf8e10776c6a",
+      "rc": 0,
+      "seconds": 0,
+      "step": "union-census"
+    },
+    {
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rc": 0,
+      "seconds": 5975,
+      "step": "union"
+    },
+    {
+      "log_sha256": "4634b2eea953144d1a504a795f02c1720eb81a5e8da6fcdfbb369826bb84d2ee",
+      "rc": 0,
+      "seconds": 0,
+      "step": "union-verify"
+    },
+    {
+      "log_sha256": "5fa4465117461b3274b5b47fed9ca1c9f1facd0726d581c769a5c1f435015147",
+      "rc": 0,
+      "seconds": 897,
+      "step": "discovery"
+    },
+    {
+      "log_sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+      "rc": 0,
+      "seconds": 2,
+      "step": "inventory"
+    },
+    {
+      "log_sha256": "9c99a2d9d238dde092a6834af6295f9d8c18a6fd96c45e238a6fc15d77b5fa20",
+      "rc": 0,
+      "seconds": 929,
+      "step": "inbox-verbs"
+    },
+    {
+      "log_sha256": "f29db0569e85236eca700c1fed9c41050e6a791083f2a150b0c9413b71719b0c",
+      "rc": 0,
+      "seconds": 24,
+      "step": "transcript-full_headless-1"
+    },
+    {
+      "log_sha256": "7eb87c2cffec2419558b64ca1ba0d53ad7f4b4fe33847deef7765fb546f4ce0c",
+      "rc": 0,
+      "seconds": 24,
+      "step": "transcript-full_headless-2"
+    },
+    {
+      "log_sha256": "1e2dbdccc738d334dbbf2b4e922ea3d7a7fd3b829daa9936cc9092a07a31f255",
+      "rc": 0,
+      "seconds": 3,
+      "step": "transcript-compare-full_headless"
+    },
+    {
+      "log_sha256": "2b57b5eaf5b63c467862df10ca2fd0b1809d8149c2c86e3afa5f7ad57c987309",
+      "rc": 0,
+      "seconds": 23,
+      "step": "transcript-mobile-1"
+    },
+    {
+      "log_sha256": "23a8498f86bdfa7081d3072efd44fa5348e7bf6eceaf80642a4e0bc999dbb533",
+      "rc": 0,
+      "seconds": 24,
+      "step": "transcript-mobile-2"
+    },
+    {
+      "log_sha256": "a2fc1e8e66032657d8446bbbd5dcb685c71dca3b531a0d5750ce239e5dfe325d",
+      "rc": 0,
+      "seconds": 2,
+      "step": "transcript-compare-mobile"
+    },
+    {
+      "log_sha256": "5b7515ca9a6a2a9f823cab220e503900e26e4398368f61a766e4309960bbe925",
+      "rc": 0,
+      "seconds": 85,
+      "step": "reader-audit"
+    },
+    {
+      "log_sha256": "e8ef181d22f3b2420c8f262002c6d5497ac4f9e72545a423b0021e86c6467f41",
+      "rc": 0,
+      "seconds": 0,
+      "step": "scope-end"
+    },
+    {
+      "log_sha256": "e70b6ee7e43e674ee74f3e527524cd2ec78123b914a683ceec2157372208209a",
+      "rc": 0,
+      "seconds": 0,
+      "step": "stability"
+    }
+  ],
+  "warning_census": "PASS \u2014 6 OLED env(s) match their pinned warning baseline"
+}

@@ -874,7 +874,7 @@ TEST_CASE("chrome-nav: a REAL outcome landing on a live compose modal leaves the
     SendReq none{};
     CHECK(m.take_send_request(none) == false);
     {   mrnv::UiPresetBlob cat{}; mrfw::preset_defaults(cat);
-        CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, 0}, nullptr, 0, s, s.now_ms)); }
+        CHECK(ui_review_capture(m, cat, SendLive{s.team_id, false, true, 0}, nullptr, 0, s, s.now_ms)); }
     CHECK(m.state().review_phase == ReviewPhase::open);
     CHECK(ui_nav_slot(m.state(), m.emergency()) == NavSlot::send);
     m.on_gesture(Gesture::short_press, s);                       // BACK -> SEND
@@ -1386,4 +1386,30 @@ TEST_CASE("w4b-chrome: Home's sub-views keep the rail on STATUS; the blocked-set
     // ⓘ `home_view` is only meaningful on STATUS: a stale value under another screen names that screen.
     UiState other{}; other.screen = Screen::inbox; other.home_view = HomeView::setup_block;
     CHECK(ui_nav_slot(other, Emergency::idle) == NavSlot::inbox);
+}
+
+// ★★ W7 + W8 (design §5.4, R-4) — THE RAIL FOLLOWS THE BODY: the name editor, its review and result and the name prompt
+//    box STATUS; a message editor, its review and result box SEND — a DM one too, opened from TEAM → person. The
+//    emergency suppresses every rail FIRST.
+TEST_CASE("w7w8-chrome: the name flow and the prompt box STATUS; written messages box SEND (DM ones too); alarm first") {
+    for (EditorPhase p : { EditorPhase::groups, EditorPhase::chars, EditorPhase::controls, EditorPhase::discard,
+                           EditorPhase::name_review, EditorPhase::name_requested, EditorPhase::name_taken,
+                           EditorPhase::name_result }) {
+        for (HomeView v : { HomeView::my_device, HomeView::name_prompt }) {
+            UiState st{}; st.screen = Screen::status; st.home_view = v; st.editor.phase = p;
+            CHECK(ui_nav_slot(st, Emergency::idle) == NavSlot::status);
+            CHECK(ui_nav_slot(st, Emergency::firing) == NavSlot::none);
+        }
+    }
+    UiState prompt{}; prompt.screen = Screen::status; prompt.home_view = HomeView::name_prompt;
+    CHECK(ui_nav_slot(prompt, Emergency::idle) == NavSlot::status);
+    CHECK(ui_nav_slot(prompt, Emergency::arming) == NavSlot::none);
+    for (EditorPhase p : { EditorPhase::groups, EditorPhase::discard, EditorPhase::bind, EditorPhase::relabel,
+                           EditorPhase::message_review, EditorPhase::message_result }) {
+        UiState team{}; team.screen = Screen::send; team.compose = Compose::channel; team.editor.phase = p;
+        CHECK(ui_nav_slot(team, Emergency::idle) == NavSlot::send);
+        UiState dm{}; dm.screen = Screen::team; dm.compose = Compose::dm; dm.editor.phase = p;   // TEAM → person
+        CHECK(ui_nav_slot(dm, Emergency::idle) == NavSlot::send);
+        CHECK(ui_nav_slot(dm, Emergency::picked_up) == NavSlot::none);
+    }
 }

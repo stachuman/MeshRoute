@@ -1,0 +1,44 @@
+{
+  "instrument": "tools/test_probe_inbox_transcript.py, fresh 24-test QA run; assertions inspected in the hashed source",
+  "suite_exit": 0,
+  "B-C0": "empty/truncated valid-looking pairs accepted only when expected-matrix check is bypassed; regression RED",
+  "B-C1": {
+    "over_seven_refused": 164,
+    "compare_exit": 1,
+    "affected_reference_rows": [
+      "L003",
+      "L201",
+      "L202"
+    ]
+  },
+  "B-C2": {
+    "compare_exit": 1,
+    "only_commands": [
+      "regen",
+      "whoami"
+    ]
+  },
+  "B-C3": {
+    "tool_exit": 2,
+    "child_exit": 0,
+    "named_invalid_profile": true
+  },
+  "B-C4": {
+    "three_record_edits": 1,
+    "removed_or_duplicate_row": 2
+  },
+  "B-C5": {
+    "tool_exit": 2,
+    "child_exit": 4,
+    "named_unrepresentable_1024_byte_input": true
+  },
+  "B-C6": {
+    "tool_exit": 2,
+    "required_compiler_diagnostic": "mrble undeclared"
+  },
+  "B491_fresh_driver": {
+    "tool_exit": 2,
+    "child_exit": 0,
+    "named_bare_field_refusal": true
+  }
+}

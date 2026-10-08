@@ -1,0 +1,793 @@
+{
+  "policy": "Only an attributable outcome may update a written request; unknown enumerators and unclassified producers are may-have-aired. No new channel send_failed matcher.",
+  "reasons": [
+    {
+      "reason": "none",
+      "class_": "may_have_aired",
+      "basis": "No stage/air-history claim. Includes a pack failure of an already owned flight in node_mac.cpp.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 2606
+        },
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 59
+        },
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 61
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 2251
+        }
+      ]
+    },
+    {
+      "reason": "no_pubkey",
+      "class_": "known_not_aired",
+      "basis": "Seal/admission refusal before the new DM is enqueued; never infer ownership from reason alone.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 2236
+        },
+        {
+          "file": "lib/core/node_hashlocate.cpp",
+          "line": 1779
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 356
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 384
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 777
+        }
+      ]
+    },
+    {
+      "reason": "no_identity",
+      "class_": "known_not_aired",
+      "basis": "Identity/seal admission before origination enqueue.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1875
+        },
+        {
+          "file": "lib/core/node.cpp",
+          "line": 2237
+        },
+        {
+          "file": "lib/core/node_hashlocate.cpp",
+          "line": 1780
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 388
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 778
+        }
+      ]
+    },
+    {
+      "reason": "too_large",
+      "class_": "known_not_aired",
+      "basis": "Size/seal admission before origination enqueue.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1915
+        },
+        {
+          "file": "lib/core/node.cpp",
+          "line": 2238
+        },
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 737
+        },
+        {
+          "file": "lib/core/node_hashlocate.cpp",
+          "line": 1781
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 353
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 392
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 444
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 780
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 801
+        }
+      ]
+    },
+    {
+      "reason": "bad_rng",
+      "class_": "known_not_aired",
+      "basis": "Origination seal refuses before enqueue; channel seal failure still has no attributable async handle.",
+      "sites": [
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 736
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 396
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 779
+        }
+      ]
+    },
+    {
+      "reason": "no_route",
+      "class_": "may_have_aired",
+      "basis": "Also produced while draining retained/deferred carriers. Do not assume first origination attempt.",
+      "sites": [
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 749
+        },
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 791
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 790
+        },
+        {
+          "file": "lib/core/node_mobile.cpp",
+          "line": 1032
+        }
+      ]
+    },
+    {
+      "reason": "joining",
+      "class_": "known_not_aired",
+      "basis": "Managed leaf admission refuses before enqueue, usually with ctr zero (not an exactly matched DM outcome).",
+      "sites": [
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 120
+        }
+      ]
+    },
+    {
+      "reason": "cap",
+      "class_": "known_not_aired",
+      "basis": "Channel self-origination budget blocks before counter mint/enqueue. It is send_blocked, not matched DM send_failed.",
+      "sites": [
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 643
+        }
+      ]
+    },
+    {
+      "reason": "min_interval",
+      "class_": "known_not_aired",
+      "basis": "Self-origination burst gate blocks before enqueue. Match channel send_blocked by existing scope/window only.",
+      "sites": [
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 643
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 1009
+        }
+      ]
+    },
+    {
+      "reason": "no_cts",
+      "class_": "may_have_aired",
+      "basis": "ACK timeout resets the same flight for a new RTS; a later CTS giveup need not be its first attempt.",
+      "sites": [
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 57
+        },
+        {
+          "file": "lib/core/node_mac_rx.cpp",
+          "line": 3258
+        },
+        {
+          "file": "lib/core/node_mac_rx.cpp",
+          "line": 3299
+        },
+        {
+          "file": "lib/core/node_mac_rx.cpp",
+          "line": 3332
+        }
+      ]
+    },
+    {
+      "reason": "no_ack",
+      "class_": "may_have_aired",
+      "basis": "DATA ACK timeout follows a transmission attempt; no ACK does not prove no reception.",
+      "sites": [
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 58
+        }
+      ]
+    },
+    {
+      "reason": "mobile_no_home",
+      "class_": "known_not_aired",
+      "basis": "Mobile admission/wrapper preparation refuses before origination enqueue.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1929
+        },
+        {
+          "file": "lib/core/node_hashlocate.cpp",
+          "line": 1708
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 193
+        }
+      ]
+    },
+    {
+      "reason": "gateway_unreachable",
+      "class_": "may_have_aired",
+      "basis": "gateway_doorstep_hold is also called from ack_timeout_fire after a DATA attempt.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 2542
+        },
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 484
+        },
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 918
+        }
+      ]
+    },
+    {
+      "reason": "e2e_ack_timeout",
+      "class_": "may_have_aired",
+      "basis": "Delivery not confirmed; a late send_e2e_acked may upgrade the open result.",
+      "sites": [
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 556
+        }
+      ]
+    },
+    {
+      "reason": "queue_full",
+      "class_": "may_have_aired",
+      "basis": "Deferred/held carriers can retain an earlier attempt. The generic failure vocabulary does not prove first attempt.",
+      "sites": [
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 756
+        },
+        {
+          "file": "lib/core/node_cascade.cpp",
+          "line": 941
+        }
+      ]
+    },
+    {
+      "reason": "reprovisioned",
+      "class_": "may_have_aired",
+      "basis": "Purge includes PendingTx, potentially awaiting ACK. The enum comment is not a proof of never-airing.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 880
+        },
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 1492
+        },
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 1510
+        }
+      ]
+    },
+    {
+      "reason": "unsealable",
+      "class_": "known_not_aired",
+      "basis": "Type/location/seal admission before the new message is enqueued.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1836
+        },
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1842
+        },
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1847
+        },
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1860
+        },
+        {
+          "file": "lib/core/node.cpp",
+          "line": 2216
+        },
+        {
+          "file": "lib/core/node_channel.cpp",
+          "line": 738
+        },
+        {
+          "file": "lib/core/node_hashlocate.cpp",
+          "line": 1764
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 303
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 322
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 638
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 659
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 751
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 769
+        }
+      ]
+    },
+    {
+      "reason": "no_location",
+      "class_": "known_not_aired",
+      "basis": "Requested location admission refuses before origination enqueue; written no-l cannot originate it normally.",
+      "sites": [
+        {
+          "file": "lib/core/node.cpp",
+          "line": 1885
+        },
+        {
+          "file": "lib/core/node_mac.cpp",
+          "line": 308
+        }
+      ]
+    }
+  ],
+  "producer_contexts": [
+    {
+      "file": "lib/core/node.cpp",
+      "line": 880,
+      "reason": "reprovisioned",
+      "context": "877:             // replacement live in the shared helper.\n878:             terminal_carrier_outcome(it.type, !it.is_forward,\n879:                                      carrier_owes_send_failed(it.is_channel_m, it.is_forward),\n880:                                      SendFailReason::reprovisioned, it.dst, it.ctr);\n881:         }\n882:         _layers[i]._deferred_n = 0;          // parked no-route sends\n883:         _layers[i]._drain_armed = false;"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1836,
+      "reason": "unsealable",
+      "context": "1833:             // downgraded\" \u2014 is exactly this, and `send -l` already reuses it for the identical DM case.\n1834:             if (want_loc && !want_crypt) {\n1835:                 MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"loc_unsealed\"));\n1836:                 push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);\n1837:                 return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };\n1838:             }\n1839:             if (want_crypt) {"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1842,
+      "reason": "unsealable",
+      "context": "1839:             if (want_crypt) {\n1840:                 if (!want_team) {                             // `-e` with no `-t` \u2014 no team plane \u21d2 no content key\n1841:                     MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"no_team\"));\n1842:                     push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);\n1843:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };\n1844:                 }\n1845:                 if (want_global) {                            // `-t -g -e` \u2014 the self-cancelling combination"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1847,
+      "reason": "unsealable",
+      "context": "1844:                 }\n1845:                 if (want_global) {                            // `-t -g -e` \u2014 the self-cancelling combination\n1846:                     MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"global_clear_copy\"));\n1847:                     push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);\n1848:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };\n1849:                 }\n1850:                 // \u2605\u2605 \u00a7chan-crypt CL2a \u2014 CL1's `not_implemented` stub is GONE from here; the command now falls through"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1860,
+      "reason": "unsealable",
+      "context": "1857:                     // readership (the whole premise of T-K2): a member without the key posts plaintext fine, so the\n1858:                     // remedy is `team grantkey` from a keyholder, or the T-K4 QR \u2014 NOT joining the team again.\n1859:                     MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"no_key\"));\n1860:                     push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);\n1861:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };\n1862:                 }\n1863:                 // \u2605\u2605 \u00a7chan-crypt CL2c \u2014 A LOCATED POST MUST NAME ITS SENDER, so a node with NO STABLE IDENTITY"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1875,
+      "reason": "no_identity",
+      "context": "1872:                 // identity never came up. Natively reachable and tested; on metal it is the fail-loud backstop.\n1873:                 if (want_loc && _key_hash32 == 0) {\n1874:                     MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"no_identity\"));\n1875:                     push_send_failed(SendFailReason::no_identity, /*dst=*/0, /*ctr=*/0);\n1876:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };\n1877:                 }\n1878:                 // \u2605 \u00a7chan-crypt CL2b: no fix -> REFUSE `no_location`. Verbatim the DM rule (node_mac.cpp's `-l` gate,"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1885,
+      "reason": "no_location",
+      "context": "1882:                 // (encryption vs a GPS fix), which is the confusion the enumerator was appended to prevent.\n1883:                 if (want_loc && _cfg.lat_e7 == 0 && _cfg.lon_e7 == 0) {\n1884:                     MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"no_fix\"));\n1885:                     push_send_failed(SendFailReason::no_location, /*dst=*/0, /*ctr=*/0);\n1886:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };\n1887:                 }\n1888:                 // \u2605 \u00a7chan-crypt CL2b \u2014 `flags == 0` IS REFUSED (spec \u00a72.2.1: \"an empty post is a bug, not a feature\")."
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1915,
+      "reason": "too_large",
+      "context": "1912:                 if (protocol::channel_inner_overhead(protocol::channel_inner_flags(c.body_len != 0, want_loc))\n1913:                         + c.body_len > protocol::channel_seal_max_plaintext_bytes) {\n1914:                     MR_EMIT(\"channel_crypt_refused\", EF_I(\"channel_id\", c.u.channel.channel_id), EF_S(\"reason\", \"too_large\"));\n1915:                     push_send_failed(SendFailReason::too_large, /*dst=*/0, /*ctr=*/0);\n1916:                     return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };\n1917:                 }\n1918:             }"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 1929,
+      "reason": "mobile_no_home",
+      "context": "1926:                     // on the return below. Deliberate (C1): a local handle for a remote mint is B39's real fix.\n1927:                     if (!do_send_channel_delegated(c.u.channel.channel_id, c.body, c.body_len)) {\n1928:                         MR_EMIT(\"send_failed\", EF_S(\"reason\", \"channel_no_home\"));\n1929:                         push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);\n1930:                         if (!want_team) return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };\n1931:                     }\n1932:                 } else"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 2216,
+      "reason": "unsealable",
+      "context": "2213:             // rejected as `-t` is) so the flag letter keeps ONE meaning everywhere and the refusal can explain itself.\n2214:             if (c.u.layer.flags & DATA_FLAG_LOCATION) {\n2215:                 MR_EMIT(\"location_refused\", EF_I(\"dst_hash\", static_cast<int64_t>(c.u.layer.dst_hash)), EF_S(\"reason\", \"send_layer\"));\n2216:                 push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);\n2217:                 return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };\n2218:             }\n2219:             // \u00a7S4: a CRYPTED cross-layer send (e2e_dm ON, or per-message `-e`) SEALS the body to the target HERE and rides"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 2236,
+      "reason": "no_pubkey",
+      "context": "2233:                 const uint8_t rn = build_sealed_relay_body(c.u.layer.dst_hash, c.body, c.body_len, rbuf, sizeof rbuf, oc);\n2234:                 if (rn == 0) {                               // fail loud (no_pubkey/no_identity/too_large) \u2014 NEVER cleartext\n2235:                     MR_EMIT(\"e2e_xl_seal_failed\", EF_I(\"dst_hash\", static_cast<int64_t>(c.u.layer.dst_hash)), EF_I(\"oc\", static_cast<int>(oc)));\n2236:                     push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n2237:                                    : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n2238:                                                                       : SendFailReason::too_large,\n2239:                                      /*dst=*/0, /*ctr=*/0);"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 2237,
+      "reason": "no_identity",
+      "context": "2234:                 if (rn == 0) {                               // fail loud (no_pubkey/no_identity/too_large) \u2014 NEVER cleartext\n2235:                     MR_EMIT(\"e2e_xl_seal_failed\", EF_I(\"dst_hash\", static_cast<int64_t>(c.u.layer.dst_hash)), EF_I(\"oc\", static_cast<int>(oc)));\n2236:                     push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n2237:                                    : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n2238:                                                                       : SendFailReason::too_large,\n2239:                                      /*dst=*/0, /*ctr=*/0);\n2240:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 2238,
+      "reason": "too_large",
+      "context": "2235:                     MR_EMIT(\"e2e_xl_seal_failed\", EF_I(\"dst_hash\", static_cast<int64_t>(c.u.layer.dst_hash)), EF_I(\"oc\", static_cast<int>(oc)));\n2236:                     push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n2237:                                    : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n2238:                                                                       : SendFailReason::too_large,\n2239:                                      /*dst=*/0, /*ctr=*/0);\n2240:                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };\n2241:                 }"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 2542,
+      "reason": "gateway_unreachable",
+      "context": "2539:             const uint16_t ctr = _active->_pending_tx->ctr;\n2540:             MR_EMIT(\"send_giveup\", EF_I(\"origin\", _active->_pending_tx->origin), EF_I(\"dst\", dst), EF_I(\"ctr\", ctr),\n2541:                     EF_S(\"reason\", \"gateway_unreachable_timeout\"), EF_I(\"age_ms\", 0));\n2542:             giveup_flight(SendFailReason::gateway_unreachable, dst, ctr);\n2543:             return;\n2544:         }\n2545:         case TxOutcomeKind::refused:"
+    },
+    {
+      "file": "lib/core/node.cpp",
+      "line": 2606,
+      "reason": "none",
+      "context": "2603:             //     inventing a generic failure here is a behaviour change outside this slice. The grant's own arm\n2604:             //     fires, so a grant stranded by an LBT-stash give-up no longer freezes the panel.\n2605:             terminal_carrier_outcome(_active->_pending_tx->type, !_active->_pending_tx->has_previous_hop,\n2606:                                      /*generic_owed=*/false, SendFailReason::none,\n2607:                                      _active->_pending_tx->dst, _active->_pending_tx->ctr);\n2608:             _active->_pending_tx.reset();\n2609:             become_free();"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 57,
+      "reason": "no_cts",
+      "context": "54: //    `busy_reason_name` already use. It is fail-closed to the same `none`, so no path reaches a diagnosis.\n55: SendFailReason Node::custody_stage_fail_reason(CustodyRootStage stage) {\n56:     switch (stage) {\n57:         case CustodyRootStage::cts:     return SendFailReason::no_cts;\n58:         case CustodyRootStage::hop_ack: return SendFailReason::no_ack;\n59:         case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis\n60:     }"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 58,
+      "reason": "no_ack",
+      "context": "55: SendFailReason Node::custody_stage_fail_reason(CustodyRootStage stage) {\n56:     switch (stage) {\n57:         case CustodyRootStage::cts:     return SendFailReason::no_cts;\n58:         case CustodyRootStage::hop_ack: return SendFailReason::no_ack;\n59:         case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis\n60:     }\n61:     return SendFailReason::none;   // out-of-range cast only; see the banner \u2014 not a `default:`, and fail-closed"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 59,
+      "reason": "none",
+      "context": "56:     switch (stage) {\n57:         case CustodyRootStage::cts:     return SendFailReason::no_cts;\n58:         case CustodyRootStage::hop_ack: return SendFailReason::no_ack;\n59:         case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis\n60:     }\n61:     return SendFailReason::none;   // out-of-range cast only; see the banner \u2014 not a `default:`, and fail-closed\n62: }"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 61,
+      "reason": "none",
+      "context": "58:         case CustodyRootStage::hop_ack: return SendFailReason::no_ack;\n59:         case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis\n60:     }\n61:     return SendFailReason::none;   // out-of-range cast only; see the banner \u2014 not a `default:`, and fail-closed\n62: }\n63: \n64: // \u2605\u2605\u2605\u2605 \u00a7CUSTODY-E \u2014 THE ONE CASCADE-TERMINAL CAUSE AUTHORITY (design \u00a79.4). The contract, the precedence rule and"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 484,
+      "reason": "gateway_unreachable",
+      "context": "481:     // widening of the cascade cap past 150 s would let a *gateway* constant silently kill ordinary flights.\n482:     if (find_gw_schedule(pt.next) == nullptr) return false;\n483:     if (!gateway_deadline_expired(pt.enqueue_time_ms, _hal.now(), pt.origin, pt.dst, pt.ctr)) return false;\n484:     giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);\n485:     return true;\n486: }\n487: "
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 749,
+      "reason": "no_route",
+      "context": "746:         //   term here, and such a carrier now correctly reports nothing. \u24d8 Corpus-inert, MEASURED not assumed: all\n747:         //   61 suppressed pushes across the 36 streams came through `giveup_flight`, none through this site.\n748:         terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,\n749:                                  SendFailReason::no_route, item.dst, item.ctr);\n750:         return;\n751:     }\n752:     if (_active->_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 756,
+      "reason": "queue_full",
+      "context": "753:         // dv:5549-5553), NOT drop-oldest. Complete the app future so it never hangs.\n754:         MR_EMIT(\"send_deferred_refused\", EF_I(\"dst\", item.dst), EF_I(\"ctr\", item.ctr));\n755:         terminal_carrier_outcome(item.type, !item.is_forward, /*generic_owed=*/true,   // [[B268]] blocker-1\n756:                                  SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)\n757:         return;\n758:     }\n759:     DeferredSend d{}; d.item = item; d.deferred_at_ms = _hal.now();"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 791,
+      "reason": "no_route",
+      "context": "788:         if ((now - d.deferred_at_ms) >= protocol::send_defer_ttl_ms) {\n789:             MR_EMIT(\"send_deferred_giveup\", EF_I(\"dst\", d.item.dst), EF_I(\"ctr\", d.item.ctr));\n790:             terminal_carrier_outcome(d.item.type, !d.item.is_forward, /*generic_owed=*/true,   // [[B268]] blocker-1\n791:                                      SendFailReason::no_route, d.item.dst, d.item.ctr);   // \u00a73-A.5: match the sibling defer_send giveup in defer_send() \u2014 was reason=none\n792:             continue;                                    // drop (don't keep)\n793:         }\n794:         RtEntry* e = rt_find(d.item.dst, d.item.plane);   // Wave 2: drain on the item's OWN plane \u2014 a GLOBAL item must NOT be drained by a team route (AUTO would match _rt_team for a colliding team id -> drain -> re-issue GLOBAL -> no route -> re-defer -> re-stamp -> never ages out = the RREQ storm)"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 918,
+      "reason": "gateway_unreachable",
+      "context": "915:     // what bounds the horizon. \u26a0 WITHDRAWN: this line used to name `issue_send`'s start boundary as the bound \u2014\n916:     // that check was removed, and the TERMINAL authority is `DeviceHal::pump_tx()` before `start_transmit()`.\n917:     if (gateway_deadline_expired(enq, now, pt.origin, pt.dst, pt.ctr)) {\n918:         giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);   // \u00a73-A.5: was reason=none (telemetry-only)\n919:         return true;\n920:     }\n921:     const uint32_t wait    = gateway_schedule_defer_ms(pt.dst);"
+    },
+    {
+      "file": "lib/core/node_cascade.cpp",
+      "line": 941,
+      "reason": "queue_full",
+      "context": "938:     //     own arm still fires, so a held grant dropped here no longer strands the panel on `GRANT QUEUED`.\n939:     if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;\n940:     else terminal_carrier_outcome(it.type, !it.is_forward, /*generic_owed=*/false,\n941:                                   SendFailReason::queue_full, it.dst, it.ctr);\n942:     _active->_pending_tx.reset();\n943:     become_free();\n944:     return true;"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 643,
+      "reason": "cap",
+      "context": "640:         MR_EMIT(\"send_blocked\", EF_S(\"kind\", \"channel\"), EF_S(\"reason\", block_reason), EF_I(\"next_ms\", static_cast<int64_t>(next_ms)));\n641:         // Slice 6a: the telemetry above is stripped on device \u2014 this Push is the send_blocked signal the companion\n642:         // actually receives. Map the gate's block_reason string to the SendFailReason enum (min_interval | cap).\n643:         const SendFailReason r = (block_reason[0] == 'm') ? SendFailReason::min_interval : SendFailReason::cap;\n644:         emit_send_blocked(/*channel=*/true, r, next_ms);\n645:         // \u2605\u2605 \u00a7b39 \u2014 PRODUCER (1) OF THE `ctr == 0` SENTINEL. next_ctr never mints 0 (node_mac.cpp:20 wraps\n646:         // 65535 -> 1), so this 0 is unambiguous \u2014 and Node::on_command hands it through UNCHANGED as"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 643,
+      "reason": "min_interval",
+      "context": "640:         MR_EMIT(\"send_blocked\", EF_S(\"kind\", \"channel\"), EF_S(\"reason\", block_reason), EF_I(\"next_ms\", static_cast<int64_t>(next_ms)));\n641:         // Slice 6a: the telemetry above is stripped on device \u2014 this Push is the send_blocked signal the companion\n642:         // actually receives. Map the gate's block_reason string to the SendFailReason enum (min_interval | cap).\n643:         const SendFailReason r = (block_reason[0] == 'm') ? SendFailReason::min_interval : SendFailReason::cap;\n644:         emit_send_blocked(/*channel=*/true, r, next_ms);\n645:         // \u2605\u2605 \u00a7b39 \u2014 PRODUCER (1) OF THE `ctr == 0` SENTINEL. next_ctr never mints 0 (node_mac.cpp:20 wraps\n646:         // 65535 -> 1), so this 0 is unambiguous \u2014 and Node::on_command hands it through UNCHANGED as"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 736,
+      "reason": "bad_rng",
+      "context": "733:                     EF_I(\"channel_id\", channel_id),\n734:                     EF_S(\"reason\", (oc == SealOutcome::bad_rng)   ? \"bad_rng\"\n735:                                  : (oc == SealOutcome::too_large) ? \"too_large\" : \"no_key\"));\n736:             push_send_failed(oc == SealOutcome::bad_rng   ? SendFailReason::bad_rng\n737:                            : oc == SealOutcome::too_large ? SendFailReason::too_large\n738:                                                           : SendFailReason::unsealable, /*dst=*/0, /*ctr=*/c);\n739:             // \u2605\u2605 \u00a7b39 \u2014 PRODUCER (2) OF THE `ctr == 0` SENTINEL, and the WORSE of the two: the ctr was already minted"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 737,
+      "reason": "too_large",
+      "context": "734:                     EF_S(\"reason\", (oc == SealOutcome::bad_rng)   ? \"bad_rng\"\n735:                                  : (oc == SealOutcome::too_large) ? \"too_large\" : \"no_key\"));\n736:             push_send_failed(oc == SealOutcome::bad_rng   ? SendFailReason::bad_rng\n737:                            : oc == SealOutcome::too_large ? SendFailReason::too_large\n738:                                                           : SendFailReason::unsealable, /*dst=*/0, /*ctr=*/c);\n739:             // \u2605\u2605 \u00a7b39 \u2014 PRODUCER (2) OF THE `ctr == 0` SENTINEL, and the WORSE of the two: the ctr was already minted\n740:             // and is BURNED here, so the send_failed push above names `c` \u2014 a handle the caller NEVER RECEIVES, because"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 738,
+      "reason": "unsealable",
+      "context": "735:                                  : (oc == SealOutcome::too_large) ? \"too_large\" : \"no_key\"));\n736:             push_send_failed(oc == SealOutcome::bad_rng   ? SendFailReason::bad_rng\n737:                            : oc == SealOutcome::too_large ? SendFailReason::too_large\n738:                                                           : SendFailReason::unsealable, /*dst=*/0, /*ctr=*/c);\n739:             // \u2605\u2605 \u00a7b39 \u2014 PRODUCER (2) OF THE `ctr == 0` SENTINEL, and the WORSE of the two: the ctr was already minted\n740:             // and is BURNED here, so the send_failed push above names `c` \u2014 a handle the caller NEVER RECEIVES, because\n741:             // Node::on_command returns this 0 as CmdResult{ queued, 0 } (its send_channel arm, node.cpp, where the full"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 1492,
+      "reason": "reprovisioned",
+      "context": "1489:                 // and that must gate the grant arm too. `carrier_owes_send_failed` is passed in unchanged.\n1490:                 if (all) terminal_carrier_outcome(it.type, !it.is_forward,\n1491:                                                   carrier_owes_send_failed(it.is_channel_m, it.is_forward),\n1492:                                                   SendFailReason::reprovisioned, it.dst, it.ctr);\n1493:                 continue;\n1494:             }\n1495:             L._tx_queue[qw++] = L._tx_queue[r];"
+    },
+    {
+      "file": "lib/core/node_channel.cpp",
+      "line": 1510,
+      "reason": "reprovisioned",
+      "context": "1507:             if (all) terminal_carrier_outcome(L._pending_tx->type, !L._pending_tx->has_previous_hop,   // [[B268]] blocker-1\n1508:                                               carrier_owes_send_failed(L._pending_tx->m_broadcast,\n1509:                                                                        L._pending_tx->has_previous_hop),\n1510:                                               SendFailReason::reprovisioned, L._pending_tx->dst, L._pending_tx->ctr);\n1511:             L._pending_tx.reset();\n1512:         }\n1513:         // (5) RE-OFFER slots orphaned by (1) \u2014 after the compaction, so the find reflects the purge. `all` short-circuits"
+    },
+    {
+      "file": "lib/core/node_hashlocate.cpp",
+      "line": 1708,
+      "reason": "mobile_no_home",
+      "context": "1705:         }\n1706:         MR_EMIT(\"team_send_unresolved\", EF_I(\"key_hash32\", static_cast<int64_t>(key_hash32)));\n1707:         release_deleg_ack(DelegAckReleaseCause::dispatch_refused);   // \u00a7B278 S1b: no team resolution, so no outward carrier at all\n1708:         if (generic_lifecycle) push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5)\n1709:         return 0;\n1710:     }\n1711: #endif"
+    },
+    {
+      "file": "lib/core/node_hashlocate.cpp",
+      "line": 1764,
+      "reason": "unsealable",
+      "context": "1761:         // the operator gets a directed message; this is the structural backstop for every other caller.\n1762:         if (itype == DATA_TYPE_TEAM_KEY_GRANT) {\n1763:             MR_EMIT(\"team_key_grant_refused\", EF_I(\"hash\", static_cast<int64_t>(key_hash32)), EF_S(\"reason\", \"delegated\"));\n1764:             if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5): internal \u21d2 unreachable; the emit above + TeamKeyGrantTx::delegated are the loud refusal\n1765:             return 0;\n1766:         }\n1767:         // \u00a7S4 delegated SEALED (fixes the \u00a71b-3 TODAY-broken path): seal the body to the target HERE \u2014 only the mobile"
+    },
+    {
+      "file": "lib/core/node_hashlocate.cpp",
+      "line": 1779,
+      "reason": "no_pubkey",
+      "context": "1776:             if (rn == 0) {                                                   // fail loud (no pubkey / identity / too large) \u2014 NEVER cleartext\n1777:                 MR_EMIT(\"e2e_no_pubkey\", EF_I(\"hash\", static_cast<int64_t>(key_hash32)), EF_I(\"oc\", static_cast<int>(oc)));\n1778:                 if (generic_lifecycle)   // \u00a7CUSTODY-B \u00a76.2(5)\n1779:                 push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n1780:                                : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n1781:                                                                   : SendFailReason::too_large,\n1782:                                  /*dst=*/0, /*ctr=*/0);"
+    },
+    {
+      "file": "lib/core/node_hashlocate.cpp",
+      "line": 1780,
+      "reason": "no_identity",
+      "context": "1777:                 MR_EMIT(\"e2e_no_pubkey\", EF_I(\"hash\", static_cast<int64_t>(key_hash32)), EF_I(\"oc\", static_cast<int>(oc)));\n1778:                 if (generic_lifecycle)   // \u00a7CUSTODY-B \u00a76.2(5)\n1779:                 push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n1780:                                : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n1781:                                                                   : SendFailReason::too_large,\n1782:                                  /*dst=*/0, /*ctr=*/0);\n1783:                 return 0;"
+    },
+    {
+      "file": "lib/core/node_hashlocate.cpp",
+      "line": 1781,
+      "reason": "too_large",
+      "context": "1778:                 if (generic_lifecycle)   // \u00a7CUSTODY-B \u00a76.2(5)\n1779:                 push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n1780:                                : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n1781:                                                                   : SendFailReason::too_large,\n1782:                                  /*dst=*/0, /*ctr=*/0);\n1783:                 return 0;\n1784:             }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 120,
+      "reason": "joining",
+      "context": "117:     if (app_dm && !leaf_config_synced()) {\n118:         if (generic_lifecycle) {\n119:             MR_EMIT(\"send_failed\", EF_I(\"dst\", dst), EF_S(\"reason\", \"joining\"));\n120:             push_send_failed(SendFailReason::joining, dst, /*ctr=*/0);\n121:         }\n122:         return 0;\n123:     }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 193,
+      "reason": "mobile_no_home",
+      "context": "190:         && !(_my_mobile_reg.active && _my_mobile_reg.home_id != 0 && _my_mobile_reg.home_id != _node_id)) {\n191:         if (generic_lifecycle) {   // \u00a7CUSTODY-B \u00a76.2(5) \u2014 see the gate's derivation at the top of this function\n192:             MR_EMIT(\"send_failed\", EF_I(\"dst\", dst), EF_S(\"reason\", \"mobile_no_home\"));\n193:             push_send_failed(SendFailReason::mobile_no_home, dst, /*ctr=*/0);\n194:         }\n195:         return 0;\n196:     }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 303,
+      "reason": "unsealable",
+      "context": "300:     if (flags & DATA_FLAG_LOCATION) {\n301:         if (!will_seal) {                                        // (1) would air the position in CLEAR -> REFUSE\n302:             MR_EMIT(\"location_refused\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_S(\"reason\", \"unsealed\"));\n303:             if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n304:             return ctr;                                          // not enqueued \u2014 matches the sibling CRYPTED refusals (return ctr so the app correlates)\n305:         }\n306:         if (_cfg.lat_e7 == 0 && _cfg.lon_e7 == 0) {              // (2) no fix -> REFUSE (never send the position-less DM silently)"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 308,
+      "reason": "no_location",
+      "context": "305:         }\n306:         if (_cfg.lat_e7 == 0 && _cfg.lon_e7 == 0) {              // (2) no fix -> REFUSE (never send the position-less DM silently)\n307:             MR_EMIT(\"location_refused\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_S(\"reason\", \"no_fix\"));\n308:             if (generic_lifecycle) push_send_failed(SendFailReason::no_location, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n309:             return ctr;\n310:         }\n311:     }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 322,
+      "reason": "unsealable",
+      "context": "319:         MR_EMIT(\"team_key_grant_refused\", EF_I(\"dst\", dst), EF_S(\"reason\", \"plaintext\"));\n320:         // \u00a7CUSTODY-B \u00a76.2(5): the grant is INTERNAL, so `generic_lifecycle` is false here BY CONSTRUCTION and this\n321:         // push is now unreachable \u2014 the loud emit above and `TeamKeyGrantTx`'s own typed answer carry the refusal.\n322:         if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst, /*ctr=*/0);\n323:         return 0;   // \u26a0 0, unlike the sibling CRYPTED refusals below which `return ctr` so the app can correlate: this\n324:                     // one is UNREACHABLE from the only caller (team_key_grant_send forces CryptIntent::on), so there is\n325:                     // no in-flight handle to correlate \u2014 a non-zero ctr here would read to that caller as \"airborne\"."
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 353,
+      "reason": "too_large",
+      "context": "350:             const bool key_known = (dh != 0);\n351:             if (key_known) {\n352:                 MR_EMIT(\"e2e_seal_too_large\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"body_len\", body_len));\n353:                 if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n354:             } else {\n355:                 MR_EMIT(\"e2e_no_pubkey\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"reason_no_dst_hash\", 1));\n356:                 if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 356,
+      "reason": "no_pubkey",
+      "context": "353:                 if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n354:             } else {\n355:                 MR_EMIT(\"e2e_no_pubkey\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"reason_no_dst_hash\", 1));\n356:                 if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n357:             }\n358:             return ctr;                                                    // not enqueued (fail loud, no cleartext)\n359:         }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 384,
+      "reason": "no_pubkey",
+      "context": "381:             switch (oc) {\n382:                 case SealOutcome::no_pubkey:                               // E2E \u00a75: NO auto-query. Key acquisition is USER-driven:\n383:                     MR_EMIT(\"e2e_no_pubkey\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"hash\", static_cast<int64_t>(dh)));  // warn + drop; the\n384:                     if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);       // \u00a7CUSTODY-B \u00a76.2(5); user\n385:                     break;                                                 // requests on-air (reqpubkey) or scans a QR (peerkey). NEVER cleartext.\n386:                 case SealOutcome::no_identity:                            // R3: no crypto identity -> fail loud, no flood\n387:                     MR_EMIT(\"e2e_no_identity\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr));"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 388,
+      "reason": "no_identity",
+      "context": "385:                     break;                                                 // requests on-air (reqpubkey) or scans a QR (peerkey). NEVER cleartext.\n386:                 case SealOutcome::no_identity:                            // R3: no crypto identity -> fail loud, no flood\n387:                     MR_EMIT(\"e2e_no_identity\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr));\n388:                     if (generic_lifecycle) push_send_failed(SendFailReason::no_identity, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n389:                     break;\n390:                 case SealOutcome::too_large:                              // R2: oversize for CRYPTED -> fail loud + send_failed, NO flood\n391:                     MR_EMIT(\"e2e_seal_too_large\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"body_len\", body_len));"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 392,
+      "reason": "too_large",
+      "context": "389:                     break;\n390:                 case SealOutcome::too_large:                              // R2: oversize for CRYPTED -> fail loud + send_failed, NO flood\n391:                     MR_EMIT(\"e2e_seal_too_large\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"body_len\", body_len));\n392:                     if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n393:                     break;\n394:                 case SealOutcome::bad_rng:                                // R7: crypto RNG returned a degenerate seed -> fail loud, no flood\n395:                     MR_EMIT(\"e2e_bad_rng\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr));"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 396,
+      "reason": "bad_rng",
+      "context": "393:                     break;\n394:                 case SealOutcome::bad_rng:                                // R7: crypto RNG returned a degenerate seed -> fail loud, no flood\n395:                     MR_EMIT(\"e2e_bad_rng\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr));\n396:                     if (generic_lifecycle) push_send_failed(SendFailReason::bad_rng, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n397:                     break;\n398:                 // \u00a7w4-switchenum (2026-07-26): cross_layer/ok are now EXPLICIT (was `default:`) so -Wswitch guards this\n399:                 // mapping. Verified at source, and the two are NOT unreachable for the same reason:"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 444,
+      "reason": "too_large",
+      "context": "441:         if (plain_n == 0) {\n442:             MR_EMIT(\"dm_inner_too_large\", EF_I(\"dst\", dst), EF_I(\"ctr\", ctr), EF_I(\"body_len\", body_len),\n443:                     EF_I(\"flags\", item.flags), EF_I(\"type\", type));\n444:             if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // \u00a7CUSTODY-B \u00a76.2(5)\n445:             return ctr;                                                    // not enqueued, no RTS, no zero inner\n446:         }\n447:         item.inner_len = static_cast<uint8_t>(plain_n);"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 556,
+      "reason": "e2e_ack_timeout",
+      "context": "553:         // that it failed) \u2014 the DM may have arrived + the ack died returning; a LATE ack still fires send_e2e_acked (this\n554:         // entry is already gone -> that clear is a harmless no-op). Mirror the existing send_failed emit+push shape.\n555:         MR_EMIT(\"send_failed\", EF_I(\"dst\", e.dst), EF_I(\"ctr\", e.ctr), EF_S(\"reason\", \"e2e_ack_timeout\"));\n556:         push_send_failed(SendFailReason::e2e_ack_timeout, e.dst, e.ctr);\n557:         e.used = false;\n558:     }\n559:     e2e_ack_deadline_arm_timer();"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 638,
+      "reason": "unsealable",
+      "context": "635:     // `-e` DM to a mobile whose home sits on another layer, reported to QA and deliberately NOT fixed here (C1).\n636:     if (type == DATA_TYPE_TEAM_KEY_GRANT) {\n637:         MR_EMIT(\"team_key_grant_refused\", EF_I(\"dst\", gw_node), EF_S(\"reason\", \"cross_layer\"));\n638:         if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5): internal \u21d2 unreachable; the emit above is the loud refusal\n639:         return false;                                // fail loud, before next_ctr burns a counter\n640:     }\n641:     // \u2605\u2605 \u00a7loc-per-send (2026-07-31, register B0): a CROSS-LAYER frame CANNOT carry a location, so a `-l` send that"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 659,
+      "reason": "unsealable",
+      "context": "656:     // origination passes \u2014 notably send_by_hash's mobile_home_find arm, which has no command-level fork of its own.\n657:     if (flags & DATA_FLAG_LOCATION) {\n658:         MR_EMIT(\"location_refused\", EF_I(\"dst\", gw_node), EF_S(\"reason\", \"cross_layer\"));\n659:         if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5)\n660:         return false;                                // fail loud, before next_ctr burns a counter\n661:     }\n662:     TxItem item{};"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 751,
+      "reason": "unsealable",
+      "context": "748:     if (want_crypt && override_source_hash != 0) {\n749:         MR_EMIT(\"xl_send_deleg_seal_conflict\", EF_I(\"target_layer\", target_layer),\n750:                 EF_I(\"src_hash\", static_cast<int64_t>(override_source_hash)));\n751:         if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5)\n752:         return 0;\n753:     }\n754:     // sbody/sblen/stype = what actually flies (send_by_hash's own idiom, U3). `rbody` is STACK, not `static`: the seal"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 769,
+      "reason": "unsealable",
+      "context": "766:         if (type != 0) {\n767:             MR_EMIT(\"xl_send_unsealable\", EF_I(\"type\", type), EF_I(\"target_layer\", target_layer),\n768:                     EF_I(\"dst_hash\", static_cast<int64_t>(dst_hash)));\n769:             if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5)\n770:             return 0;\n771:         }\n772:         SealOutcome oc = SealOutcome::ok;"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 777,
+      "reason": "no_pubkey",
+      "context": "774:         if (rn == 0) {                               // no pubkey / no identity / too large / bad rng -> FAIL LOUD, NEVER cleartext\n775:             MR_EMIT(\"e2e_xl_seal_failed\", EF_I(\"dst_hash\", static_cast<int64_t>(dst_hash)), EF_I(\"oc\", static_cast<int>(oc)));\n776:             if (generic_lifecycle)   // \u00a7CUSTODY-B \u00a76.2(5)\n777:             push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n778:                            : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n779:                            : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng\n780:                                                               : SendFailReason::too_large,"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 778,
+      "reason": "no_identity",
+      "context": "775:             MR_EMIT(\"e2e_xl_seal_failed\", EF_I(\"dst_hash\", static_cast<int64_t>(dst_hash)), EF_I(\"oc\", static_cast<int>(oc)));\n776:             if (generic_lifecycle)   // \u00a7CUSTODY-B \u00a76.2(5)\n777:             push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n778:                            : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n779:                            : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng\n780:                                                               : SendFailReason::too_large,\n781:                              dst_node, /*ctr=*/0);"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 779,
+      "reason": "bad_rng",
+      "context": "776:             if (generic_lifecycle)   // \u00a7CUSTODY-B \u00a76.2(5)\n777:             push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n778:                            : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n779:                            : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng\n780:                                                               : SendFailReason::too_large,\n781:                              dst_node, /*ctr=*/0);\n782:             return 0;"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 780,
+      "reason": "too_large",
+      "context": "777:             push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey\n778:                            : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity\n779:                            : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng\n780:                                                               : SendFailReason::too_large,\n781:                              dst_node, /*ctr=*/0);\n782:             return 0;\n783:         }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 790,
+      "reason": "no_route",
+      "context": "787:     const uint8_t gw = select_gateway_for_leaf(target_leaf);\n788:     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud\n789:         MR_EMIT(\"xl_send_no_gateway\", EF_I(\"target_layer\", target_layer), EF_I(\"dst_hash\", static_cast<int64_t>(dst_hash)));\n790:         if (generic_lifecycle) push_send_failed(SendFailReason::no_route, dst_node, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5)\n791:         return 0;\n792:     }\n793:     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 801,
+      "reason": "too_large",
+      "context": "798:     uint16_t out_ctr = 0;\n799:     if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, sbody, sblen, flags, &out_ctr, /*type=*/stype, override_source_hash)) {\n800:         MR_EMIT(\"xl_send_too_large\", EF_I(\"target_layer\", target_layer), EF_I(\"gw\", gw));\n801:         if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst_node, /*ctr=*/0);   // \u00a7CUSTODY-B \u00a76.2(5)\n802:         return 0;                                    // enqueue_cross_layer leaves out_ctr untouched on failure; 0 = nothing flew\n803:     }\n804:     return out_ctr;"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 1009,
+      "reason": "min_interval",
+      "context": "1006:                     EF_I(\"next_ms\", next_ms), EF_I(\"dst\", pt.dst), EF_I(\"ctr\", pt.ctr));\n1007:             // Slice 6a: the MR_EMIT above is device-stripped telemetry \u2014 this Push is the send_blocked signal the\n1008:             // companion actually receives. The DM burst floor is always a min-interval block (kind=dm).\n1009:             emit_send_blocked(/*channel=*/false, SendFailReason::min_interval, next_ms);\n1010:             become_free();                                      // re-pick (skips the now-deferred item)\n1011:             return;\n1012:         }"
+    },
+    {
+      "file": "lib/core/node_mac.cpp",
+      "line": 2251,
+      "reason": "none",
+      "context": "2248:         //     it through the shared helper anyway is the point of \"EVERY site\": the grant's panel must not freeze\n2249:         //     on `GRANT QUEUED` merely because this path has no generic story to tell.\n2250:         terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/false,\n2251:                                  SendFailReason::none, pt.dst, pt.ctr);\n2252:         _active->_pending_tx.reset(); become_free();\n2253:         return;\n2254:     }"
+    },
+    {
+      "file": "lib/core/node_mac_rx.cpp",
+      "line": 3258,
+      "reason": "no_cts",
+      "context": "3255:                                    { .key = \"ctr\", .type = EventField::T::i64, .i = pt.ctr } };\n3256:                 _hal.emit(\"path_cascade_exhausted\", f, 2);\n3257:                 _hal.emit(\"rts_giveup\", f, 2); );\n3258:             giveup_flight(SendFailReason::no_cts, pt.dst, pt.ctr);   // \u00a73-A.5: no_cts (was reason=none). \u00a7CUSTODY-E: the reason is NAMED, not parsed out of a literal event string\n3259:         }\n3260:         return;\n3261:     }"
+    },
+    {
+      "file": "lib/core/node_mac_rx.cpp",
+      "line": 3299,
+      "reason": "no_cts",
+      "context": "3296:                 // (this site always owed one). NOT `giveup_flight` itself: the reset + become_free below are\n3297:                 // shared with the requeue arm above.\n3298:                 terminal_carrier_outcome(pt.type, !pt.has_previous_hop, /*generic_owed=*/true,\n3299:                                          SendFailReason::no_cts, pt.dst, pt.ctr);   // \u00a73-A.5: no_cts (\u00a7CUSTODY-E: named, not string-parsed)\n3300:             }\n3301:             _active->_pending_tx.reset();\n3302:             become_free();"
+    },
+    {
+      "file": "lib/core/node_mac_rx.cpp",
+      "line": 3332,
+      "reason": "no_cts",
+      "context": "3329:                                 { .key = \"ctr\", .type = EventField::T::i64, .i = pt.ctr } };\n3330:             _hal.emit(\"path_cascade_exhausted\", gf, 2);\n3331:             _hal.emit(\"rts_giveup\", gf, 2); );\n3332:         giveup_flight(SendFailReason::no_cts, pt.dst, pt.ctr);   // \u00a73-A.5: no_cts (was reason=none). \u00a7CUSTODY-E: named, not string-parsed\n3333:         return;\n3334:     }\n3335: "
+    },
+    {
+      "file": "lib/core/node_mobile.cpp",
+      "line": 1032,
+      "reason": "no_route",
+      "context": "1029:                 if (e->has_key) _presence_key_confirmed = true;\n1030:                 if (e->deleg_fail) {   // \u00a7B2: the home dropped a delegated send for us (loud, one-shot) -> surface send_failed{no_route} to the app's back-off\n1031:                     MR_EMIT(\"presence_deleg_fail\", EF_I(\"home\", r->home_id));\n1032:                     push_send_failed(SendFailReason::no_route, /*dst=*/0, /*ctr=*/0);   // dst/ctr were never set here -> the Push{} zero defaults; now EXPLICIT, value-identical\n1033:                 }\n1034:                 _presence_prescan = (e->quality <= protocol::presence_q_weak);\n1035:                 // dynamic T (\u00a7S6.3): strong -> min(4\u00b7base,max) \u00b7 ok -> base \u00b7 weak/critical -> min"
+    }
+  ]
+}

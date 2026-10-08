@@ -236,7 +236,7 @@ TEST_CASE("ui10-p1-defaults: THE DRIFT FENCE IS DISCHARGED — the compiled defa
     // ★ THE EMERGENCY PHRASE IS NEVER A COMPOSE ROW (§3.2.2) — it reaches the wire only through the long press.
     for (uint8_t i = 0; i < dm.n; ++i) CHECK(dm.row[i].slot != mrfw::kPresetEmergency);
     for (uint8_t i = 0; i < ch.n; ++i) CHECK(ch.row[i].slot != mrfw::kPresetEmergency);
-    CHECK(std::strcmp(f.cat.slot(mrfw::kPresetEmergency).text, mrfw::kPresetDefaults[0].text) == 0);
+    CHECK((mrfw::kPresetDefaults[0].text != nullptr && std::strcmp(f.cat.slot(mrfw::kPresetEmergency).text, mrfw::kPresetDefaults[0].text) == 0));
     // ★ AND THE COUNTS AGREE with the projection's own lengths.
     CHECK(f.cat.enabled_count(PresetKind::dm)      == dm.n);
     CHECK(f.cat.enabled_count(PresetKind::channel) == ch.n);
@@ -998,8 +998,8 @@ TEST_CASE("w6-v1: at boot an old v1 record runs the DEFAULTS, says so, and write
         mrfw::PresetCatalog cat{f.store, f.gate};
         const mrnv::UiPresetRead st = cat.begin();
         CHECK(st == mrnv::UiPresetRead::old_v1);
-        CHECK(std::strcmp(mrfw::preset_boot_line(st),
-                          "  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)") == 0);
+        CHECK((mrfw::preset_boot_line(st) != nullptr && std::strcmp(mrfw::preset_boot_line(st),
+                          "  ui presets = DEFAULTS (old v1 record — re-enter custom phrases)") == 0));
         CHECK(f.store.saves == 0);                     // ⛔ ZERO boot writes, ⛔ no migration
         CHECK(cat.invalid_loads() == 0);               // ⓘ its own state, ⛔ not a counted `invalid`
         CHECK(cat.io_failed_loads() == 0);

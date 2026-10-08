@@ -1,0 +1,70 @@
+{
+  "scope": "AST only, mutation executable not imported or run.",
+  "a": {
+    "model": {
+      "target": "src/firmware_ui_model.h",
+      "entries": 264
+    },
+    "chrome": {
+      "target": "src/firmware_ui_chrome.h",
+      "entries": 48
+    },
+    "uisend": {
+      "target": "src/firmware_ui_send.h",
+      "entries": 26
+    },
+    "sliceCbudget": {
+      "target": "src/firmware_ui_model.h",
+      "entries": 1
+    },
+    "sliceCsend": {
+      "target": "src/firmware_ui_send.h",
+      "entries": 1
+    },
+    "w4aident": {
+      "target": "src/firmware_ui_model.h",
+      "entries": 9
+    },
+    "w4bhome": {
+      "target": "src/firmware_ui_model.h",
+      "entries": 26
+    }
+  },
+  "b": {
+    "uistatus": {
+      "target": "src/firmware_ui_status.h",
+      "entries": 19
+    },
+    "uiteam": {
+      "target": "src/firmware_ui_team.h",
+      "entries": 20
+    },
+    "uiinvite": {
+      "target": "src/firmware_ui_invite.h",
+      "entries": 32
+    },
+    "uiprov": {
+      "target": "src/firmware_ui_prov.h",
+      "entries": 45
+    },
+    "uijoin": {
+      "target": "src/firmware_ui_join.h",
+      "entries": 26
+    },
+    "uipresets": {
+      "target": "src/firmware_ui_presets.h",
+      "entries": 39
+    },
+    "config": {
+      "target": "src/firmware_config_service.h",
+      "entries": 32
+    },
+    "consoleline": {
+      "target": "lib/console/console_line.h",
+      "entries": 12
+    }
+  },
+  "a_entries": 375,
+  "b_entries": 225,
+  "union_entries": 600
+}

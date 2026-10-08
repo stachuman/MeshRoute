@@ -1,0 +1,17 @@
+{
+  "entry_mesh_paths": 2538,
+  "entry_simulator_paths": 285,
+  "changed_or_missing_mesh_inputs": [],
+  "changed_or_missing_simulator_inputs": [],
+  "added_before_seal": [
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview.md",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/inputs.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/preflight.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/reviewed-brief.md",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-rereview/source-recheck.json"
+  ],
+  "brief_sha256": "47cb5a461d07cc3cbaf0ab6ae81fe535e206eda996201885f4dbe878dd11cb8e",
+  "head": "4c1a000bc71706ac438e64161a9452966a66615f",
+  "staged": "",
+  "simulator_status": ""
+}

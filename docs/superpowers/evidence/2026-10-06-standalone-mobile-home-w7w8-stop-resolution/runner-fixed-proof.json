@@ -1,0 +1,18 @@
+[
+  {
+    "case": "failure",
+    "exit": 1,
+    "stdout": "",
+    "stderr": "",
+    "tsv": "qa-first\t1\t0\n",
+    "following_ran": false
+  },
+  {
+    "case": "success",
+    "exit": 0,
+    "stdout": "DONE\n",
+    "stderr": "",
+    "tsv": "qa-first\t0\t0\nqa-following\t0\t0\n",
+    "following_ran": true
+  }
+]

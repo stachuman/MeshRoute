@@ -1,0 +1,174 @@
+{
+  "abi": "PASS: board ABI (290 checks, 9/9 controls RED, 0 unusable)",
+  "board_ui": {
+    "final": "PASS",
+    "lines": [
+      "declarations census: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)",
+      "traits:      14 passed / 0 failed / 14 controls verified RED",
+      "structural: 23 passed / 0 failed / 23 total",
+      "wiring:     60 passed / 0 failed / 60 total; 186 negative control(s) verified RED",
+      "identities accounted: 592 declared, 592 exactly once with the accepted outcome, 0 guard failure(s)",
+      "  canvas/v3        124 expected,  124 observed",
+      "  canvas/v4        110 expected,  110 observed",
+      "  wiring            60 expected,   60 observed",
+      "  wiring/control   186 expected,  186 observed",
+      "  negctl/v3         60 expected,   60 observed",
+      "  negctl/v4          3 expected,    3 observed",
+      "wiring predicate exits: live 60 x exit 0; mutant 186 x exit 1",
+      "negctl v3 assert_red: 60",
+      "negctl v4 assert_red: 3",
+      "PASS"
+    ]
+  },
+  "boards": {
+    "base-1/gateway": {
+      "flash": 572096,
+      "manifest_sha256": "fbdf8f354d8cf9f0f99e16ad83de56622056644b5808943bab690773d233805a",
+      "objects": 285,
+      "path": ".pio-measure/w7w8/base-1/gateway/manifest.json",
+      "ram": 203740
+    },
+    "base-1/heltec_mobile": {
+      "flash": 1400540,
+      "manifest_sha256": "5a73fb566afc6782a86348381cc67c0946789d2a04a9d1cf1256fa2ebfa73d44",
+      "objects": 329,
+      "path": ".pio-measure/w7w8/base-1/heltec_mobile/manifest.json",
+      "ram": 219540
+    },
+    "base-2/gateway": {
+      "manifest_sha256": "fbdf8f354d8cf9f0f99e16ad83de56622056644b5808943bab690773d233805a",
+      "path": ".pio-measure/w7w8/base-2/gateway/manifest.json"
+    },
+    "base-2/heltec_mobile": {
+      "manifest_sha256": "5a73fb566afc6782a86348381cc67c0946789d2a04a9d1cf1256fa2ebfa73d44",
+      "path": ".pio-measure/w7w8/base-2/heltec_mobile/manifest.json"
+    },
+    "compare/gateway": "PASS: exact repeatability env=gateway",
+    "compare/heltec_mobile": "PASS: exact repeatability env=heltec_mobile"
+  },
+  "corpus": {
+    "anchors": "anchors: 36/36 rows reproduce simulation/BASELINE.md",
+    "manifest": "/tmp/w7w8-baseline-UUeeHi/corpus/manifest.json",
+    "manifest_sha256": "f2bbd2b416063ab18c9c4b2aa5bb63f7c56148372c3dfcefd6782d32a9493d66",
+    "verdict": "PASS: 36/36 streams produced and validated, 0 failures"
+  },
+  "discovery": {
+    "ran": "Ran 447 tests in 887.119s",
+    "verdict": "OK"
+  },
+  "done": true,
+  "firmware_ui": {
+    "accounted": "controls accounted: 240 declared, 240 exactly once with the accepted outcome, 0 guard failure(s)",
+    "controls": "controls: 240 verified / 0 unusable",
+    "final": "PASS",
+    "passed_lines": [
+      "591 passed / 0 failed / 591 total",
+      "1059 passed / 0 failed / 1059 total",
+      "591 passed / 0 failed / 591 total"
+    ]
+  },
+  "inventory": "gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)",
+  "native": {
+    "assertions": 199638,
+    "assertions_failed": 0,
+    "assertions_passed": 199638,
+    "cases": 3059,
+    "cases_failed": 0,
+    "cases_passed": 3059,
+    "skipped": 0
+  },
+  "prefix": "base",
+  "runs": [
+    {
+      "log_sha256": "14f500f06ed67b662b457967a1e08b561a663ebd2ee640d8d6cd7338ccd6f058",
+      "rc": 0,
+      "seconds": 1,
+      "step": "native-build"
+    },
+    {
+      "log_sha256": "425e35e8b9c837b3a6641751252f9a60c0fc587dda184576fbbb599be3a4dc0e",
+      "rc": 0,
+      "seconds": 1,
+      "step": "native-binary"
+    },
+    {
+      "log_sha256": "8a11a69107727c761392f227a143b064b0f15709eeb4414f518dee688b2f7374",
+      "rc": 0,
+      "seconds": 0,
+      "step": "sim-configure"
+    },
+    {
+      "log_sha256": "e2739e398c7bc078ead9ef3b3a224cab655008211123bfba573fcdec91ccd1a4",
+      "rc": 0,
+      "seconds": 33,
+      "step": "sim-build"
+    },
+    {
+      "log_sha256": "d7698925648b63f4c00f30681e262c0eb97f63799f8014fda33b26c7defa2dd1",
+      "rc": 0,
+      "seconds": 53,
+      "step": "corpus"
+    },
+    {
+      "log_sha256": "8688bc649c2fae981ac3590f3af3f2b3ed9ed50915befda7ec13072f4e4298bf",
+      "rc": 0,
+      "seconds": 46,
+      "step": "board-base-1"
+    },
+    {
+      "log_sha256": "ee30dc0c8ae06fe7b2decf4aecc04858e8c4d05e51001a5b05b01ae7cd0c6fb5",
+      "rc": 0,
+      "seconds": 46,
+      "step": "board-base-2"
+    },
+    {
+      "log_sha256": "c780a2163114c99f3a52c187234702b9fa8333433b7c65c1e864a96ee2e21a41",
+      "rc": 0,
+      "seconds": 0,
+      "step": "compare-gateway"
+    },
+    {
+      "log_sha256": "d3419939236185889838b2cfa4b8707ad5c98d284249df7e1d026242d49efa14",
+      "rc": 0,
+      "seconds": 0,
+      "step": "compare-heltec_mobile"
+    },
+    {
+      "log_sha256": "4c1f8b58b4e0d46439e44f1c027f99b866771541199b7d26b273cb6bf85b2194",
+      "rc": 0,
+      "seconds": 162,
+      "step": "warning-census"
+    },
+    {
+      "log_sha256": "c6d499ec5bf5817a69f2ba13acd7001a2e28506c2220aecae1f598165fcb0fa7",
+      "rc": 0,
+      "seconds": 20,
+      "step": "abi"
+    },
+    {
+      "log_sha256": "7db4e27da919f3a7de091052dacf347f42b6c87870f999eca417e62c159b9e89",
+      "rc": 0,
+      "seconds": 390,
+      "step": "firmware-ui"
+    },
+    {
+      "log_sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286",
+      "rc": 0,
+      "seconds": 25,
+      "step": "board-ui"
+    },
+    {
+      "log_sha256": "e34a499ac20c222516470e5b44f78e40e30d39088df3d1c2fe05acc45167d9b9",
+      "rc": 0,
+      "seconds": 888,
+      "step": "discovery"
+    },
+    {
+      "log_sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b",
+      "rc": 0,
+      "seconds": 2,
+      "step": "inventory"
+    }
+  ],
+  "warning_census": "PASS \u2014 6 OLED env(s) match their pinned warning baseline"
+}

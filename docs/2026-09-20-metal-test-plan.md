@@ -45,6 +45,7 @@ Use `OWED`, `PASS <build> <date>`, `FAIL → B###`, `N/A <reason>`, or `RETIRED 
 | [UI-20](#ui-20) | identity-label glyphs, abbreviation and unnamed peers (W4a) | OWED |
 | [UI-21](#ui-21) | Home and My-device rows, name glyphs and list window (W4b) | OWED |
 | [UI-22](#ui-22) | full saved-phrase review, wake/alarm and physical delivery (W6) | OWED |
+| [EDIT-01](#edit-01) | one-button editor: rename and a written message on glass (W7+W8) | OWED |
 | [CUSTODY-01](#custody-01) | static relay failure, persistence and deletion | OWED |
 | [CUSTODY-02](#custody-02) | translated report to the originating mobile | OWED |
 | [CUSTODY-03](#custody-03) | lost correlation and optional re-home | OWED |
@@ -322,6 +323,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 2. Select CREATE: `TEAM CREATED`, full `0x<8HEX>` and its last six digits; `cfg` agrees and actual DAD assigns a local ID. Acknowledge the Home-started flow to Home. ID/key arrivals update its options without choosing an action: a retained selected item stays selected; a vanished one gives item 1 and `OPTIONS CHANGED`, whose next non-wake press only dismisses it.
 3. Power-cycle: team, key and local ID survive; no spurious fresh team-DAD. Export only disposable key material for comparison.
 4. `mobile register freq=<F2> sf=7 bw=125` creates live/persisted divergence. Another OLED create must show `PHY DIFFERS` / `USE SERIAL`, with no team change/DAD. Reboot to restore PHY.
+5. **(W7)** On a genuinely unnamed device (`whoami` has `name=""`), CREATE TEAM after the settings gate admits it shows `NO NAME SET` / ` SET NAME` / `>SKIP`, SKIP selected; a gate refusal shows only its existing note, never the prompt, and a named device goes straight to `CREATE NEW TEAM`. SKIP continues into the step (the gate is asked again). SET NAME opens the name editor (EDIT-01); DISCARD returns to the prompt with SKIP selected; saving `STAN` and acknowledging `NAME SAVED` continues into `CREATE NEW TEAM`, or shows the existing refusal note and returns Home. A deliberate alarm at the prompt returns Home afterwards and drops the setup.
 
 **PASS:** safe BACK, real creation and durable identity, with divergence refused. **STOP:** unrequested creation, false success or loss on reboot.
 
@@ -347,6 +349,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 3. Confirm the row: `TEAM JOINED` and full team ID. The Home-started terminal returns Home; local-ID and key arrivals update its options under the identity/`OPTIONS CHANGED` rule in UI-04. Reboot: membership survives but remains keyless unless the explicit saved-key action in UI-10 was taken. A sealed post is unreadable when keyless.
 4. Your own team is excluded from NEARBY. After the other team is silent for ten minutes it expires from a fresh list; BACK remains usable. Compare five minutes of entering/leaving with idle baseline: no UI query/join traffic until explicit confirmation.
 5. Live PHY divergence yields `PHY DIFFERS` / `USE SERIAL`; reboot restores the intended PHY.
+6. **(W7)** Repeat UI-04 step 5 from JOIN TEAM on an unnamed device: the prompt appears only after the gate admits the step; SKIP or a saved name continues into `NEARBY`.
 
 **PASS:** physical beacon/leaf visibility, frozen display and deliberate durable join agree. **STOP:** unsolicited transmission, wrong team, implicit key activation or a stuck list.
 
@@ -426,6 +429,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 2. Set distinct nonzero coordinates on H1/H2; H2 sends `send <HASH-H1> "<TAG>-geo" -t -a -e -l`. TEAM shows distance/direction. Keep H2 beaconing but send no new position for ten minutes: the row remains, distance/direction become blank.
 3. An uncached peer has blank distance, not `0m`; coincident known positions give `0m` and no direction. Zero own coordinates: no invented vector. Compare idle Home versus TEAM RF baseline: viewing positions sends no location query.
 4. Pick a teammate, remove it and wait for actual roster expiry: no selection marker, complete `TEAMMATE GONE, pick`, double sends nothing. Short re-picks. On a roster reorder, selection follows identity, not row number.
+5. **(W7)** After a real saved rename on the glass (EDIT-01), Home's `ME …` row and My device update without a press. Peers learn the new name at a later key exchange: unpinned peers update, pinned peers may keep the old label. Record that caveat; do not require instant propagation.
 
 **PASS:** time/position and identity on glass match real received evidence. **STOP:** stale vector, fabricated position, extra location traffic or wrong-target send.
 
@@ -448,6 +452,8 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 2. TEAM → teammate → configured `Are you OK?`: open review, short to SEND, double to confirm. One DM, `SENT, waiting`, then `DELIVERED to` with the peer label on its own row only with matching acknowledgement. BACK from either unsent compose or review sends nothing.
 3. Power the peer off; post still reaches SENT, waiting after physical air, then NO RELAY HEARD. An unconfirmed DM ends NO CONFIRM; acknowledge it and send another post successfully.
 4. If a real zero-handle outcome is observed, require `NOT CONFIRMED` / `no send handle`, never SENT. Do not manufacture that arm by merely hiding the peer after a valid handle.
+5. **(W8)** Send EDIT-01's written team message `RETURN TO BASE NOW`, then a written DM. Compare the receiver's `pull_inbox` body bytes, not a command echo; neither carries a location, even with a valid fix. Expect `SENDING...`, possibly `QUEUED`, then `SENT, waiting`, and finally `PICKED UP` or `NO RELAY HEARD` for the post; the DM reads `DELIVERED to` only on a matching ACK. A genuine refusal returns the editor with the exact draft for a fresh review and never resends by itself; a missing ACK is not that case. Acknowledging a final result returns to the list WRITE MESSAGE came from.
+6. **(D19)** On a team member whose team-local ID does not exist yet (UI-17's `ME NO ID` window), a saved team phrase and a written team message both open their review. Explicit SEND shows `NOT SENT` / `NO TEAM ID YET` and nothing airs (compare the RF baseline); acknowledging returns to the phrase list, or to the editor with the draft unlocked. The emergency is exempt.
 
 **PASS:** physical air, acknowledgements, truthful failure text and reusable send path agree. **STOP:** stuck SENDING/QUEUED, false SENT/DELIVERED or duplicate send.
 
@@ -460,6 +466,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 3. Fire again inside the channel interval: USB `BLOCKED channel reason=min_interval — retry in <N> ms`, glass `BLOCKED` / `retry in <n>s` visibly counts down; untouched button, automatic retry at the deadline. A blocked non-airing consumes no attempt.
 4. With zero lat/lon, alarm still arrives without fabricated location. With configured nonzero coordinates, the received alarm contains them. Compare raw receiver records, not a guessed outgoing command echo.
 5. A real relay earns PICKED UP; it does not mean every team member received the message.
+6. **(W7+W8)** Fire deliberately from the name editor, the `SAVE NAME?` review, a message editor, a written review and a written result. The alarm airs exactly as in steps 2–3; no ordinary send or rename happens under the overlay.
 
 **PASS:** hardware gestures produce the bounded real sequence and accurate complete text/location. **STOP:** shortened dark-screen safety hold, false confirmation, extra attempt or missed automatic retry.
 
@@ -472,6 +479,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 3. Press immediately while a terminal frame is still painting: it is not dismissed unseen. After blanking, first short wakes the retained outcome; next short may acknowledge.
 4. With an alarm retained and panel dark, a teammate's team-channel post wakes to REPLY with the posted text; a stranger's unsealed post must not. A direct DM is not emergency confirmation. This proves the **current same-team-post inference**, not an authenticated reply bound to the alarm (B118 remains open).
 5. Time retention against `kEmgHoldMs` read from source; a new reply starts its own hold. Local terminal outcomes alone do not widen the owner-ruled wake policy. Scope the bus as in UI-01: no repeated I²C while blank.
+6. **(W7+W8)** After each UI-16 step-6 alarm: an open editor keeps its ring position; a review or an unsaved result returns to the editor on its first group with the draft, and needs a fresh approval; a saved name is not undone, and a setup-origin `NAME SAVED` returns Home. A queued written request is withdrawn — claim that arm only if that exact state was observed, otherwise it stays with the automated proof. A saved phrase's owed request keeps its existing behaviour.
 
 **PASS:** physical pre-emption, identity isolation, readable outcomes and scoped wake behave as stated. **STOP:** hidden send, unseen dismissal, unrelated result treated as confirmation or stranger reply/wake.
 
@@ -492,6 +500,7 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 1. Flash an identified `gateway_heltec` or `gateway_heltec_v4` image. Rail has Home/INBOX/SETTINGS at the same heights, with TEAM/SEND slots empty; house strip slot is blank, not a fault icon. Home's items are exactly `INBOX` / `MY DEVICE` / `MENU` (INBOX may carry its unread count); its team line is blank.
 2. SETTINGS has no PROVISION row. `joinprofile list` → `> err gateway_build (joinprofile is normal-node only)`.
 3. Confirm ordinary navigation/blank/wake and a real radio receive after the profile change.
+4. **(W7)** MY DEVICE offers ` CHANGE NAME >BACK`; a rename works as in EDIT-01 steps 1–2. There is no JOIN/CREATE and so no name prompt.
 
 **PASS:** physical display matches the compiled feature profile. **STOP:** phantom team actions, shifted rail or lost radio service.
 
@@ -530,6 +539,19 @@ Fixture: a separately labelled, reviewed clock/debugger setup that can hold a co
 6. Repeat the glass portion on V. Restore the saved catalog and team fixture. Location acceptance and absent-fix semantics remain those of UI-16 and DM-01; `LOC` declares the phrase's request, not a promise of a current fix.
 
 **PASS:** every phrase byte is inspectable on the real panel, safe selection survives wake/hold, and only deliberate review confirmation delivers one complete ordinary body on air. **STOP:** invisible/clipped suffix, spontaneous send, clipped/missing page glyphs, alarm crossover or wrong recipient/body. Host render and send-line proofs do not qualify these physical observations.
+
+<a id="edit-01"></a>
+
+### EDIT-01 — one-button editor: rename and a written message on glass (W7+W8)
+
+1. On H1 and V record the current name. Home → MY DEVICE: row 4 reads ` CHANGE NAME >BACK` with BACK selected; a short toggles and never leaves, and a double on BACK returns Home on MY DEVICE. Select CHANGE NAME: the editor opens on its first group (`>ABCDEF GHIJKL` / ` MNOPQR STUVWX`); the current name is preloaded only if every byte is in the 42-byte repertoire, otherwise the draft is empty.
+2. An uncoached user types `STAN`, makes one mistake and corrects it with DEL. Observe `_` for SPACE in the ring rows with `ADD SPACE`, `BACK TO GROUPS` on a character ring's BACK, and the 6×1 cursor underline one pixel below the next empty cell. Row 0 reads `NAME           4/32`. DONE opens `SAVE NAME?` / `STAN` / (blank) / `WAS <old name, » past 15 cells>` or `WAS NO NAME SET` / ` SAVE >EDIT`, EDIT selected. Short, then double: `NAME SAVED` / `press = back`; acknowledging returns to My device showing `STAN`. `whoami` shows `name="STAN"`; reboot and confirm it persists (USB-BLE-03 keeps the storage obligation).
+3. Open the editor, add one byte, go to DISCARD: `DISCARD DRAFT?` over the first 19 bytes with `>BACK` / ` DISCARD`. BACK returns to DEL; DISCARD clears the draft and returns to My device with BACK selected.
+4. At 32 bytes the next insertion shows `FULL` alone on row 0 (the counter hidden) and writes nothing; DONE on an all-space draft shows `EMPTY`. The next lit press clears the note and still acts; the first press on a dark panel only wakes it.
+5. SEND → `WRITE MESSAGE` (after the phrases, before MENU) → type `RETURN TO BASE NOW` (18 bytes) with one corrected byte: both grid rows show every byte and the cursor sits on the next cell; the header reads `TO TEAM      18/163`. DONE opens `TO TEAM <ID8>` / the wrapped text / ` SEND >EDIT     1/1`, EDIT selected, no LOC. From TEAM → a teammate, `WRITE MESSAGE` sits after the DM phrases and before GRANT KEY when offered; the editor header is `TO <label of at most 8 cells, » included>` with the counter, and the review reads `TO <label ≤ 7> <HASH8>`, or `TO T<n> UNVERIFIED`.
+6. Record gesture counts, elapsed time, accidental doubles and accidental arms. Send only on the controlled bench; UI-15 carries the delivery.
+
+**PASS:** the real button, font and cursor make every step legible and deliberate, and the name persists. **STOP:** an unreadable or misplaced cursor, a clipped header or note, a save or send without the review, or a lost draft. Host renders and the scripted rename do not qualify these physical observations.
 
 ## Custody over real radios
 
@@ -758,6 +780,7 @@ Scratch ACCEPT target with local restart access; finish other target tests first
 3. On separate headless boots test short-button wake and a received DM while dark. Final `status` records positive `slept`, button `wk_gpio` and radio `wk_ext1` respectively; ACK/received message alone does not prove the radio wake edge.
 4. Reset controls: `reboot` inside boot grace, hold only as application banner starts; then another boot that demonstrably slept, final status read, reboot and hold as banner starts, three repeats. Both complete without panic. Holding GPIO0 **during reset sampling** may enter loader: release and reset to recover.
 5. Repaint changes complete well under 250 ms while exchanges continue; after blanking sleep resumes. Final `wkarmfail=0`, `wkdisarm=0`; record `wkbusy`/`wksleepfail`, which may legitimately be nonzero. If `!! OLED button wake unavailable; sleep disabled` or `!! OLED button wake stuck armed; sleep disabled` appears, sleep must stay disabled for that boot and the line must not flood.
+6. **(W7+W8)** On a headless boot, type a long message across the editor's two-row window; let the panel blank, wake it with a short, and repeat with a received DM. The first press only wakes; the cursor, ring and draft survive; no ring action happens unseen, and the underline stays within the two visible rows. A blanked editor still lets idle sleep resume.
 
 **PASS:** separately observed wake sources, repeated holds/resets and resumed sleep without fault records. **STOP:** watchdog/panic, false sleep measurement, loss of either wake source or sleep despite fail-closed diagnostic.
 

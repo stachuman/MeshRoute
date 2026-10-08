@@ -1,0 +1,43 @@
+{
+ "compared": [
+  "head",
+  "simulator",
+  "staged",
+  "brief",
+  "fence",
+  "new_fence",
+  "readonly",
+  "preparation",
+  "git_diff_check",
+  "inventory.*.changed",
+  "inventory.*.new_hashes",
+  "inventory.*.unexplained_changed",
+  "inventory.*.unexplained_new",
+  "inventory.*.missing"
+ ],
+ "differences": [],
+ "end_verdict": "PASS",
+ "fence": {
+  "src/firmware_ui.cpp": "5f37785391d681fe05b5718c34fc56606ff0bab77b704bf20ea29155badfd323",
+  "src/firmware_ui_chrome.h": "435ca5ff97e3ef5cee148b3b25193ea77e6a43a09a0cdd4d271466743e1b51bc",
+  "src/firmware_ui_model.h": "0355c83ccf3a5d0680b76ddafe97bd7bc0e025e61bae29076c1098a37f150479",
+  "src/firmware_ui_send.h": "20b7d504fd98972de464e820101136f4e2d137fb4d8899922fea3926e0b401d0",
+  "test/test_firmware_ui_chrome.cpp": "e5e2fa4b5e76a9452a532ed0d6c80b86c930f480a96251e371388afc34d3939b",
+  "test/test_firmware_ui_model.cpp": "d013efc25900a7c78d35f5b820cf1bc83dc6d6a9179200d14880997ff13f212f",
+  "test/test_firmware_ui_presets.cpp": "9d7f5e8949cb4c7f3cdcf85b0296ddd9f16d679d5fae7cfc5f0d2da13b352ff6",
+  "test/test_firmware_ui_send.cpp": "c0e2492a9a14e20e0bcae8cbca1ed0c563b1d51c1360922c713c3672c99eec48",
+  "tools/probe_board_abi.py": "6aae6ca35dae515dc8794367977befbbfeabd105076498f687e288a1c9ee762c",
+  "tools/probe_board_ui/accounting.py": "2a23f7521805f38c6a48cd24008cd9eeeac1e8ad7b0b2aa8e3a85e38398f1e09",
+  "tools/probe_board_ui/expected.tsv": "f294cf1a5ccabdec04286b434e89f6eec68e38acadf2e24a54c7b8ec498aa004",
+  "tools/probe_board_ui/run.sh": "6903a42bb9f341204038f40f8e848290d43c6d9e54d58b68803ff1e2c3d01071",
+  "tools/probe_firmware_ui/probe_main.cpp": "20927ee3cdb30d0236768a81dd756908bc716aa91e39b3a043891233a0f62a79",
+  "tools/probe_firmware_ui/run.sh": "2587c0ab4b5e665b070f46a0ca378913b28dc21a009da620c8d5232eb243dd52",
+  "tools/probe_ui_model_mutations.py": "f8285aa249bf8c2211286a9cc21c336ce3dc88e8af67eb954c550341e558b693"
+ },
+ "new_fence": {
+  "src/firmware_ui_editor.h": "c197a80c792b7dc72dab47a238b60e0bbd6088155f2eaa3299e4337fa6b02c4f",
+  "test/test_firmware_ui_editor.cpp": "d99819f46354adb4c08d84e8c1faeaddb78602e20d2b255a85651fc4f94aedf9"
+ },
+ "start_verdict": "PASS",
+ "verdict": "PASS"
+}

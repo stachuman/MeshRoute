@@ -1,0 +1,134 @@
+{
+ "chain": "return §4.1 final chain on one freeze (brief r4 4e696166…c06d); every step exit 0",
+ "steps": [
+  {
+   "step": "00-stability-start",
+   "exit": 0,
+   "seconds": 1
+  },
+  {
+   "step": "01-scope",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "02-syntax",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "03a-part-a-regressions",
+   "exit": 0,
+   "seconds": 10
+  },
+  {
+   "step": "03b-selftest",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "03c-part-a-evidence",
+   "exit": 0,
+   "seconds": 13
+  },
+  {
+   "step": "04-w4aident-default",
+   "exit": 0,
+   "seconds": 366
+  },
+  {
+   "step": "04s-w4aident-default-summary",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "05-w4aident-w1",
+   "exit": 0,
+   "seconds": 52
+  },
+  {
+   "step": "05s-w4aident-w1-summary",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "06-transcript-stock",
+   "exit": 0,
+   "seconds": 152
+  },
+  {
+   "step": "07-part-b-regressions",
+   "exit": 0,
+   "seconds": 66
+  },
+  {
+   "step": "08-discovery",
+   "exit": 0,
+   "seconds": 887
+  },
+  {
+   "step": "09-inventory",
+   "exit": 0,
+   "seconds": 2
+  },
+  {
+   "step": "10a-census",
+   "exit": 0,
+   "seconds": 1
+  },
+  {
+   "step": "10b-census-delta",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "11-reader-audit",
+   "exit": 0,
+   "seconds": 0
+  },
+  {
+   "step": "12-stability-end",
+   "exit": 0,
+   "seconds": 0
+  }
+ ],
+ "part_a_cases": {
+  "ran": 24,
+  "result": "OK"
+ },
+ "selftest": "SELFTEST OK — build and run failures are told apart and retained",
+ "part_b_cases": {
+  "ran": 24,
+  "result": "OK"
+ },
+ "discovery": {
+  "ran": 447,
+  "result": "OK",
+  "derivation": "406 baseline + 17 (test_mutation_unusable_reason.py 7 -> 24) + 24 (test_probe_inbox_transcript.py: 21 at round 1, 24 since round 2's B491 cases) = 447; no case added this round"
+ },
+ "inventory": "gen_command_inventory: PASS: /home/staszek/MeshRoute/docs/superpowers/evidence/2026-09-04-radmin-command-inventory.md matches fresh generation byte-for-byte (197 command rows)",
+ "census": "batteries=109 entries=1963 target_files=62 muts_lists=109 unreferenced=[] pins=['3059', '199638'] worker={'_WORKERS_CAP': '8', '_WORKERS_RESERVED_CORES': '2', '",
+ "census_delta": "IDENTICAL except F07's replacement string | [('MUTS_W4AIDENT', 'F07', 'replacement')] | pattern matches 1",
+ "w4aident": {
+  "default": [
+   "exit 0; baseline [3059, 199638, 0] x8; F01:RED(39) F02:RED(169) F03:RED(36) F04:RED(4) F05:RED(4) F06:RED(25) F07:RED(13) F08:RED(6) F09:RED(23); workers 8; tally {'red': 9, 'unusable': 0, 'note': ''}",
+   "MATCHES: eight baseline counts + F07 = 13"
+  ],
+  "workers_1": [
+   "exit 0; baseline [3059, 199638, 0] x1; F01:RED(39) F02:RED(169) F03:RED(36) F04:RED(4) F05:RED(4) F06:RED(25) F07:RED(13) F08:RED(6) F09:RED(23); workers 1; tally {'red': 9, 'unusable': 0, 'note': ''}",
+   "MATCHES: eight baseline counts + F07 = 13"
+  ]
+ },
+ "stability": {
+  "start": "2393 frozen inputs hashed; simulator 6585649 clean",
+  "end": [
+   "2393 frozen inputs hashed; simulator 6585649 clean",
+   "STABLE — no input changed during the chain"
+  ]
+ },
+ "scope": [
+  "  folders: precheck 16 OK; review 12 OK; rereview 5 OK; round1 24 OK; round2 8 OK; gate 29 OK; r3-review 16 OK; r4-rereview (QA addition after the brief) 8 OK",
+  "  meshroute: inventoried 2267, changed ['MEMORY.md', 'docs/2026-07-30-open-bug-register.md', 'tools/probe_inbox_verbs/transcript.py', 'tools/probe_inbox_verbs/transcript_main.cpp', 'tools/probe_ui_model_mutations.py', 'tools/test_mutation_unusable_reason.py', 'tracker.md'], unexplained [], missing []; new 146, unexplained []",
+  "SCOPE PASS []"
+ ]
+}

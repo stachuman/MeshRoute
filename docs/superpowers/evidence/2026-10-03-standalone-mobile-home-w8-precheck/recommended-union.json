@@ -1,0 +1,49 @@
+{
+  "selector_a": {
+    "model": 264,
+    "chrome": 48,
+    "uisend": 26,
+    "sliceCbudget": 1,
+    "sliceCsend": 1,
+    "w4aident": 9,
+    "w4bhome": 26
+  },
+  "selector_b": {
+    "uistatus": 19,
+    "uiteam": 20,
+    "uiinvite": 32,
+    "uiprov": 45,
+    "uijoin": 26,
+    "uipresets": 39,
+    "config": 32,
+    "consoleline": 12
+  },
+  "union": [
+    "model",
+    "chrome",
+    "uisend",
+    "sliceCbudget",
+    "sliceCsend",
+    "w4aident",
+    "w4bhome",
+    "uistatus",
+    "uiteam",
+    "uiinvite",
+    "uiprov",
+    "uijoin",
+    "uipresets",
+    "config",
+    "consoleline"
+  ],
+  "configured_before_new_entries": 600,
+  "new_entries": {
+    "model_B480": 1,
+    "uieditor": "author-set minimum plus all caller/interrupt/lifetime controls",
+    "uisend": "new kind/scoped-gate/composer/correlation controls"
+  },
+  "excluded_candidates": {
+    "devicenv": "No device_nv/catalog mutation in W7+W8; W6/W0 real identity service remains read-only.",
+    "teamkeyring": "No keyring mutation; grants retain existing outcome path.",
+    "provservice": "Config/provision transaction implementation unchanged; uiprov/uijoin/config cover new callers and origin integration."
+  }
+}

@@ -1,0 +1,21 @@
+{
+ "diff": {
+  "meshroute": {
+   "changed": [],
+   "added": [],
+   "removed": [],
+   "head_equal": true,
+   "status_equal": true,
+   "files": 2612
+  },
+  "simulator": {
+   "changed": [],
+   "added": [],
+   "removed": [],
+   "head_equal": true,
+   "status_equal": true,
+   "files": 285
+  }
+ },
+ "verdict": "PASS"
+}

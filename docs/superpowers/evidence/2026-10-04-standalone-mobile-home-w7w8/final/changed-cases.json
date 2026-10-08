@@ -1,0 +1,400 @@
+{
+ "test/test_firmware_ui_model.cpp": {
+  "changed": [
+   {
+    "case": "ui-model: sub-view: `back` leaves without sending",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui-model: the channel list's last row is `back` — MENU since W4b — and sends nothing",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui-model: the compose cursor wraps within the list, so `back` is always reachable",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui-model: the model's declared bounds are the ones the spec fixed",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui7-B66: `back, don't send` is the derived LAST row of every compose list, at every catalog size",
+    "checks_removed": 1,
+    "checks_added": 4
+   },
+   {
+    "case": "ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserves the packed invite layout",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row and opens the chain with the ROW'S hash",
+    "checks_removed": 5,
+    "checks_added": 6
+   },
+   {
+    "case": "ui16-k7-self: pin 5 — the SELF row offers nothing, and the core's own `self` arm is driven from here",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui16-k7-keyless: pin 6 — a KEYLESS node offers nothing, and neither does a build that cannot grant",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and the published identity costs ZERO",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both land in EXISTING padding",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui16-k6-resources: the retention carriers cost exactly themselves, and NO landed field moved",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui10-p3-slot: a disabled slot is never rendered, and eight enabled slots all scroll into the list",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui10-p3-row: every PRESET row shows `L` or `-`, and the action rows show neither",
+    "checks_removed": 1,
+    "checks_added": 3
+   },
+   {
+    "case": "ui10-p3-r1: with the COMPILED catalog the DM list is index-for-index the one K7 landed against",
+    "checks_removed": 6,
+    "checks_added": 8
+   },
+   {
+    "case": "ui10-p3-resources: the list projection costs 328 B of UiSnapshot and ZERO of UiState",
+    "checks_removed": 3,
+    "checks_added": 3
+   },
+   {
+    "case": "w4b-menu: the MENU row of every top-level list lands in MENU MODE on the HOME slot; double enters item 1",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "w4b-wrap: list focus WRAPS on every top-level list — Settings included — and never leaves the screen",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "w4b-send: the Send list's labels — PRESET CHANGED on item 1 while noted, MENU for the exit row, else compose's",
+    "checks_removed": 3,
+    "checks_added": 4
+   },
+   {
+    "case": "w4b-resources: the owner-ruled shape — HomeCapture 9, UiState 568, UiSnapshot 1368, UiModel 1016",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "w6-review: row 0 names the destination — team, a verified DM (name ≤ 7 + hash), or UNVERIFIED",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "w6-race: a KNOWN recipient re-keyed or unbound closes with RECIPIENT CHANGED; a removed one -> TEAMMATE GONE",
+    "checks_removed": 1,
+    "checks_added": 1
+   }
+  ],
+  "retitled_or_retired": [
+   "ui-model: a compose send cannot overwrite a queued alarm",
+   "ui10-p3-empty: a catalog with no enabled slots shows the note and offers only `back`",
+   "w4b-items: MY DEVICE — short stays on its one BACK row, double returns Home ON MY DEVICE",
+   "w4b-send: with NO phrases, PRESET CHANGED covers the Send list's MENU row for ONE press (design r2.22 §6.5)"
+  ],
+  "added": [
+   "ui-model: under the alarm overlay the compose gestures are ABSORBED, and the queued alarm is kept",
+   "ui10-p3-empty: a catalog with no enabled slots shows the note and offers WRITE MESSAGE and `back`",
+   "w4b-items: MY DEVICE — a short toggles CHANGE NAME / BACK and never leaves; double on BACK returns ON MY DEVICE",
+   "w4b-send: with NO phrases, PRESET CHANGED covers the Send list's item 1 (WRITE MESSAGE) for ONE press",
+   "w7-name: CHANGE NAME opens the editor PRELOADED, all or nothing; origin my_device; cap 32",
+   "w7-name: DONE opens SAVE NAME? — the name on rows 1-2, WAS from THIS tick, EDIT selected, a new draft_id",
+   "w7-name: WAS reads NO NAME SET for an unnamed device; a 32-byte name fills rows 1-2 as 19 + 13",
+   "w7-save: SAVE raises ONE request, taken ONCE as the counted draft; NAME SAVED releases and returns to My device",
+   "w7-save: every NOT SAVED answer keeps the draft and returns to the editor on group 1 — no retry",
+   "w7-name: DISCARD from My device leaves the old name untouched — confirmed when the draft holds bytes",
+   "w7-prompt: an UNNAMED Home JOIN/CREATE is admitted FIRST, then asked — NO NAME SET / SET NAME / >SKIP",
+   "w7-prompt: a BLOCKED gate shows its note BEFORE any name is asked; a gate that refuses at SKIP shows it then",
+   "w7-prompt: SET NAME -> NAME SAVED continues into the chosen step after the gate; DISCARD returns to the prompt",
+   "w7-prompt: long_fire at the prompt returns HOME after the alarm and the pending setup is DROPPED",
+   "w7-interrupt: the editor (E1-E4) survives blank, wake, receive and every alarm gesture with its ring",
+   "w7-interrupt: the name REVIEW resets to EDIT on blank and long_arm; long_fire closes it to the editor",
+   "w7-interrupt: long_fire on a RESULT — saved releases (My device / Home by origin), not saved keeps the editor",
+   "w7-interrupt: the PROMPT, the name REVIEW and its RESULT ride blank, wake, receive and arm/cancel; blanked, each lets the device sleep",
+   "w7-name: a GATEWAY (no team plane) renames from My device; it has no JOIN/CREATE and so no prompt",
+   "w7-rows: My device's action row is ` CHANGE NAME >BACK` (18 columns), BACK first"
+  ]
+ },
+ "test/test_firmware_ui_send.cpp": {
+  "changed": [
+   {
+    "case": "ui-frame: F2 — W6: an Inbox frame under an open phrase REVIEW reads nothing",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui7-line: a DM is `send <id> \\\"<text>\\\" -t -a` — the id, the plane and the ack, exactly",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-line: the second DM text is the second STABLE SLOT, not an off-by-one",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-line: a canned channel post is `send_channel <ch> \\\"<text>\\\" -t -e`",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-line: the EMERGENCY carries -l only WITH a fix; without one it still goes out",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui10-p3-emergency: `loc=off` on the emergency slot means NO `-l`, fix or no fix (R-2 row 1)",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui10-p3-emergency: the alarm's body is the CATALOG's emergency phrase, not a compiled string",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui10-p3-loc: a `loc=on` DM and channel preset compose `-l`, ALWAYS — no fix, no key, no downgrade",
+    "checks_removed": 2,
+    "checks_added": 2
+   },
+   {
+    "case": "ui7-line: a DISABLED slot, an out-of-range slot and an empty row all REFUSE to compose",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "ui7-line: truncation is a REFUSAL, never a short send (C2)",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-line: kSendLineCap fits every line either verb can produce, at the widest id and channel",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "w6-line: kSendLineCap is the derived 199, and a 163-byte phrase composes WHOLE for every kind and fix state",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "w6-gate: team and (known) recipient are asked at execution — typed refusals, zero submission, alarm exempt",
+    "checks_removed": 13,
+    "checks_added": 13
+   },
+   {
+    "case": "ui7-send: an ACCEPTED emergency spends exactly one attempt and holds its handle",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-send: `queued` with ctr==0 spends NO attempt here — the bounded expiry does",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-send: an err_* result lands the alarm in FAILED and carries the CmdCode verbatim",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-send: a line that never PARSED is `parser`, and no code is claimed for it",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-send: a request the composer refuses NEVER reaches the executor",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui10-p3-freeze: a stale request costs ZERO exec calls, ZERO tracker slots, and says PRESET CHANGED",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui10-p3-freeze: an alarm SENDS through a catalog mutation, and reads the NEW emergency phrase",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the alarm slot stays untouched",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle, and moves neither DM nor alarm",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-B113 CONTROL: accepting a DM or an ALARM must never move the canned-channel state",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-B113: `waiting` means WE HOLD A HANDLE — a ctr-less canned post must not reach it",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-slot: a late_ack slot is released once the sub-view has closed",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-slot: an UNANSWERED late_ack slot is released once the sub-view has gone, or the device is bricked",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3` -> `3 of 3`",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-b115: a ctr==0 attempt still reads `1 of 3`, never `0 of 3`",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by exactly one attempt",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui7-b115: a blocked-then-retried alarm still reads `1 of 3` — a block spends nothing",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NOT close the slot",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor peer may be approximated)",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, above 255 (§b40)",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui-T3-c: an EMERGENCY send_aired changes NOTHING and RETAINS the slot; its channel_sent still lands",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui-T3-c: an EMERGENCY airing must not relabel a coincident canned post",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui16-route: team_key_grant_failed reaches the verdict, and a UI slot's generic push stays its own",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui10-p3-loc: a located CHANNEL preset with no fix ISSUES `-l` and reports the core's refusal",
+    "checks_removed": 0,
+    "checks_added": 0
+   },
+   {
+    "case": "ui10-p3-loc: a located DM preset keeps `send <id> … -t -a -l` and reports the unsealed refusal",
+    "checks_removed": 0,
+    "checks_added": 0
+   }
+  ],
+  "retitled_or_retired": [],
+  "added": [
+   "w8-entry: WRITE MESSAGE on the Send list opens a TEAM editor bound to the live team — cap 163, no catalog",
+   "w8-entry: WRITE MESSAGE for a person binds ID, known bit and hash ONCE; the label is the FULL name at 8 columns",
+   "w8-entry: an UNVERIFIED person (no resolver answer) is labelled T<n>; a known ZERO hash stays KNOWN",
+   "w8-review: DONE freezes a new draft_id; the review is TO TEAM <ID8>, word-wrapped, ` SEND >EDIT     n/m`",
+   "w8-review: a DM review reads TO <label ≤7> <HASH8>; an unverified one TO T<n> UNVERIFIED",
+   "w8-review: 163 bytes wrap into ≤ 6 pages, every byte kept, the pages turn on TIME only and never send",
+   "w8-send: SEND locks the draft and queues the BOUND request whole; execution reads it ONCE — no -l, real parser",
+   "w8-result: accepted FINAL → back to the list WRITE came from (arrow on WRITE), released, tracker closed ONCE",
+   "w8-result: accepted OPEN → the view closes and tracking ends (the declared residual); a later outcome is ignored",
+   "w8-result: a ctr==0 acceptance is ACCEPTED, OPEN — no attempt spent, no emergency counter moved",
+   "w8-refused: every KNOWN-REFUSED path returns to the editor UNLOCKED with the same bytes — nothing re-submitted",
+   "w8-refused: the written result shows ITS OWN reason — an alarm's later refusal cannot re-describe it",
+   "w8-busy: SEND over an owed ordinary request queues NOTHING — BUSY owns row 0 until the next press, which acts",
+   "w8-gate: each kind asks only its questions — written: draft, team, recipient; never the catalog",
+   "w8-d19: BEFORE the team-local ID — a team PHRASE and a WRITTEN team post both OPEN their review; SEND is refused",
+   "w8-d19: the ID LOST between the review and the drain is refused at execution; WITH an ID it sends; the alarm is exempt",
+   "w8-classify: all 18 SendFailReason values — known-not-aired returns the draft, may-have-aired releases it",
+   "w8-classify: NO CONFIRM may still upgrade to DELIVERED while the view is open; a QUEUED request ignores an older verdict",
+   "w8-withdraw: long_fire withdraws ONLY a pending WRITTEN request — the alarm drains first, a phrase stays owed",
+   "w8-fire: long_fire keeps the editor (E1-E4), closes the review to the editor, returns a refused result to it",
+   "w8-binding: a team change raises TEAM CHANGED once; DONE re-shows it and opens nothing; nothing re-binds",
+   "w8-binding: a re-keyed recipient closes the REVIEW to the editor with RECIPIENT CHANGED, the draft kept",
+   "w8-trackers: dm_text is DM-shaped (ctr AND peer), channel_text is channel-shaped — one family classification",
+   "w8-composer: empty, all-space, 17/18, 163, 164 and a too-small line — the written forms, byte for byte",
+   "w8-resources: D16 + D18 exactly — the draft 176, the descriptor 10, the record 4; SendReq 20 with draft_id APPENDED",
+   "w8-binding: the written review's CAPTURE validates the binding against the LIVE answers — a race refuses to the editor",
+   "w8-interrupt: the written REVIEW keeps its page in the dark (the both-due tick too) on EDIT; receive, wake and arm/cancel never act",
+   "w8-interrupt: the written EDITOR and RESULT ride blank, wake, receive and arm/cancel; blanked, each lets the device sleep",
+   "w8-interrupt: millis() WRAP — the editor's blank and the written review's cadence ride across 2^32",
+   "w8-result: NO CONFIRM keeps the late-ACK slot while shown; acknowledged back to the list, the pump closes it ONCE"
+  ]
+ },
+ "test/test_firmware_ui_chrome.cpp": {
+  "changed": [
+   {
+    "case": "chrome-nav: a REAL outcome landing on a live compose modal leaves the rail on SEND",
+    "checks_removed": 1,
+    "checks_added": 1
+   }
+  ],
+  "retitled_or_retired": [],
+  "added": [
+   "w7w8-chrome: the name flow and the prompt box STATUS; written messages box SEND (DM ones too); alarm first"
+  ]
+ },
+ "test/test_firmware_ui_presets.cpp": {
+  "changed": [
+   {
+    "case": "ui10-p1-defaults: THE DRIFT FENCE IS DISCHARGED — the compiled defaults ARE what the panel projects",
+    "checks_removed": 1,
+    "checks_added": 1
+   },
+   {
+    "case": "w6-v1: at boot an old v1 record runs the DEFAULTS, says so, and writes NOTHING — at EVERY boot",
+    "checks_removed": 1,
+    "checks_added": 1
+   }
+  ],
+  "retitled_or_retired": [],
+  "added": []
+ }
+}

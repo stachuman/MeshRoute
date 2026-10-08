@@ -1,0 +1,71 @@
+{
+ "pattern": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - 1);",
+ "new_replacement": "        const uint8_t keep = (len <= cols) ? len : uint8_t(cols - (cap > std::size_t(cols) + 1u ? 0u : 1u));",
+ "old_replacement": "        const uint8_t keep = (len <= cols) ? len : cols;",
+ "arms": {
+  "clean": {
+   "header_sha256": "6ec20c82a720a09afe01afc847f8aba9433b0cbe8a656e2c555fc88fcccb61cf",
+   "exit": 0,
+   "stderr": "",
+   "arm": "clean",
+   "calls": 106722,
+   "cap0_touched": 0,
+   "positive_cap_without_nul": 0,
+   "calls_writing_outside_capacity": 0,
+   "bytes_outside": 0,
+   "max_bytes_past_capacity": 0,
+   "first": [
+    "",
+    "",
+    ""
+   ]
+  },
+  "new_f07": {
+   "header_sha256": "39402c91f2b3701e47461a953c462d9de4ab20460fb56e4f7a8ad9d8a744d2e7",
+   "exit": 0,
+   "stderr": "",
+   "arm": "new_f07",
+   "calls": 106722,
+   "cap0_touched": 0,
+   "positive_cap_without_nul": 0,
+   "calls_writing_outside_capacity": 0,
+   "bytes_outside": 0,
+   "max_bytes_past_capacity": 0,
+   "first": [
+    "",
+    "",
+    ""
+   ],
+   "calls_differing_from_clean": 35712,
+   "differing_calls_rule": {
+    "len > cols >= 1 and cap >= cols + 2": 35712,
+    "len > cols >= 1 and cap == cols + 1": 0,
+    "other": 0
+   }
+  },
+  "old_f07": {
+   "header_sha256": "0e775b220c24e317b7129ecc8ac6bd0dd0c89b0315ef5b3f81e8b64894ddeaab",
+   "exit": 0,
+   "stderr": "",
+   "arm": "old_f07",
+   "calls": 106722,
+   "cap0_touched": 0,
+   "positive_cap_without_nul": 992,
+   "calls_writing_outside_capacity": 992,
+   "bytes_outside": 992,
+   "max_bytes_past_capacity": 1,
+   "first": [
+    "len=2 cols=1 cap=2 hash=00000000",
+    "len=3 cols=1 cap=2 hash=00000000",
+    "len=3 cols=2 cap=3 hash=00000000"
+   ],
+   "calls_differing_from_clean": 36704,
+   "differing_calls_rule": {
+    "len > cols >= 1 and cap >= cols + 2": 35712,
+    "len > cols >= 1 and cap == cols + 1": 992,
+    "other": 0
+   }
+  }
+ },
+ "verdict": "PASS \u2014 clean and new F07 never touch capacity 0 and always leave a NUL inside a positive capacity with nothing outside it changed; the old F07 shows its out-of-capacity writes"
+}

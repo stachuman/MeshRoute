@@ -1,0 +1,335 @@
+{
+ "prefix": "final",
+ "expected_floor": [
+  "3123",
+  "203168",
+  "0"
+ ],
+ "batteries": 16,
+ "entries": 674,
+ "red": 674,
+ "rows": [
+  {
+   "selector": "selector_a",
+   "battery": "model",
+   "entries": 297,
+   "red": 297,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_a",
+   "battery": "chrome",
+   "entries": 50,
+   "red": 50,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_a",
+   "battery": "uisend",
+   "entries": 40,
+   "red": 40,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_a",
+   "battery": "sliceCbudget",
+   "entries": 1,
+   "red": 1,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 2,
+   "ok": true
+  },
+  {
+   "selector": "selector_a",
+   "battery": "sliceCsend",
+   "entries": 1,
+   "red": 1,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 2,
+   "ok": true
+  },
+  {
+   "selector": "selector_a",
+   "battery": "w4aident",
+   "entries": 9,
+   "red": 9,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_a",
+   "battery": "w4bhome",
+   "entries": 26,
+   "red": 26,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "uistatus",
+   "entries": 19,
+   "red": 19,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "uiteam",
+   "entries": 20,
+   "red": 20,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "uiinvite",
+   "entries": 32,
+   "red": 32,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "uiprov",
+   "entries": 45,
+   "red": 45,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "uijoin",
+   "entries": 26,
+   "red": 26,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "uipresets",
+   "entries": 39,
+   "red": 39,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "config",
+   "entries": 32,
+   "red": 32,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "selector_b",
+   "battery": "consoleline",
+   "entries": 12,
+   "red": 12,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  },
+  {
+   "selector": "new",
+   "battery": "uieditor",
+   "entries": 25,
+   "red": 25,
+   "unusable": 0,
+   "in_full": true,
+   "fail_lines": [],
+   "stale_pin": false,
+   "worker_baselines": [
+    [
+     "3123",
+     "203168",
+     "0"
+    ]
+   ],
+   "tree_untouched": true,
+   "workers_restored": 16,
+   "ok": true
+  }
+ ],
+ "failures": [],
+ "verdict": "PASS"
+}

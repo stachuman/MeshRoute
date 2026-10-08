@@ -1,0 +1,207 @@
+{
+ "qualification_fields": 66,
+ "envs": {
+  "gateway": {
+   "qa_measurements": {
+    "flash_bytes": 572096,
+    "loadable_sections": {
+     ".ARM.exidx": 8,
+     ".data": 980,
+     ".text": 571108
+    },
+    "object_count": 285,
+    "ram_bytes": 203740,
+    "symbol_count": 6599,
+    "symbol_size_total": 752460,
+    "symbols_sha256": "024d9893fb49caec1cd0f5827303732a210f27823e92cb6369d69b2a85120227"
+   },
+   "qa_payload": {
+    "bytes": 1609250,
+    "filename": "firmware.hex",
+    "sha256": "7fa27c2b884cf4b4b9869b3c9937ef264e40cd9369c5926c006aaf64f3fb837d"
+   },
+   "final-1": {
+    "qualification_mismatches": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "provenance": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "non_provenance": [],
+    "all_differing_leaves": [
+     "normal_pio_metadata.sha256",
+     "source.file_count",
+     "source.git_status_sha256",
+     "source.tree_sha256"
+    ],
+    "ref_source": {
+     "deleted_files": [],
+     "file_count": 2587,
+     "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+     "git_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+     "tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a"
+    },
+    "ref_normal_pio_metadata": {
+     "entry_count": 10252,
+     "exists": true,
+     "sha256": "7a46acddc2a9b9e482c7dd8c58544cbb3810551aef85311032b794cccc816d02"
+    }
+   },
+   "final-2": {
+    "qualification_mismatches": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "provenance": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "non_provenance": [],
+    "all_differing_leaves": [
+     "normal_pio_metadata.sha256",
+     "source.file_count",
+     "source.git_status_sha256",
+     "source.tree_sha256"
+    ],
+    "ref_source": {
+     "deleted_files": [],
+     "file_count": 2587,
+     "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+     "git_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+     "tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a"
+    },
+    "ref_normal_pio_metadata": {
+     "entry_count": 10252,
+     "exists": true,
+     "sha256": "7a46acddc2a9b9e482c7dd8c58544cbb3810551aef85311032b794cccc816d02"
+    }
+   },
+   "qa_source": {
+    "deleted_files": [],
+    "file_count": 2612,
+    "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+    "git_status_sha256": "6cbc3ca8ab6138c4006c9f10af414b3762655f3b0a7bdd6b470a00afab8a43ad",
+    "tree_sha256": "869f747a5f1bf099c97e9bb33bbfc2dfb7bc0ca5ffc61501cd331fbf16c5fcbc"
+   },
+   "qa_normal_pio_metadata": {
+    "entry_count": 10252,
+    "exists": true,
+    "sha256": "027ab03917fefe479a6e5f760800173b3f774324ec108a2a6ad32c75b23ccbd8"
+   }
+  },
+  "heltec_mobile": {
+   "qa_measurements": {
+    "flash_bytes": 1407844,
+    "loadable_sections": {
+     ".dram0.data": 25644,
+     ".flash.appdesc": 256,
+     ".flash.rodata": 218820,
+     ".flash.text": 1084510,
+     ".iram0.text": 77843,
+     ".iram0.vectors": 1027,
+     ".rtc.force_fast": 8,
+     ".rtc.text": 256
+    },
+    "object_count": 329,
+    "ram_bytes": 219748,
+    "symbol_count": 13380,
+    "symbol_size_total": 1516095,
+    "symbols_sha256": "c0a606526fbc85bba6a99ebd2cb23175732cb4268e1f53b0b9a0ff5cfdd43ec3"
+   },
+   "qa_payload": {
+    "bytes": 1408480,
+    "filename": "firmware.bin",
+    "sha256": "85fba0e0e8e783b51208b7198ef1ef38b940a001825576b70faa2d1af1e0aad2"
+   },
+   "final-1": {
+    "qualification_mismatches": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "provenance": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "non_provenance": [],
+    "all_differing_leaves": [
+     "normal_pio_metadata.sha256",
+     "source.file_count",
+     "source.git_status_sha256",
+     "source.tree_sha256"
+    ],
+    "ref_source": {
+     "deleted_files": [],
+     "file_count": 2587,
+     "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+     "git_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+     "tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a"
+    },
+    "ref_normal_pio_metadata": {
+     "entry_count": 10252,
+     "exists": true,
+     "sha256": "7a46acddc2a9b9e482c7dd8c58544cbb3810551aef85311032b794cccc816d02"
+    }
+   },
+   "final-2": {
+    "qualification_mismatches": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "provenance": [
+     "source.git_status_sha256",
+     "source.file_count",
+     "source.tree_sha256",
+     "normal_pio_metadata.sha256"
+    ],
+    "non_provenance": [],
+    "all_differing_leaves": [
+     "normal_pio_metadata.sha256",
+     "source.file_count",
+     "source.git_status_sha256",
+     "source.tree_sha256"
+    ],
+    "ref_source": {
+     "deleted_files": [],
+     "file_count": 2587,
+     "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+     "git_status_sha256": "ce75c991332060a8cd1ddbc9f3c0e4b4a9fec82fb1a2c64d50d52dd6de18e677",
+     "tree_sha256": "d5a092ce637c5fd400549d356d0a5725c2fccef6d604f67b000416a756dd5f0a"
+    },
+    "ref_normal_pio_metadata": {
+     "entry_count": 10252,
+     "exists": true,
+     "sha256": "7a46acddc2a9b9e482c7dd8c58544cbb3810551aef85311032b794cccc816d02"
+    }
+   },
+   "qa_source": {
+    "deleted_files": [],
+    "file_count": 2612,
+    "git_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+    "git_status_sha256": "6cbc3ca8ab6138c4006c9f10af414b3762655f3b0a7bdd6b470a00afab8a43ad",
+    "tree_sha256": "869f747a5f1bf099c97e9bb33bbfc2dfb7bc0ca5ffc61501cd331fbf16c5fcbc"
+   },
+   "qa_normal_pio_metadata": {
+    "entry_count": 10252,
+    "exists": true,
+    "sha256": "027ab03917fefe479a6e5f760800173b3f774324ec108a2a6ad32c75b23ccbd8"
+   }
+  }
+ },
+ "verdict": "PASS"
+}

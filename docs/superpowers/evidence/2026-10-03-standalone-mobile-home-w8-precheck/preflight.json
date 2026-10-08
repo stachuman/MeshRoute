@@ -1,0 +1,62 @@
+{
+  "verdict": "RECONCILED WITH REQUEST HASH-SUFFIX DISCREPANCY",
+  "head": "4c1a000bc71706ac438e64161a9452966a66615f",
+  "simulator_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "input_count": 2495,
+  "preparation_delta": {
+    "MEMORY.md": {
+      "sha256": "711314f83bb302aaa94c7ca36571fd0e8dc04bada6f8f2abe2151d9bc592654f",
+      "bytes": 21981
+    },
+    "docs/2026-07-30-open-bug-register.md": {
+      "sha256": "49a0f71b565dcdca3b628e80471af0ac1968ab1db10803210f4f912812791a09",
+      "bytes": 718170
+    },
+    "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md": {
+      "sha256": "af8e9ff351c0018b4c27662cbc3a1268db5533ecfead1e703a08fc60936b9184",
+      "bytes": 145507
+    },
+    "tracker.md": {
+      "sha256": "4f3e656bca2f0c6ac3573a0a6435670a0e2291d2ebb8838bb649fba849a684e9",
+      "bytes": 9688
+    }
+  },
+  "request_suffix_disagreements": [
+    {
+      "path": "docs/2026-07-30-open-bug-register.md",
+      "requested_suffix": "9a09",
+      "actual_sha256": "49a0f71b565dcdca3b628e80471af0ac1968ab1db10803210f4f912812791a09"
+    }
+  ],
+  "w7_added_paths": [
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck.md",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/SHA256SUMS",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/baseline-summary.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/baselines.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/census.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/control-reconciliation.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/corpus-manifest.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/finalize.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/font-glyphs.txt",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/font-measure.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/font_measure.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/inputs.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/layout-measure.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/layout_measure.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/mutation-census.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/native-cases.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/preflight.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/preflight.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/preservation-before-report.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/preservation-final.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/probe-control-candidates.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/raw-files.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/recommended-union.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/reconcile.py",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/runs.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/scratch.json",
+    "docs/superpowers/evidence/2026-10-03-standalone-mobile-home-w7-precheck/symbol-readers.json"
+  ],
+  "w7_seal_entries": 26,
+  "w7_seal_sha256": "037b975bd3737808627ff90fb389ed0fea649121b5e0f1d60dd434c564b5af6f"
+}

@@ -227,6 +227,9 @@
 //    freeze) — the `mrfw::SavedKeyList` discipline one feature over.
 #include "firmware_ui_presets.h"
 #include "firmware_ui_input.h"
+// ★★ W7 (design §5): the one-button editor's PURE core — the draft, the descriptor and E1–E4. It includes only the
+//    standard library and `firmware_ui_input.h`, so the model can own its one draft without an include cycle.
+#include "firmware_ui_editor.h"
 
 namespace mrui {
 
@@ -1578,6 +1581,12 @@ inline constexpr uint8_t kComposeTextCols = uint8_t(kDetailCols - 2);
 inline constexpr uint8_t kReviewCols     = kDetailCols;   // 19 — the body's columns, the Inbox's own width
 inline constexpr uint8_t kReviewBodyRows = 3;             // rows 1..3 of the review screen (§7.3)
 inline constexpr uint8_t kReviewPagesMax = 6;             // 163 bytes → at most six pages
+// ★★ W7/W8 — the editor's numbers are stated in its own pure header (which may include neither the record nor the
+//    protocol) and PROVEN here, against the authorities they derive from (design §5.6, §7.1).
+// ⓘ `kEditorCols == kDetailCols` (the editor's grid IS the body's 19 columns, §5.3) is asserted by the RENDERER beside
+//   `kBodyCols == kDetailCols` (`src/firmware_ui.cpp`), ⛔ never here: M52 must still COMPILE natively and redden on its own.
+static_assert(kDraftMax == mrnv::kUiPresetTextMax, "design §5.6/§7.1: the shared draft holds the 163-byte message cap");
+static_assert(kEditorNameCap == MESHROUTE_NS::protocol::peer_name_max, "design §4.3: a name is 32 bytes (peer_name_max)");
 inline uint8_t review_wrap_line(const char* body, uint8_t len, uint8_t s) {
     const uint8_t rest = uint8_t(len - s);
     if (rest <= kReviewCols) return rest;                                                   // (1)
@@ -1700,7 +1709,11 @@ inline const char* compose_empty_note(const ComposeList& l) { return l.n == 0 ? 
 //   index-for-index today's and every landed K7 case is byte-identical (`ui10-p3-r1` pins exactly that equivalence,
 //   and pins the position for EVERY `n` in 0..8). ⛔ R-1: the preset rework may not move, gate or re-anchor K7's
 //   row semantics — and it does not.
-enum class ComposeRow : uint8_t { text = 0, grant, back };
+// ★★★ W8 (design §7.5, r2.26): `write` is WRITE MESSAGE — a typed ACTION row, ⛔ not a text row: it carries no location
+//     marker and never yields a slot. APPENDED (values stable); its POSITION is right after the phrases, so
+//     `GRANT KEY` moves down one row (K7's semantics unchanged) and `back` stays LAST.
+enum class ComposeRow : uint8_t { text = 0, grant, back, write };
+inline constexpr const char* kWriteMessageText = "WRITE MESSAGE";
 
 // ★★★ THE OFFER, AND IT **HIDES** RATHER THAN REFUSING — the design decision §K7 asks to be reported either way.
 //     Hiding is what the four child rows of PROVISION already do (`provision_rows`: a build or a runtime that
@@ -1755,13 +1768,14 @@ inline uint32_t team_member_hash_of(const InviteMember* mem, uint8_t n, uint8_t 
 //   `(dm ? kDmSendableTexts : kChannelSendableTexts) + grant + 1` — because it is the shape a reader will try to
 //   restore, and restoring it means resurrecting the retired tables (a battery entry attacks exactly that).
 inline uint8_t compose_row_count(const ComposeList& l, bool grant) {
-    return uint8_t(l.n + (grant ? 1u : 0u) + 1u);
+    return uint8_t(l.n + 1u + (grant ? 1u : 0u) + 1u);   // ★ W8: phrases, WRITE MESSAGE, [GRANT KEY], back
 }
 // ⛔ FAILS CLOSED, exactly as `list_row_kind` does: anything at or past the last offered row names `back`, which
 //    leaves and sends nothing — ⛔ never a text row it would then send, and ⛔ never the grant.
 inline ComposeRow compose_row_kind(uint8_t idx, const ComposeList& l, bool grant) {
     if (idx < l.n) return ComposeRow::text;
-    if (grant && idx == l.n) return ComposeRow::grant;
+    if (idx == l.n) return ComposeRow::write;                         // ★ W8: always offered, even on an empty catalog
+    if (grant && idx == l.n + 1u) return ComposeRow::grant;
     return ComposeRow::back;
 }
 // ★★★ THE ROW'S **STABLE SLOT**, AND THIS IS §B66's CURE ITSELF (§3.2.2: *"code must never derive `dmN` from the
@@ -1779,6 +1793,7 @@ inline uint8_t compose_row_slot(uint8_t idx, const ComposeList& l) {
 inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool grant) {
     switch (compose_row_kind(idx, l, grant)) {
         case ComposeRow::text:  return l.row[idx].text;
+        case ComposeRow::write: return kWriteMessageText;
         case ComposeRow::grant: return kInviteGrantKey;
         case ComposeRow::back:  return kComposeBackText;
     }
@@ -1800,6 +1815,7 @@ inline const char* compose_row_text(uint8_t idx, const ComposeList& l, bool gran
 inline char compose_row_loc_marker(uint8_t idx, const ComposeList& l, bool grant) {
     switch (compose_row_kind(idx, l, grant)) {
         case ComposeRow::text:  return l.row[idx].loc ? 'L' : '-';
+        case ComposeRow::write: return '\0';                          // ★ W8: an act — written messages never carry `-l`
         case ComposeRow::grant: return '\0';
         case ComposeRow::back:  return '\0';
     }
@@ -1834,7 +1850,37 @@ inline bool send_list_row_override(char* out, std::size_t cap, uint8_t idx, cons
 }
 
 // The model NEVER sends — it ASKS. firmware_ui.cpp drains the request, performs the send and feeds back a typed outcome.
-enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
+// ★★ W8 (design §7.4): `dm_text` / `channel_text` are WRITTEN messages — the bytes are the one draft's, ⛔ never a fake
+//    slot or generation. APPENDED, so every landed value is stable.
+enum class SendKind : uint8_t { emergency = 0, dm, channel_canned, dm_text, channel_text };
+// ★★★ W8 — THE ONE FAMILY CLASSIFICATION (brief §2.4), asked by the gate, the trackers, the outcome machine and the
+//     header alike, ⛔ never a second `kind == dm` spelling that a fifth kind would silently miss:
+//   · DM-shaped (`dm`, `dm_text`): one peer, correlated by ctr AND peer, the `_dm` machine;
+//   · written (`dm_text`, `channel_text`): a draft and no catalog;
+//   · an ordinary TEAM POST (`channel_canned`, `channel_text`): D19's team-local ID applies. ⛔ The alarm is not one —
+//     it is exempt from every gate (R-3/§4.1).
+// Default-less, so a sixth kind fails the build until it is classified.
+inline bool send_kind_dm(SendKind k) {
+    switch (k) {
+        case SendKind::dm: case SendKind::dm_text: return true;
+        case SendKind::emergency: case SendKind::channel_canned: case SendKind::channel_text: return false;
+    }
+    return false;
+}
+inline bool send_kind_written(SendKind k) {
+    switch (k) {
+        case SendKind::dm_text: case SendKind::channel_text: return true;
+        case SendKind::emergency: case SendKind::dm: case SendKind::channel_canned: return false;
+    }
+    return false;
+}
+inline bool send_kind_team_post(SendKind k) {
+    switch (k) {
+        case SendKind::channel_canned: case SendKind::channel_text: return true;
+        case SendKind::emergency: case SendKind::dm: case SendKind::dm_text: return false;
+    }
+    return false;
+}
 // ★★★★ §UI-10/11 P3 — **`{slot, generation}` REPLACES ROW-INDEX IDENTITY**, and this is design §3.3's freeze
 //      paragraph in a struct: *"A `SendReq` identifies both the enabled stable slot selected by the wearer and the
 //      generation they saw; it never stores only the compacted visible-row index. If the slot is disabled or the
@@ -1854,7 +1900,7 @@ enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
 //     with zero core submission, never a send to whoever holds the ID now. ★ `peer_known` is a SEPARATE bit, in the
 //     byte the old layout left as padding: a zero `peer_hash` is ⛔ never read as "unknown". (Today's resolver never
 //     produces a known zero — `Node::team_key_set` rejects hash 0 — so a known-zero case is a labelled synthetic one.)
-// ⛔ No `draft_id` and no new `SendKind`: written messages are W8's.
+// ★★ W8 (D18): written messages add `draft_id` (appended) and the two kinds `dm_text` / `channel_text` — see `SendKind`.
 struct SendReq {
     SendKind kind       = SendKind::emergency;
     uint8_t  peer_id    = 0;
@@ -1863,6 +1909,9 @@ struct SendReq {
     uint32_t generation = 0;      // ★ the generation the wearer SAW; 0 = not sealed (the emergency's)
     uint32_t team_id    = 0;      // ★ W6: the team bound at selection
     uint32_t peer_hash  = 0;      // ★ W6: the DM peer's key hash bound at selection (valid only when `peer_known`)
+    // ★★ W8 (owner-ruled D18): the draft ID a WRITTEN request froze. APPENDED, so every existing aggregate initializer
+    //    keeps its meaning; a phrase and the alarm leave it 0 and nothing reads it for them.
+    uint32_t draft_id   = 0;
 };
 
 struct TeamRow {
@@ -2252,11 +2301,17 @@ inline void ui_snapshot_publish_presets(UiSnapshot& s, const mrnv::UiPresetBlob&
 enum class HomeItem : uint8_t { none = 0, inbox, send, team, invite, my_device, menu, join, create, key_help };
 // Which Home body is up. `list` is the list itself; the other three are Home's sub-views (design §6.5): My device,
 // the key-help note and the blocked-setup note. ⛔ Only meaningful on `Screen::status`.
-enum class HomeView : uint8_t { list = 0, my_device, key_help, setup_block };
+// ★★ W7 (design §4.4, r2.25): `name_prompt` is the unnamed JOIN/CREATE prompt — a Home sub-view, rail STATUS, shown
+//    after the settings gate admitted the step and only while the counted own name is empty.
+enum class HomeView : uint8_t { list = 0, my_device, key_help, setup_block, name_prompt };
 // ★★ THE SETUP FLOW's TYPED ORIGIN (design §6.6 rule 3, B250's precedent): who opened JOIN/CREATE/INVITE, recorded
 //    as an explicit value — ⛔ never inferred from the screen, the arm or `GrantOrigin` (a Home-opened invitation
 //    still has its own invitation-vs-roster grant origin).
 enum class SetupOrigin : uint8_t { none = 0, home, settings };
+// ★★ W7 (design §4.3/§4.4) — WHO OPENED THE NAME EDITOR, as its own typed value: kept apart from `SetupOrigin`, which
+//    leaving SETTINGS retires, because the name flow runs on Home BEFORE the setup step is entered. Every return of
+//    the name flow follows it (§7.4.1). ⛔ Never inferred from the screen or the Home view.
+enum class NameOrigin : uint8_t { none = 0, my_device, setup_join, setup_create };
 inline constexpr uint8_t kHomeItemsMax = 6;   // the ready list: INBOX, SEND TO TEAM, TEAM, INVITE, MY DEVICE, MENU
 // ★★★ THE LIST CAPTURE — the full six-item shape the owner approved. `items`/`count` are the list the frame shows,
 //     `selected` is the ARROW's item (its row is DERIVED — `home_index_of`), and `changed` is the list-changed NOTE.
@@ -2347,6 +2402,58 @@ inline bool home_capture_refresh(HomeCapture& c, const UiSnapshot& s, bool list_
     const bool moved = !home_capture_equal(c, n);
     c = n;
     return moved;
+}
+
+// ======================================================================= W7 — THE NAME FLOW's VISIBLE BYTES (§4.3, §4.4)
+// ★★ Composed HERE (§B115: the renderer is compiled by neither the native suite nor the simulator), so every row the
+//    name flow puts on the panel is asserted byte for byte natively. The renderer places them; it decides nothing.
+// ⓘ The prompt's row 0 is W4b's `kNoNameSetText` (firmware_ui_status.h, My device's unnamed row) — one lexeme (U1).
+inline constexpr const char* kChangeNameText   = "CHANGE NAME";
+inline constexpr const char* kSaveNameHead     = "SAVE NAME?";
+inline constexpr const char* kWasNoNameText    = "WAS NO NAME SET";
+inline constexpr const char* kSetNameText      = "SET NAME";
+inline constexpr const char* kSkipText         = "SKIP";
+inline constexpr const char* kNameSavedText    = "NAME SAVED";
+inline constexpr const char* kNameNotSavedText = "NAME NOT SAVED";
+inline constexpr uint8_t     kWasCols          = 15;   // `WAS ` + 15 = the body's 19 columns
+// My device's action row (design §6.7): ` CHANGE NAME >BACK`, 18 columns, BACK first.
+inline void my_device_action_line(char* out, std::size_t cap, bool change_selected) {
+    if (!out || cap == 0) return;
+    snprintf(out, cap, "%c%s %c%s", change_selected ? '>' : ' ', kChangeNameText, change_selected ? ' ' : '>', kListBackText);
+}
+// The prompt's two choice rows (§4.4): ` SET NAME` / `>SKIP`, SKIP first.
+inline void name_prompt_row(char* out, std::size_t cap, bool set_row, bool set_selected) {
+    if (!out || cap == 0) return;
+    if (set_row) snprintf(out, cap, "%c%s", set_selected ? '>' : ' ', kSetNameText);
+    else         snprintf(out, cap, "%c%s", set_selected ? ' ' : '>', kSkipText);
+}
+// ★★ The review's `WAS` row (r2.25): `WAS ` + the old name at 15 columns, `»` past 15 (the ONE formatter, W4a), or
+//    `WAS NO NAME SET`. ⓘ It is the OLD name the review shows — the one `SAVE` actually replaces.
+inline void name_was_line(char* out, std::size_t cap, const char* name, uint8_t len) {
+    if (!out || cap == 0) return;
+    if (!name || len == 0) { snprintf(out, cap, "%s", kWasNoNameText); return; }
+    char old[kWasCols + 1];
+    (void)ui_fmt_identity(old, sizeof old, name, len, 0u, kWasCols);
+    snprintf(out, cap, "WAS %s", old);
+}
+// The name review's action row: ` SAVE >EDIT` — EDIT selected on entry, after a blank and on `long_arm`; no page, no LOC.
+inline void name_review_action_line(char* out, std::size_t cap, bool save_selected) {
+    if (!out || cap == 0) return;
+    snprintf(out, cap, "%cSAVE %cEDIT", save_selected ? '>' : ' ', save_selected ? ' ' : '>');
+}
+// ★★★ THE RESULT's TWO LINES (r2.25), exhaustive: `saved` (the device maps `saved` AND `unchanged` onto it) reads
+//     NAME SAVED; the three refusals read NAME NOT SAVED + their OWN reason — ⛔ never an NV failure in disguise. A
+//     `none` answer is not a save and says so the same way (C2).
+inline const char* name_result_head(NameResult r) { return r == NameResult::saved ? kNameSavedText : kNameNotSavedText; }
+inline const char* name_result_reason(NameResult r) {
+    switch (r) {
+        case NameResult::saved:     return nullptr;
+        case NameResult::nv_failed: return "NV WRITE FAILED";
+        case NameResult::too_long:  return "NAME TOO LONG";
+        case NameResult::bad_name:  return "BAD NAME";
+        case NameResult::none:      return nullptr;
+    }
+    return nullptr;
 }
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -2556,7 +2663,8 @@ enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, n
 // ⓘ APPENDED, ⛔ never inserted: `DmState` is compared and switched on in several places and its ORDER is not
 //   otherwise meaningful, but appending keeps every landed value stable and makes the diff readable.
 enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed, aired_waiting, preset_changed,
-                                  team_changed, recipient_changed };   // ★ W6: the gate's two new typed refusals
+                                  team_changed, recipient_changed,     // ★ W6: the gate's two new typed refusals
+                                  draft_changed };                     // ★ W8: a written request's lock or id failed
 // ★★★ §B69's CARRIER, HALF ONE (UI-7) — THE CANNED-CHANNEL OUTCOME MACHINE, and it is the DmState of the channel path.
 // Until now the canned channel post had NO model state at all: `ui_pump_trackers` had to CONSUME the normal tracker's
 // expiry and throw it away, with `⛔ Do not "fix" this by calling on_outcome` beside it, because `on_outcome` is the
@@ -2583,7 +2691,9 @@ enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, n
 //                   no longer matches the live catalog, so the request was REFUSED WITHOUT SUBMISSION. ⛔ It is not
 //                   `failed` (nothing was attempted) and not `blocked` (nothing was throttled) — see the DM block.
 enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed, aired, preset_changed,
-                                  team_changed };                       // ★ W6: the team binding broke at execution
+                                  team_changed,                         // ★ W6: the team binding broke at execution
+                                  draft_changed,                        // ★ W8: a written request's lock or id failed
+                                  no_team_id };                         // ★ W8 (D19): no team-local ID yet — not sent
 // ★★★ §B69's CARRIER, HALF TWO — THE EMERGENCY'S EVIDENCE, because the alarm's two channel outcomes collapse into ONE
 // `Emergency` state and the renderer cannot ask which happened. `on_outcome` maps `channel_no_relay` AND
 // `channel_remote_mint` down the SAME path (neither carries relay evidence ⇒ neither may claim PICKED UP ⇒ bounded
@@ -2664,9 +2774,78 @@ struct SendOutcome {
 //     only `SEND` there queues. When a review closes on a broken binding the byte carries the NOTE the phrase list
 //     shows until the next press (which does nothing else). ⛔ One byte, no second note field (D15).
 enum class ReviewPhase : uint8_t { none = 0, requested, open, note_preset, note_team, note_recipient };
+// ★★★ W8 (design §7.4.1, owner-ruled D18) — THE WRITTEN REQUEST's OUTCOME RECORD, 4 B, model-private. Its state is
+//     recorded at the EVENT that attributes it — the SEND that queues it, the gate / composer / executor answer at
+//     execution, a correlated outcome — and its reason bytes are the written request's OWN copy (never inferred from
+//     the shared `_fail` / `_refuse`, which an alarm also writes).
+//   · `queued`         — pending in the normal slot, the draft content-locked; a press is ignored;
+//   · `refused`        — KNOWN NOT AIRED: a gate refusal, an empty or truncated composition, a parser or synchronous
+//                        executor refusal, or an attributable never-aired failure; the draft is unlocked and kept;
+//   · `accepted_open`  — the executor answered `queued` (with or without a handle) and no final outcome has come;
+//   · `accepted_final` — any other attributable terminal outcome (`NO CONFIRM` may still upgrade to DELIVERED);
+//   · `released`       — acknowledged or pre-empted after acceptance: the draft is released and the normal tracker
+//                        is closed ONCE (`normal_tracking_open`); the next request clears it.
+enum class WrittenState : uint8_t { none = 0, queued, refused, accepted_open, accepted_final, released };
+struct WrittenOutcome {
+    WrittenState          state   = WrittenState::none;
+    FailReason            reason  = FailReason::none;
+    RefuseReason          refusal = RefuseReason::other;
+    MESHROUTE_NS::CmdCode code    = MESHROUTE_NS::CmdCode::queued;
+};
+static_assert(sizeof(WrittenOutcome) == 4 && alignof(WrittenOutcome) == 1, "D18: the outcome record is 4 B / align 1");
 inline constexpr uint8_t kReviewHeaderCap = 20;                   // row 0: 19 columns + NUL
 inline constexpr const char* kTeamChangedText      = "TEAM CHANGED";
 inline constexpr const char* kRecipientChangedText = "RECIPIENT CHANGED";   // 17 columns, inside the 19-column body
+// ★★ W8 — the two new refusals' words (brief §2.4): `NOT SENT` over the reason, ZERO core submission each.
+inline constexpr const char* kNotSentText      = "NOT SENT";
+inline constexpr const char* kDraftChangedText = "DRAFT CHANGED";
+inline constexpr const char* kNoTeamIdText     = "NO TEAM ID YET";
+// ★★ W8 — the written review's action row (design §7.3): ` SEND >EDIT     n/m`, 19 columns, the page token in columns
+//    16–18, EDIT selected on entry, ⛔ never LOC (written messages never carry location, D6).
+inline void review_written_action_line(char* out, std::size_t cap, bool send_selected, uint8_t page, uint8_t pages) {
+    if (!out || cap == 0) return;
+    const int n = snprintf(out, cap, "%cSEND %cEDIT     %u/%u", send_selected ? '>' : ' ', send_selected ? ' ' : '>',
+                           unsigned(page) + 1u, unsigned(pages));
+    if (n < 0 || std::size_t(n) >= cap) out[0] = '\0';
+}
+// ★★★ W8 (W8 §3) — WHICH FAILURES PROVE A WRITTEN MESSAGE NEVER AIRED, all 18 `SendFailReason` values, default-less.
+//     `true` = KNOWN NOT AIRED (the draft is kept for a fresh review); `false` = it MAY have aired (accepted, final —
+//     the text is released and nothing claims it failed). `cap` / `min_interval` are known-not-aired ONLY on the
+//     attributable `send_blocked` path (`SendOutcome::blocked`), never as a `send_failed` reason; `none` and anything
+//     unclassified may have aired.
+inline bool send_fail_never_aired(FailReason r) {
+    switch (r) {
+        case FailReason::no_pubkey:   case FailReason::no_identity: case FailReason::too_large:
+        case FailReason::bad_rng:     case FailReason::joining:     case FailReason::mobile_no_home:
+        case FailReason::unsealable:  case FailReason::no_location:                               return true;
+        case FailReason::cap:         case FailReason::min_interval:                              return false;
+        case FailReason::no_ack:      case FailReason::e2e_ack_timeout: case FailReason::no_cts:
+        case FailReason::gateway_unreachable: case FailReason::no_route: case FailReason::queue_full:
+        case FailReason::reprovisioned:                                                           return false;
+        case FailReason::none:                                                                    return false;
+    }
+    return false;
+}
+inline bool send_outcome_is_dm(const SendOutcome& o) {
+    using K = SendOutcome::Kind;
+    switch (o.kind) {
+        case K::dm_acked: case K::dm_no_key: case K::dm_failed: case K::dm_timeout: return true;
+        case K::channel_relayed: case K::channel_no_relay: case K::channel_remote_mint: case K::channel_failed:
+        case K::blocked: return false;
+    }
+    return false;
+}
+inline bool send_outcome_never_aired(const SendOutcome& o) {
+    using K = SendOutcome::Kind;
+    switch (o.kind) {
+        case K::blocked:   return true;                     // the attributable send_blocked path (cap / min_interval)
+        case K::dm_no_key: return true;                     // no_pubkey
+        case K::dm_failed: case K::channel_failed: return send_fail_never_aired(o.reason);
+        case K::dm_acked:  case K::dm_timeout: case K::channel_relayed: case K::channel_no_relay:
+        case K::channel_remote_mint: return false;
+    }
+    return false;
+}
 // The note a CLOSED review left on its phrase list, or nullptr.
 inline const char* review_note_text(ReviewPhase p) {
     switch (p) {
@@ -2676,6 +2855,21 @@ inline const char* review_note_text(ReviewPhase p) {
         case ReviewPhase::none:
         case ReviewPhase::requested:
         case ReviewPhase::open:           return nullptr;
+    }
+    return nullptr;
+}
+// ★★ W7/W8 (r2.26) — THE EDITOR's NOTE LEXEMES: three of its own and W6's two binding words (U1 — one lexeme each).
+//    `binding_seen` is never drawn (see `EditorNote`), and neither is `none`.
+inline constexpr const char* kEditorNameCaller = "NAME";
+inline const char* editor_note_text(EditorNote n) {
+    switch (n) {
+        case EditorNote::full:              return "FULL";
+        case EditorNote::empty:             return "EMPTY";
+        case EditorNote::busy:              return "BUSY";
+        case EditorNote::team_changed:      return kTeamChangedText;
+        case EditorNote::recipient_changed: return kRecipientChangedText;
+        case EditorNote::none:
+        case EditorNote::binding_seen:      return nullptr;
     }
     return nullptr;
 }
@@ -2791,6 +2985,7 @@ struct UiState {
     union {
         char    detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
         char    review_line[kReviewBodyRows][kDetailCols + 1];        // W6: the review's page, word-wrapped (§7.2)
+        char    editor_line[2][kEditorCols + 1];                      // W7: the editor's two visible grid rows (§5.3)
     };
     // ★★★ §UI-14 — WHAT THE MODEL DECIDED ABOUT SETTINGS, frozen with everything else. ⛔ WHAT IS DELIBERATELY *NOT*
     //     HERE: `config_unsaved`, `conflict`, `reboot_required` and the draft VALUES. Those are the SERVICE's, read
@@ -2991,6 +3186,11 @@ struct UiState {
     bool        review_send  = false;
     bool        review_loc   = false;
     char        review_header[kReviewHeaderCap] = {};
+    // ★★★ W7/W8 (D16) — THE EDITOR's FROZEN DESCRIPTOR, 10 B: what the frame draws of the editor, the name review /
+    //     result and the two-choice rows of My device and the name prompt. The draft's BYTES are never here — only the
+    //     two visible grid rows, in the union above. ⓘ `review_header` doubles as the DM editor's header label and the
+    //     name review's `WAS` line (both mutually exclusive with a phrase review's row 0).
+    EditorView  editor{};
 };
 
 // ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
@@ -3144,6 +3344,8 @@ public:
         if (!_seeded) { _last_input_ms = s.now_ms; _seeded = true; }
         tick_emergency(s);
         (void)review_check(s);                                         // ★ W6: tick-only invalidation (§7.4.1)
+        if (editor_is_editing(_st.editor.phase)) editor_refresh();     // ★ W7: the frozen window always matches the draft
+        written_binding_tick(s);                                       // ★ W8: a broken binding raises its note (once)
         // ★★★★ §UI-10/11 P3 — **THE PRESET MODAL CLOSE, ON THE TICK.** §3.2.3: *"A preset update while a
         //      selection-phase compose modal is open closes that modal without sending."* A `ui preset set` arrives
         //      over USB or BLE with NO gesture at all, and `on_gesture` returns early for `Gesture::none` — so this
@@ -3295,6 +3497,7 @@ public:
         if (blank_due(s)) {
             _st.blanked = true; _st.dirty = true;
             _st.review_send = false;   // ★ W6: blanking KEEPS the review and its page, and resets the action to BACK
+            if (_st.editor.phase == EditorPhase::name_review) _st.editor.primary = false;   // ★ W7: and the name's, to EDIT
             // ★★★★ §UI-16 N4 / ✅ OQ-3's CLARIFICATION, AND IT IS THE ONE PLACE THE TWO HALVES DIFFER: **the
             //      WINDOW survives blanking; an UNFINISHED CONFIRMATION does not.** ⇒ the arm falls back to the
             //      LIST here, at the blank itself, so nothing stale is retained in the dark — the operator wakes
@@ -3563,14 +3766,99 @@ public:
                                 out = SendReq{SendKind::emergency, 0, mrfw::kPresetEmergency, false, 0}; return true; }
         if (!_req_pending) return false;
         _req_pending = false; out = _req;
-        if (out.kind == SendKind::dm) { _dm = DmState::submitting; _st.dirty = true; }
+        if (send_kind_dm(out.kind)) { _dm = DmState::submitting; _st.dirty = true; }   // ★ W8: dm and dm_text
         // ★ UI-7: the canned-channel twin, and it also CLEARS a previous transaction's terminal state. Without the
         //   reset a second post would open its result phase still showing the FIRST one's verdict for the instant
         //   before `ui_perform_send` returns — a stale outcome attributed to a message that has not been sent yet.
-        else if (out.kind == SendKind::channel_canned) { _chan = ChanState::submitting; _st.dirty = true; }
+        else if (send_kind_team_post(out.kind)) { _chan = ChanState::submitting; _st.dirty = true; }   // ★ W8: + channel_text
         return true;
     }
     bool emergency_pending() const { return _emg_req_pending; }
+
+    // ================================================================ W7 — THE NAME SAVE's REQUEST SEAM (§4.3, r2.25)
+    // ★★★ `SAVE` RAISES ONE REQUEST, and this is where the device TAKES it: once, marking it taken (the
+    //     `take_inbox_request` shape — a second call answers false), and handing out a COUNTED, READ-ONLY view of the
+    //     model's own bytes (⛔ no copy, ⛔ no terminator assumed). `src/firmware_ui.cpp`'s `ui_service_name_request`
+    //     then calls `mrfw::rename_node` EXACTLY ONCE and answers through `on_name_result`.
+    // ⛔ NOTHING ELSE SAVES: not a redraw, a wake, a cancellation or an acknowledgement — only this phase, which only
+    //    `SAVE` sets. It uses no `SendReq`, no send slot and no tracker, so a pending DM never blocks it.
+    bool take_name_request(const char*& bytes, uint8_t& len) {
+        if (_st.editor.phase != EditorPhase::name_requested) return false;
+        _st.editor.phase = EditorPhase::name_taken;
+        bytes = _draft.bytes; len = _draft.len;
+        return true;
+    }
+    // The typed answer. ⛔ A stale or duplicate answer — any phase but `name_taken` — changes nothing.
+    void on_name_result(NameResult r) {
+        if (_st.editor.phase != EditorPhase::name_taken) return;
+        _st.editor.phase  = EditorPhase::name_result;
+        _st.editor.result = r;
+        _st.editor.primary = false;
+        _st.dirty = true;
+    }
+    // Diagnostics for the native suite and the probes; the renderer reads only the frozen `UiState`.
+    const Draft& draft()       const { return _draft; }
+    NameOrigin   name_origin() const { return _name_origin; }
+
+    // ================================================================ W8 — WRITTEN MESSAGES' SEAMS (design §7.3–§7.5)
+    // ★★ THE DRAFT, AS EXECUTION READS IT: a borrowed counted view (no copy). `ui_perform_send` hands it to the gate
+    //    (lock + id + bounds) and then to the composer — the same instant, the same bytes.
+    DraftView draft_view() const { return draft_view_of(_draft); }
+    const WrittenOutcome& written_outcome() const { return _written; }
+    // ★★★ THE NORMAL TRACKER's LIFETIME (`ui_pump_trackers`): open while a compose view is up — a written result
+    //     included, even after its editor body closed — and CLOSED ONCE when a written result was acknowledged or
+    //     pre-empted (`released`), even though the list it returns to keeps compose open. ⛔ A later outcome is then
+    //     unmatched and ignored. A phrase keeps today's rule exactly (`compose_open()`).
+    bool normal_tracking_open() const { return compose_open() && _written.state != WrittenState::released; }
+    // ★★ THE PANEL's REFUSAL WORDS for the frame (`freeze_outcome`): a written result shows ITS OWN record — ⛔ never the
+    //    shared `_refuse` / `_fail`, which an alarm also writes — while the alarm overlay keeps reading the shared ones.
+    void panel_reasons(RefuseReason& r, MESHROUTE_NS::CmdCode& c, FailReason& f) const {
+        r = _refuse; c = _refuse_code; f = _fail;
+        if (_emg == Emergency::idle && _st.editor.phase == EditorPhase::message_result) {
+            r = _written.refusal; c = _written.code; f = _written.reason;
+        }
+    }
+    // ★★★ A DM EDITOR's CAPTURE (`bind` / `relabel`), SERVED IN THE TICK like the review's: the header label is formatted
+    //     at 8 columns from the peer's FULL raw name, which only the device can read. `resolve` is true ONCE, at WRITE
+    //     MESSAGE: the binding's known bit and hash are taken from the resolver THEN (`Node::team_key_of_id`) and
+    //     ⛔ never re-resolved — every later capture only re-labels the BOUND hash.
+    bool editor_capture_owed(SendReq& b, bool& resolve) const {
+        if (_st.editor.phase != EditorPhase::bind && _st.editor.phase != EditorPhase::relabel) return false;
+        if (!written_flow_open()) return false;
+        b = _review; resolve = (_st.editor.phase == EditorPhase::bind);
+        return true;
+    }
+    void on_editor_captured(bool known, uint32_t hash, const char* label) {
+        if (_st.editor.phase != EditorPhase::bind && _st.editor.phase != EditorPhase::relabel) return;   // stale
+        if (_st.editor.phase == EditorPhase::bind) {
+            _review.peer_known = send_kind_dm(_review.kind) && known;   // ★ the RESOLVER's bit, never `hash != 0`
+            _review.peer_hash  = _review.peer_known ? hash : 0u;
+        }
+        uint8_t h = 0;
+        if (label) for (; h + 1 < kReviewHeaderCap && label[h]; ++h) _st.review_header[h] = label[h];
+        _st.review_header[h] = '\0';
+        const EditorNote keep = _st.editor.note;                     // a binding note raised on the way survives
+        editor_enter(_st.editor, EditorPhase::groups);               // E1, group 1
+        _st.editor.note = keep;
+        editor_refresh();
+        _st.dirty = true;
+    }
+    // ★★★ THE WRITTEN REVIEW's CAPTURE ANSWER: row 0 (formatted by the device from the BINDING and the bound peer's
+    //     name) and the projection of the draft's bytes — W6's word wrap, three rows per page, every byte kept.
+    void on_written_review_captured(const char* header, uint32_t now_ms) {
+        if (_st.review_phase != ReviewPhase::requested || _st.editor.phase != EditorPhase::message_review) return;
+        uint8_t h = 0;
+        if (header) for (; h + 1 < kReviewHeaderCap && header[h]; ++h) _st.review_header[h] = header[h];
+        _st.review_header[h] = '\0';
+        _st.detail_pages = review_page_count(_draft.bytes, _draft.len);
+        _st.detail_page = 0;
+        _detail_page_at_ms = now_ms;
+        refresh_review_page();
+        _st.review_loc   = false;                                    // ⛔ never LOC (D6)
+        _st.review_send  = false;                                    // ★ EDIT — sending costs short + double
+        _st.review_phase = ReviewPhase::open;
+        _st.dirty = true;
+    }
 
     // ------------------------------------------------------------------- §UI-7D slice B: the inbox detail/delete seam
     // ★★★ THE WHOLE SEAM IN FIVE STEPS, and it exists because this unit may not touch `g_node.inbox()`:
@@ -3756,9 +4044,18 @@ public:
         //   remains its ONLY writer (§B84's unbounded-airtime argument rests on that single writer), while the ordinal
         //   is PRESENTATION ONLY and may never gate a send. Full argument: the two-numbers block above `kEmgMaxTries`.
         if (k == SendKind::emergency) { ++_tries; _last_try_ms = now_ms; _emg_attempt_counted = true; }
-        else if (k == SendKind::dm)   { _dm = DmState::waiting_ack; }
+        else if (send_kind_dm(k))     { _dm = DmState::waiting_ack; }
         else                          { _chan = ChanState::waiting; }   // §B113: the canned-channel twin of waiting_ack
+        written_executed(k, WrittenState::accepted_open);              // ★ W8: the executor answered `queued`
         _st.dirty = true;
+    }
+    // ★★ W8 (§7.4.1) — THE `ctr == 0` ACCEPTANCE: the executor answered `queued` with NO local handle. A written request
+    //    is ACCEPTED, OPEN — recorded here, ⛔ without touching the emergency's attempt counter or its expiry order
+    //    (that path never calls `on_send_accepted`, rule 2) and without moving any display state (the phrase path shows
+    //    exactly what it showed before). A phrase or the alarm: nothing.
+    void on_send_unhandled(SendKind k, uint32_t now_ms) {
+        (void)now_ms;
+        written_executed(k, WrittenState::accepted_open);
     }
     // The SYNCHRONOUS refusal path (a parser reject or an immediate `err_*`) — it never became a core send, so there
     // is no `SendFailReason` for it and `_fail` is cleared to `none` rather than left describing an older failure.
@@ -3779,8 +4076,12 @@ public:
     //   arithmetic value is reserved to mean "none" (§B74's discipline).
     void on_send_refused(SendKind k, RefuseReason r, MESHROUTE_NS::CmdCode code, uint32_t now_ms) {
         _refuse = r; _refuse_code = code; _fail = FailReason::none;
+        if (send_kind_written(k) && _written.state == WrittenState::queued) {   // ★ W8: its OWN reason bytes
+            _written.refusal = r; _written.code = code; _written.reason = FailReason::none;
+        }
+        written_executed(k, WrittenState::refused);                    // ★ W8: known refused — the draft unlocks
         if (k == SendKind::emergency) { _emg = Emergency::failed; retain(now_ms); }   // terminal + actionable, never a stuck SENDING...
-        else if (k == SendKind::dm)   { _dm  = DmState::failed; }
+        else if (send_kind_dm(k))     { _dm  = DmState::failed; }
         // ★ UI-7: the canned-channel arm was MISSING, and it was not a cosmetic gap — a refused canned post left
         //   `_chan` on `submitting`, i.e. the sub-view sat on `SENDING...` for ever for a send that never happened.
         //   That is §B72's defect on the non-alarm path, and the same C2 argument applies: fail LOUD, terminally.
@@ -3811,11 +4112,32 @@ public:
     //   the bound team is not the live team; a DM's known hash no longer answers for its ID.
     void on_team_changed(SendKind k, uint32_t now_ms) {
         (void)now_ms;
-        if (k == SendKind::dm)                   _dm   = DmState::team_changed;
-        else if (k == SendKind::channel_canned)  _chan = ChanState::team_changed;
+        if (send_kind_dm(k))                     _dm   = DmState::team_changed;     // ★ W8: dm and dm_text
+        else if (send_kind_team_post(k))         _chan = ChanState::team_changed;   // ★ W8: + channel_text
+        written_executed(k, WrittenState::refused);
         _st.dirty = true;
     }
-    void on_recipient_changed(uint32_t now_ms) { (void)now_ms; _dm = DmState::recipient_changed; _st.dirty = true; }
+    // ⓘ W8: the gate asks it for a DM kind only; the request it describes is the one just drained from `_req`.
+    void on_recipient_changed(uint32_t now_ms) {
+        (void)now_ms; _dm = DmState::recipient_changed;
+        written_executed(_req.kind, WrittenState::refused);
+        _st.dirty = true;
+    }
+    // ★★ W8 (brief §2.4) — THE TWO NEW REFUSALS, each ZERO core submission and its own typed state:
+    //   · `draft_changed` — a written request whose draft is no longer locked with its `draft_id` (or out of bounds);
+    //   · `no_team_id`    — D19: an ordinary team post before the team-local ID exists (phrases AND written posts).
+    void on_draft_changed(SendKind k, uint32_t now_ms) {
+        (void)now_ms;
+        if (send_kind_dm(k)) _dm = DmState::draft_changed; else _chan = ChanState::draft_changed;
+        written_executed(k, WrittenState::refused);
+        _st.dirty = true;
+    }
+    void on_no_team_id(SendKind k, uint32_t now_ms) {
+        (void)now_ms;
+        _chan = ChanState::no_team_id;
+        written_executed(k, WrittenState::refused);
+        _st.dirty = true;
+    }
 
     // ================================================================ W6 — THE SAVED-PHRASE REVIEW (design §7.3)
     // ★★★ THE CAPTURE IS A REQUEST/ANSWER STEP IN THE TICK, exactly as the Inbox opens a message: a double on a phrase
@@ -3854,6 +4176,12 @@ public:
     //   `preset_generation_moved` and the note lost. ⇒ the list is re-sealed on the catalog the refusal saw.
     void on_review_refused(ReviewPhase note, const UiSnapshot& s, uint32_t live_generation) {
         if (!review_active()) return;
+        if (send_kind_written(_review.kind)) {                         // ★ W8: back to the EDITOR, the draft kept
+            close_review();
+            written_editor_return();
+            _st.editor.note = (note == ReviewPhase::note_recipient) ? EditorNote::recipient_changed : EditorNote::team_changed;
+            return;
+        }
         review_close_with(note, s, live_generation);
     }
     bool review_active() const {
@@ -3888,11 +4216,12 @@ public:
         //   is the display window (spec §3.2.1)"*. There is no auto-exit any more (§9 R-1) — the display window is now
         //   the operator's own acknowledgement. The absence of a deadline HERE is unchanged and is still the point.
         (void)now_ms;
+        if (!written_outcome_admitted(o)) return;                      // ★ W8: attribution first
         switch (o.kind) {
             case K::channel_relayed:     _chan = ChanState::relayed;     break;
             case K::channel_no_relay:    _chan = ChanState::no_relay;    break;
             case K::channel_remote_mint: _chan = ChanState::unconfirmed; break;   // ★ §B69: never "no relay", never SENT
-            case K::channel_failed:      _chan = ChanState::failed; note_failure(o.reason); break;
+            case K::channel_failed:      _chan = ChanState::failed; note_failure(o.reason); written_reasons_from_failure(); break;
             case K::blocked:             _chan = ChanState::blocked;    break;
             // A DM outcome must never reach here — `_dm` has exactly one writer set (on_outcome). Listed explicitly,
             // with no `default:`, so a tenth SendOutcome::Kind fails the build instead of landing silently (§B72).
@@ -3929,7 +4258,8 @@ public:
         //   alarm's own evidence, and "the frame left the radio" is not evidence that anyone heard it. Guarded
         //   here as well, so a future second caller cannot re-open the hole.
         if (k == SendKind::emergency) return;
-        if (k == SendKind::dm) {
+        if (_written.state == WrittenState::queued) return;            // ★ W8: an OLDER transaction's air — not ours
+        if (send_kind_dm(k)) {
             switch (_dm) {
                 case DmState::waiting_ack:   _dm = DmState::aired_waiting; _st.dirty = true; return;   // queued -> aired
                 case DmState::aired_waiting: return;                                                   // idempotent
@@ -3941,6 +4271,7 @@ public:
                 case DmState::preset_changed: return;
                 // ★ W6: the gate's two new refusals are the same shape — ZERO submission, no handle ⇒ ⛔ terminal.
                 case DmState::team_changed: case DmState::recipient_changed: return;
+                case DmState::draft_changed: return;                                                   // ★ W8 — the same shape
             }
             return;
         }
@@ -3952,15 +4283,20 @@ public:
             case ChanState::blocked: case ChanState::failed: return;                                   // ⛔ terminal: refuse
             case ChanState::preset_changed: return;                                                    // ★ §UI-10/11 P3 — see the DM arm
             case ChanState::team_changed:   return;                                                    // ★ W6 — the same shape
+            case ChanState::draft_changed:  return;                                                    // ★ W8 — the same shape
+            case ChanState::no_team_id:     return;                                                    // ★ W8 (D19) — the same shape
         }
     }
     void on_outcome(const SendOutcome& o, uint32_t now_ms) {
         using K = SendOutcome::Kind;
+        // ★ W8: a DM outcome is the normal slot's — a written request still QUEUED is not described by it (attribution
+        //   first). ⓘ Channel kinds pass straight through to the emergency section below, exactly as before.
+        if (send_outcome_is_dm(o) && !written_outcome_admitted(o)) return;
         switch (o.kind) {   // DM outcomes are independent of the emergency and are handled first
             case K::dm_acked:   _dm = DmState::delivered;     _st.dirty = true; return;   // incl. the LATE-ack upgrade
             case K::dm_no_key:  _dm = DmState::no_key;        _st.dirty = true; return;
             case K::dm_timeout: _dm = DmState::not_confirmed; _st.dirty = true; return;
-            case K::dm_failed:  _dm = DmState::failed;        note_failure(o.reason); _st.dirty = true; return;
+            case K::dm_failed:  _dm = DmState::failed;        note_failure(o.reason); written_reasons_from_failure(); _st.dirty = true; return;
             // ★ The channel kinds fall through to the emergency section below. They are listed EXPLICITLY and this
             // switch has NO `default:` — §B72 was a kind the type did not carry, and a `default:` is precisely what
             // would let a tenth kind land silently instead of failing the build on -Werror=switch.
@@ -4093,7 +4429,10 @@ protected:
     }
     // ★★ W6 — THE ORDINARY ENTRY TAKES THE BOUND REQUEST WHOLE (team and peer hash included), never rebuilt field by
     //    field (U2). Its one caller is the review's `SEND`: it queues EXACTLY ONCE, into the normal slot.
-    void queue(const SendReq& bound) { _req = bound; _req_pending = true; }
+    void queue(const SendReq& bound) {
+        _req = bound; _req_pending = true;
+        if (_written.state == WrittenState::released) _written.state = WrittenState::none;   // ★ W8: its tracker was closed
+    }
 
     // ★ Spec §4.3: every retained emergency state refreshes the `kEmgHoldMs` panel-on DEADLINE — long_fire, then
     // blocked / picked_up / not_heard / reply, and (§B78) `failed`. Anchoring it only at long_fire (an earlier draft)
@@ -4281,6 +4620,14 @@ private:
     // ⓘ Private and navigation-only, like `_grant_return`: the renderer never reads them, so they stay out of `UiState`.
     HomeItem    _home_return  = HomeItem::none;
     SetupOrigin _setup_origin = SetupOrigin::none;
+    // ★★★ W7/W8 (owner-ruled D16 + D18) — THE MODEL's REMAINING EDITOR STATE, ⛔ and nothing else (§2.2's STOP-1):
+    //   · `_draft`       — the ONE draft (176 B), shared by the name and the two message callers;
+    //   · `_name_origin` — who opened the name editor (1 B);
+    //   · `_written`     — the written request's outcome record (4 B): its state and its OWN reason bytes, so a
+    //                      shared `_refuse`/`_fail` written by an alarm can never re-describe it.
+    Draft          _draft{};
+    NameOrigin     _name_origin = NameOrigin::none;
+    WrittenOutcome _written{};
 
     // ============================================================ W4b — the ONE focus-transition vocabulary (§6.1)
     // ★★★ `MENU` (rule 2): MENU MODE ON THE HOME SLOT, from any top-level list. The focus reset is the pure
@@ -4317,13 +4664,31 @@ private:
         if (_st.home.selected == HomeItem::none) _home_return = HomeItem::none;
         if (home_capture_refresh(_st.home, s, list_focus, preferred)) _st.dirty = true;
     }
-    // ★★★★ HOME's PRESS — its list in list focus, and its three sub-views (design §6.5).
+    // ★★★★ HOME's PRESS — its list in list focus, and its sub-views (design §6.5; W7's name prompt, §4.4).
     void home_gesture(Gesture g, const UiSnapshot& s, bool note_was_up) {
         if (g != Gesture::short_press && g != Gesture::double_press) return;
         switch (_st.home_view) {
-            case HomeView::my_device:   // ONE row, `BACK`: short stays on it, double returns on MY DEVICE
-                if (g == Gesture::double_press) home_return();
+            // ★★★ W7 (design §4.3, §6.7): My device's action row is ` CHANGE NAME >BACK`, BACK selected on entry. A
+            //     short TOGGLES and never leaves (H24's meaning kept); a double acts on the selection. While the name
+            //     flow is up, its editor / review / result own the press.
+            case HomeView::my_device:
+                if (_st.editor.phase != EditorPhase::closed) { name_flow_press(g, s); return; }
+                if (g == Gesture::double_press) { if (_st.editor.primary) open_name_editor(NameOrigin::my_device, s); else home_return(); }
+                else _st.editor.primary = !_st.editor.primary;
                 _st.dirty = true;
+                return;
+            // ★★★ W7 (design §4.4, r2.25): `NO NAME SET` / ` SET NAME` / `>SKIP`, SKIP selected — a double continues
+            //     the setup exactly as before, and naming costs one short more. SKIP asks the settings gate AGAIN
+            //     (`home_activate` from this view: a console change made while the prompt was up is caught), and the
+            //     prompt is not shown twice. SET NAME opens the name editor with the setup origin of the opener.
+            case HomeView::name_prompt:
+                if (_st.editor.phase != EditorPhase::closed) { name_flow_press(g, s); return; }
+                if (g == Gesture::short_press) { _st.editor.primary = !_st.editor.primary; _st.dirty = true; return; }
+                if (_st.editor.primary) {
+                    open_name_editor(_home_return == HomeItem::create ? NameOrigin::setup_create : NameOrigin::setup_join, s);
+                    return;
+                }
+                home_activate(_home_return, s);
                 return;
             case HomeView::key_help:    // a NOTE: either press returns on its opener
                 home_return();
@@ -4357,8 +4722,8 @@ private:
             case HomeItem::team:   _st.screen = Screen::team;  open_list_view(s); return;
             case HomeItem::send:   open_send_list(s);  return;
             case HomeItem::menu:   go_menu_home(s);    return;
-            case HomeItem::my_device:
-                _home_return = it; _st.home_view = HomeView::my_device; _st.dirty = true; return;
+            case HomeItem::my_device:   // ★ W7: the action row opens on BACK (`EditorView`'s safe side)
+                _home_return = it; _st.home_view = HomeView::my_device; _st.editor = EditorView{}; _st.dirty = true; return;
             case HomeItem::key_help:   // the existing procedure as a note; ⛔ no automatic key request
                 _home_return = it; _st.home_view = HomeView::key_help;  _st.dirty = true; return;
             case HomeItem::join:
@@ -4374,6 +4739,11 @@ private:
                     _st.home_view = HomeView::setup_block; _st.dirty = true;
                     return;
                 }
+                // ★★★ W7 (design §4.4, §6.6 rule 5): AN UNNAMED DEVICE IS ASKED FOR A NAME — AFTER the gate, so a
+                //     blocked device is not asked first. ⓘ From the prompt itself (SKIP, or a saved name's
+                //     continuation) the view is already the prompt, so it is never asked twice.
+                if (s.own_name_len == 0 && _st.home_view != HomeView::name_prompt) { open_name_prompt(); return; }
+                _st.home_view = HomeView::list;
                 enter_setup_from_home();
                 if (it == HomeItem::create) { enter_provision(Provision::create_confirm); return; }   // BACK first
                 load_nearby(s);                                                                    // frozen per entry
@@ -4391,6 +4761,344 @@ private:
             case HomeItem::none: return;
         }
     }
+    // ============================================================ W7 — THE NAME FLOW (design §4.3, §4.4, §7.4.1)
+    // ★★★ IT NEVER TOUCHES `SendReq`, A SEND SLOT, A TRACKER OR THE CONTENT LOCK: a name is saved by ONE request
+    //     (`take_name_request`) that the device serves with `mrfw::rename_node`, outside the send busy gate.
+    void open_name_prompt() {
+        _st.home_view = HomeView::name_prompt;
+        _st.editor = EditorView{};                       // SKIP selected
+        _st.dirty = true;
+    }
+    // The editor over My device or the prompt: cap 32, the current name PRELOADED all or nothing (§4.3).
+    void open_name_editor(NameOrigin origin, const UiSnapshot& s) {
+        _name_origin = origin;
+        draft_open(_draft, DraftCaller::name, kEditorNameCap);
+        (void)draft_preload(_draft, s.own_name, s.own_name_len);
+        _st.editor = EditorView{};
+        editor_enter(_st.editor, EditorPhase::groups);
+        editor_refresh();
+        _st.dirty = true;
+    }
+    // The two visible grid rows and the cursor cell, frozen with the descriptor (§5.3). Idempotent: the tick
+    // re-asserts it while the editor is up, so the frame can never show rows another view left in the union.
+    void editor_refresh() { editor_window(_draft, _st.editor, _st.editor_line); }
+    // ★ Every return to the editor — EDIT, a not-saved or refused result, an alarm that closed a review or a
+    //   result — lands on group 1 with the cursor kept (§5.4, r2.26).
+    void editor_return() {
+        editor_enter(_st.editor, EditorPhase::groups);
+        _st.editor.note = EditorNote::none;
+        editor_refresh();
+        _st.dirty = true;
+    }
+    void name_flow_press(Gesture g, const UiSnapshot& s) {
+        switch (_st.editor.phase) {
+            case EditorPhase::groups:
+            case EditorPhase::chars:
+            case EditorPhase::controls:
+            case EditorPhase::discard: {
+                const EditorAct a = editor_gesture(_st.editor, _draft, g);
+                editor_refresh();
+                _st.dirty = true;
+                if (a == EditorAct::done)  open_name_review(s);
+                if (a == EditorAct::leave) name_editor_leave();
+                return;
+            }
+            case EditorPhase::name_review:                 // ` SAVE >EDIT`: short toggles, double acts
+                if (g == Gesture::short_press) { _st.editor.primary = !_st.editor.primary; _st.dirty = true; return; }
+                if (!_st.editor.primary) { editor_return(); return; }                            // EDIT
+                _st.editor.phase = EditorPhase::name_requested; _st.dirty = true;               // SAVE: ONE request
+                return;
+            case EditorPhase::name_requested:
+            case EditorPhase::name_taken: return;          // the save is being served — no press acts on it
+            case EditorPhase::name_result: name_result_ack(s); return;   // either press acknowledges (R-5)
+            case EditorPhase::closed:
+            case EditorPhase::bind:
+            case EditorPhase::relabel:
+            case EditorPhase::message_review:
+            case EditorPhase::message_result: return;
+        }
+    }
+    // ★★★ `SAVE NAME?` (r2.25): the draft FROZEN with a new `draft_id`, its bytes on rows 1–2 (19 + at most 13), and
+    //     `WAS` taken from THIS tick's snapshot — so a console rename made while the editor was open shows up here,
+    //     and one made while the review is open does not. ⓘ The union's third row is cleared: the name has two.
+    void open_name_review(const UiSnapshot& s) {
+        ++_draft.draft_id;
+        editor_enter(_st.editor, EditorPhase::name_review);          // EDIT selected
+        for (uint8_t r = 0; r < kReviewBodyRows; ++r) {
+            const uint8_t start = uint8_t(r * kReviewCols);
+            uint8_t n = 0;
+            if (r < 2 && start < _draft.len) n = uint8_t((_draft.len - start < kReviewCols) ? (_draft.len - start) : kReviewCols);
+            for (uint8_t k = 0; k < n; ++k) _st.review_line[r][k] = _draft.bytes[start + k];
+            _st.review_line[r][n] = '\0';
+        }
+        name_was_line(_st.review_header, sizeof _st.review_header, s.own_name, s.own_name_len);
+        _st.dirty = true;
+    }
+    // DISCARD (cleared, or nothing to clear): back to the opener — My device, or the prompt with SKIP selected.
+    void name_editor_leave() {
+        draft_release(_draft);
+        _name_origin = NameOrigin::none;
+        _st.editor = EditorView{};
+        _st.dirty = true;
+    }
+    // ★★★ THE RESULT's ACKNOWLEDGEMENT (§7.4.1): `NAME SAVED` releases the draft and returns BY ORIGIN — My device,
+    //     or the chosen setup step after the settings gate is asked AGAIN (a refusing gate shows its note, then
+    //     Home). `NAME NOT SAVED` keeps the draft: the editor on group 1, ⛔ no retry.
+    void name_result_ack(const UiSnapshot& s) {
+        if (_st.editor.result != NameResult::saved) { editor_return(); return; }
+        const NameOrigin o = _name_origin;
+        name_editor_leave();
+        if (o == NameOrigin::setup_join || o == NameOrigin::setup_create)
+            home_activate(o == NameOrigin::setup_create ? HomeItem::create : HomeItem::join, s);
+    }
+    // ★★★ W7 (§5.5, §7.4.1) — `long_fire` OVER THE NAME FLOW: the editor (E1–E4) survives the alarm with its ring;
+    //     a review (or a save not yet served) closes to the editor; `NAME SAVED` is released and lands on My device,
+    //     or on Home for a setup origin (setup never resumes by itself after an alarm); `NAME NOT SAVED` keeps the
+    //     editor; the prompt returns to Home and its pending setup is dropped.
+    void name_flow_on_fire() {
+        if (_st.screen != Screen::status) return;
+        switch (_st.editor.phase) {
+            case EditorPhase::name_review:
+            case EditorPhase::name_requested: editor_return(); return;
+            case EditorPhase::name_result:
+                if (_st.editor.result != NameResult::saved) { editor_return(); return; }
+                {
+                    const bool setup = (_name_origin == NameOrigin::setup_join || _name_origin == NameOrigin::setup_create);
+                    name_editor_leave();
+                    if (setup) home_return();
+                }
+                return;
+            case EditorPhase::closed:
+                if (_st.home_view == HomeView::name_prompt) home_return();
+                return;
+            case EditorPhase::groups:
+            case EditorPhase::chars:
+            case EditorPhase::controls:
+            case EditorPhase::discard:
+            case EditorPhase::name_taken:
+            case EditorPhase::bind:
+            case EditorPhase::relabel:
+            case EditorPhase::message_review:
+            case EditorPhase::message_result: return;
+        }
+    }
+
+    // ============================================================ W8 — WRITTEN MESSAGES (design §7.3–§7.5, §7.4.1)
+    // ★★★ THE FLOW LIVES INSIDE THE COMPOSE SUB-VIEW it was opened from (the Send list, or a person's list on TEAM), so
+    //     its rail is SEND and every compose rule that owns the body owns it too. It is OPEN while the draft belongs to
+    //     a message caller — the editor, the review and the result — and only an explicit exit releases it.
+    bool written_flow_open() const {
+        return _st.compose != Compose::none &&
+               (_draft.caller == DraftCaller::team || _draft.caller == DraftCaller::dm);
+    }
+    bool written_editing() const {
+        return written_flow_open() &&
+               (editor_is_editing(_st.editor.phase) || _st.editor.phase == EditorPhase::bind ||
+                _st.editor.phase == EditorPhase::relabel);
+    }
+    uint8_t write_row_of(const UiSnapshot& s) const {
+        return (_st.compose == Compose::dm ? s.preset_dm : s.preset_ch).n;   // WRITE MESSAGE sits after the phrases
+    }
+    // ★★★ WRITE MESSAGE — THE BINDING IS TAKEN HERE (§7.4, r2.26): the kind, the live team, and for a DM the peer ID;
+    //     its known bit and hash come from the resolver in this tick's capture (`bind`), ⛔ never at DONE. The written
+    //     kinds carry NO slot and NO generation (0, read by nothing) — a written request is never a fake phrase.
+    void open_written(const UiSnapshot& s) {
+        const bool dm = (_st.compose == Compose::dm);
+        _review = SendReq{dm ? SendKind::dm_text : SendKind::channel_text, dm ? _st.compose_peer : uint8_t(0),
+                          0, false, 0u, s.team_id, 0u, 0u};
+        draft_open(_draft, dm ? DraftCaller::dm : DraftCaller::team, kEditorMessageCap);
+        _written = WrittenOutcome{};
+        _st.editor = EditorView{};
+        editor_enter(_st.editor, dm ? EditorPhase::bind : EditorPhase::groups);
+        _st.review_header[0] = '\0';
+        editor_refresh();
+        _st.dirty = true;
+    }
+    void written_editor_press(Gesture g, const UiSnapshot& s) {
+        if (_st.editor.phase == EditorPhase::bind || _st.editor.phase == EditorPhase::relabel) return;   // answered this tick
+        const EditorAct a = editor_gesture(_st.editor, _draft, g);
+        editor_refresh();
+        _st.dirty = true;
+        if (a == EditorAct::done)  open_written_review(s);
+        if (a == EditorAct::leave) written_leave(s);
+    }
+    // ★★★ THE BINDING's HEALTH (§7.4): the team must still be the live team, and a KNOWN recipient hash must still answer
+    //     for its ID. ⛔ A broken binding is never repaired: nothing re-binds — DISCARD and a new WRITE MESSAGE are the
+    //     way to send elsewhere.
+    EditorNote written_binding_note(const UiSnapshot& s) const {
+        if (s.team_id != _review.team_id) return EditorNote::team_changed;
+        if (_review.kind == SendKind::dm_text && _review.peer_known &&
+            team_member_hash_of(s.member, s.team_shown, _review.peer_id) != _review.peer_hash) return EditorNote::recipient_changed;
+        return EditorNote::none;
+    }
+    // On the tick, while the editor is up: a binding that BREAKS raises its note once (it then clears at the next press,
+    // r2.26 — `binding_seen` keeps it from being raised again until the binding heals; DONE re-shows it).
+    void written_binding_tick(const UiSnapshot& s) {
+        if (!written_flow_open() || !editor_is_editing(_st.editor.phase)) return;
+        const EditorNote b = written_binding_note(s);
+        if (b == EditorNote::none) {
+            if (_st.editor.note == EditorNote::binding_seen) _st.editor.note = EditorNote::none;   // healed; never drawn
+            return;
+        }
+        if (_st.editor.note == EditorNote::none) { _st.editor.note = b; _st.dirty = true; }
+    }
+    // DONE: the review opens on the binding — ⛔ while it is broken DONE shows the note again and opens nothing. The
+    // review FREEZES the draft with a new `draft_id`, which the request will carry.
+    void open_written_review(const UiSnapshot& s) {
+        const EditorNote b = written_binding_note(s);
+        if (b != EditorNote::none) { _st.editor.note = b; _st.dirty = true; return; }
+        ++_draft.draft_id;
+        _review.draft_id = _draft.draft_id;
+        _st.editor.phase = EditorPhase::message_review;
+        _st.editor.note = EditorNote::none;
+        _st.editor.primary = false;
+        _st.review_phase = ReviewPhase::requested;
+        _st.review_send = false; _st.review_loc = false; _st.review_header[0] = '\0';
+        _st.dirty = true;
+    }
+    // ★ Every return to a message editor lands on group 1 with the cursor kept (§5.4); a DM editor first re-labels its
+    //   header from the BOUND peer (the review used the same storage for its own row 0).
+    void written_editor_return() {
+        editor_enter(_st.editor, _draft.caller == DraftCaller::dm ? EditorPhase::relabel : EditorPhase::groups);
+        _st.editor.note = EditorNote::none;
+        editor_refresh();
+        _st.dirty = true;
+    }
+    // The list WRITE MESSAGE came from, the arrow on WRITE MESSAGE, re-read from the LIVE catalog (sealed now).
+    void written_back_to_list(const UiSnapshot& s) {
+        _st.compose_result = false;
+        if (_st.compose == Compose::channel) open_send_list(s); else _st.compose_gen = s.preset_generation;
+        _st.cursor = write_row_of(s);
+        _st.dirty = true;
+    }
+    // DISCARD (cleared, or nothing to clear): the draft is released and the list comes back.
+    void written_leave(const UiSnapshot& s) {
+        draft_release(_draft);
+        _written = WrittenOutcome{};
+        _st.editor = EditorView{};
+        written_back_to_list(s);
+    }
+    // ★★★ THE WRITTEN REVIEW's PRESS — ` SEND >EDIT     n/m`. A `BUSY` note clears and the press still acts (r2.26).
+    //     SEND: ⛔ never over owed ordinary work — while one is pending nothing queues and `BUSY` shows; otherwise the
+    //     draft is CONTENT-LOCKED, the bound request queues WHOLE (U2) and the result view opens on `SENDING...`.
+    void written_review_press(Gesture g) {
+        if (g != Gesture::short_press && g != Gesture::double_press) return;
+        if (_st.editor.note == EditorNote::busy) { _st.editor.note = EditorNote::none; _st.dirty = true; }
+        if (g != Gesture::double_press) { _st.review_send = !_st.review_send; _st.dirty = true; return; }   // short
+        if (!_st.review_send) { close_review(); written_editor_return(); return; }       // EDIT
+        if (_req_pending) { _st.editor.note = EditorNote::busy; _st.dirty = true; return; }
+        _draft.locked = true;
+        queue(_review);
+        _written = WrittenOutcome{};
+        _written.state = WrittenState::queued;
+        if (send_kind_dm(_review.kind)) _dm = DmState::submitting; else _chan = ChanState::submitting;
+        close_review();
+        _st.editor.phase = EditorPhase::message_result;
+        _st.compose_result = true; _st.cursor = 0; _st.dirty = true;
+    }
+    // ★★★ THE WRITTEN RESULT's ACKNOWLEDGEMENT, by request state (§7.4.1):
+    //   · queued         — the press is consumed and ignored: the request executes on the next service pass;
+    //   · refused        — the editor, the draft unlocked and kept, for a fresh review (⛔ nothing is re-submitted);
+    //   · accepted, open — the view closes and tracking ends; the draft is released — the declared residual;
+    //   · accepted, final — the list WRITE MESSAGE came from; the draft is released.
+    void written_result_press(Gesture g, const UiSnapshot& s) {
+        if (g != Gesture::short_press && g != Gesture::double_press) return;
+        switch (_written.state) {
+            case WrittenState::queued: return;
+            case WrittenState::refused:
+                _st.compose_result = false;
+                _written = WrittenOutcome{};
+                written_editor_return();
+                return;
+            case WrittenState::accepted_open: {
+                const bool send_list = (_st.compose == Compose::channel);
+                written_release();
+                close_compose();
+                if (send_list) open_send_list(s);
+                return;
+            }
+            case WrittenState::accepted_final:
+            case WrittenState::none:
+            case WrittenState::released:
+                written_release();
+                written_back_to_list(s);
+                return;
+        }
+    }
+    void written_release() {
+        draft_release(_draft);
+        _st.editor = EditorView{};
+        _written.state = WrittenState::released;                     // the normal tracker closes ONCE (see the pump)
+        _st.dirty = true;
+    }
+    // ★★★ `long_fire` WITHDRAWS ONLY A PENDING **WRITTEN** ORDINARY REQUEST, checked BY KIND (§7.4.1) — ⛔ never a bare
+    //     clear of the slot, and ⛔ the emergency request is a different slot this never touches. The draft unlocks and
+    //     the editor shows it after the overlay, for a fresh review; it is never sent after the alarm.
+    void withdraw_written_request() {
+        if (_req_pending && send_kind_written(_req.kind)) _req_pending = false;
+        _draft.locked = false;
+        _written = WrittenOutcome{};
+        _st.compose_result = false;
+        written_editor_return();
+    }
+    // ★★★ `long_fire` OVER A WRITTEN FLOW (§5.5, §7.4.1): the editor (E1–E4) survives with its ring; the review closes
+    //     to the editor; a QUEUED request is withdrawn; a REFUSED one returns to the editor; an ACCEPTED one is released
+    //     with its view (§B101), exactly as a phrase result closes.
+    void written_on_fire() {
+        switch (_st.editor.phase) {
+            case EditorPhase::groups: case EditorPhase::chars: case EditorPhase::controls: case EditorPhase::discard:
+            case EditorPhase::bind: case EditorPhase::relabel: return;
+            case EditorPhase::message_review: close_review(); written_editor_return(); return;
+            case EditorPhase::message_result:
+                switch (_written.state) {
+                    case WrittenState::queued:  withdraw_written_request(); return;
+                    case WrittenState::refused:
+                        _st.compose_result = false; _written = WrittenOutcome{}; written_editor_return(); return;
+                    case WrittenState::accepted_open: case WrittenState::accepted_final:
+                    case WrittenState::none: case WrittenState::released:
+                        written_release(); close_compose(); return;
+                }
+                return;
+            case EditorPhase::closed: case EditorPhase::name_review: case EditorPhase::name_requested:
+            case EditorPhase::name_taken: case EditorPhase::name_result:
+                close_compose(); return;
+        }
+    }
+    // The written request was EXECUTED (or refused before it could be): the bytes have been read, the lock lifts.
+    void written_executed(SendKind k, WrittenState st) {
+        if (!send_kind_written(k) || _written.state != WrittenState::queued) return;
+        _draft.locked = false;
+        _written.state = st;
+        _st.dirty = true;
+    }
+    // ★★★ ATTRIBUTION FIRST (§7.4.1): an outcome the normal tracker matched belongs to the transaction it holds.
+    //   · while a written request is still QUEUED that transaction is an OLDER one: its verdict is ignored here;
+    //   · once a written request is ACCEPTED it IS that transaction: the outcome settles the record — a known-not-aired
+    //     failure makes it REFUSED (the draft comes back), anything else ACCEPTED, FINAL (a late NO CONFIRM →
+    //     DELIVERED upgrade keeps it final).
+    bool written_outcome_admitted(const SendOutcome& o) {
+        switch (_written.state) {
+            case WrittenState::queued: return false;
+            case WrittenState::accepted_open:
+            case WrittenState::accepted_final:
+                _written.state = send_outcome_never_aired(o) ? WrittenState::refused : WrittenState::accepted_final;
+                _written.reason = (o.kind == SendOutcome::Kind::dm_no_key) ? FailReason::no_pubkey : o.reason;
+                _written.refusal = RefuseReason::other;
+                _written.code = MESHROUTE_NS::CmdCode::queued;
+                _st.dirty = true;
+                return true;
+            case WrittenState::none:
+            case WrittenState::refused:
+            case WrittenState::released: return true;
+        }
+        return true;
+    }
+    // A failure outcome's panel words, copied into the written record once `note_failure` mapped them (one mapper).
+    void written_reasons_from_failure() {
+        if (_written.state != WrittenState::refused && _written.state != WrittenState::accepted_final) return;
+        _written.reason = _fail; _written.refusal = _refuse;
+    }
+
     // The setup flow still LIVES in the SETTINGS sub-view (rail on SETTINGS, R-4) — so the existing rule that leaving
     // SETTINGS closes provisioning stays true. Its origin is typed HERE.
     void enter_setup_from_home() {
@@ -6034,6 +6742,7 @@ private:
         //   `short` is "advance within the current list; AT THE END, move to the next screen". The result phase has no
         //   list, so every position is the end. Neither choice can send: this branch queues nothing.
         if (_st.compose_result) {
+            if (_st.editor.phase == EditorPhase::message_result) { written_result_press(g, s); return; }   // ★ W8
             const bool send_list = (_st.compose == Compose::channel);
             if (g == Gesture::short_press || g == Gesture::double_press) close_compose();
             // ★ W4b (design §6.5): acknowledging a Send-list result returns to the Send list, arrow on item 1.
@@ -6051,6 +6760,9 @@ private:
         //   the wearer has not read.
         // ★★ W4b (design §6.5): the SEND LIST re-reads instead of closing, and the note stays up for the operator to
         //    see (this press could not have seen it — it is consumed and sends nothing).
+        // ★★★ W8 (design §5, §7.5) — THE WRITTEN EDITOR OWNS THE PRESS while it is up, and it is asked BEFORE the
+        //     catalog questions below: a catalog change has NO effect on written text (§7.4).
+        if (written_editing()) { written_editor_press(g, s); return; }
         if (_st.compose == Compose::channel && preset_generation_moved(s)) { preset_catalog_moved(s); return; }
         if (preset_generation_moved(s)) { close_compose(); return; }   // ⛔ CONSUMES the press — nothing is sent
         // ★★ W4b — `PRESET CHANGED` is up: this press clears it and does NOTHING else (§6.4's table, for the Send list).
@@ -6079,6 +6791,7 @@ private:
             //      shared preflight, ceremony, confirmation, one send forward and eleven-arm outcome mapping, while
             //      binding TEAM as the explicit return parent (see `run_roster_grant`). ⛔ Nothing transmits here.
             case ComposeRow::grant: run_roster_grant(s); return;
+            case ComposeRow::write: open_written(s); return;           // ★ W8: the editor, the destination bound NOW
             case ComposeRow::text:  break;
         }
         // ★★★★ §UI-10/11 P3 / §B66 — **THE ROW'S IDENTITY IS ITS STABLE SLOT, RESOLVED THROUGH THE PROJECTION.**
@@ -6106,6 +6819,12 @@ private:
         _st.dirty = true;
     }
     void refresh_review_page() {
+        // ★★ W8 (brief §2.4 "Projection"): a WRITTEN review projects from a BORROWED counted view of the draft — ⛔ it
+        //    never goes through the phrase capture's copy, and Inbox / phrase `_detail_body` ownership is unchanged.
+        if (_st.editor.phase == EditorPhase::message_review) {
+            review_page_rows(_draft.bytes, _draft.len, _st.detail_page, _st.review_line);
+            return;
+        }
         review_page_rows(_detail_body, _detail_len, _st.detail_page, _st.review_line);
     }
     // Close the review ONLY (the phrase list stays). Its shared page returns to the Inbox's resting state.
@@ -6142,6 +6861,16 @@ private:
     //   is lost reads as changed here.
     bool review_check(const UiSnapshot& s) {
         if (!review_active()) return false;
+        // ★★★ W8 (§7.4.1): a WRITTEN review asks only its BINDING — no catalog (a generation change has no effect) —
+        //     and a broken one closes to the EDITOR with the note, the draft kept. ⛔ Nothing re-binds.
+        if (send_kind_written(_review.kind)) {
+            const EditorNote b = written_binding_note(s);
+            if (b == EditorNote::none) return false;
+            close_review();
+            written_editor_return();
+            _st.editor.note = b;
+            return true;
+        }
         if (s.team_id == 0 && _review.team_id != 0) { review_close_with(ReviewPhase::note_team, s, s.preset_generation); return true; }
         bool present = false; uint32_t hash = 0;
         if (_review.kind == SendKind::dm) {
@@ -6163,6 +6892,7 @@ private:
     void review_gesture(Gesture g, const UiSnapshot& s) {
         if (review_check(s)) return;                                   // the press that finds it broken sends nothing
         if (_st.review_phase != ReviewPhase::open) return;             // not captured yet: nothing to act on
+        if (send_kind_written(_review.kind)) { written_review_press(g); return; }   // ★ W8: SEND / EDIT
         if (g == Gesture::short_press) { _st.review_send = !_st.review_send; _st.dirty = true; return; }
         if (g != Gesture::double_press) return;
         if (!_st.review_send) { close_review(); return; }              // BACK: the list, arrow on that phrase
@@ -6202,7 +6932,10 @@ private:
     // ⛔ EQUALITY, ⛔ NEVER ORDERING (§3.2.3), which is what makes the uint32 wrap harmless — and `compose_gen` is 0
     //    while nothing is open, a value no live catalog can carry, so a closed sub-view can never answer TRUE.
     bool preset_generation_moved(const UiSnapshot& s) const {
-        return _st.compose != Compose::none && !_st.compose_result && _st.compose_gen != s.preset_generation;
+        // ★ W8 (§7.4): a catalog change has NO effect on a written message — its editor, review and result are exempt
+        //   (`written_flow_open`); the phrase list, its review and the DM generation close keep today's rule.
+        return _st.compose != Compose::none && !_st.compose_result && !written_flow_open() &&
+               _st.compose_gen != s.preset_generation;
     }
     // ★★★★ [[B232]] + §UI-17 S1 — **A SCREEN THAT HAS NOT BEEN ENTERED IS ONE ROW**, and that is the whole of "one
     //      press passes the screen": `advance_or_next` sees `n == 1`, so there is nothing to walk and the cycle
@@ -6279,6 +7012,7 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     //   count 0 — VACUOUS. This file has already lost two entries that way (see M27/M28's re-anchoring note).
     if (_st.settings == Settings::provisioning) close_provisioning();
     if (review_active()) _st.review_send = false;   // ★ W6: an arming alarm keeps the review, reset to BACK
+    if (_st.editor.phase == EditorPhase::name_review) _st.editor.primary = false;   // ★ W7: the name review, to EDIT
     if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }
     if (g == Gesture::long_arm)    { _emg = Emergency::arming; _arm_fire_at_ms = s.now_ms + kArmToFireMs; return; }
     if (g == Gesture::long_cancel) { _emg = Emergency::cancelled; _cancelled_until_ms = s.now_ms + kCancelledMs; return; }
@@ -6298,7 +7032,8 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     // ⓘ UI-7 routed it through `close_compose()` so the new RESULT phase is cleared with the modal (one exit, U1).
     // ★ W6 (design r2.23 §7.4.1) — a review open at `long_fire` closes, and after the alarm the PHRASE LIST shows:
     //   only the review ends, never an ordinary request is created. Any other compose closes as today (§B101).
-    if (review_active()) close_review(); else close_compose();
+    name_flow_on_fire();                             // ★ W7: the name flow's own landings (§7.4.1)
+    if (written_flow_open()) written_on_fire(); else if (review_active()) close_review(); else close_compose();
     retain(s.now_ms);
     queue(SendKind::emergency, 0, mrfw::kPresetEmergency, 0);
 }

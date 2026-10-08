@@ -294,6 +294,13 @@ struct Canvas {
     //    in §CHROME-3 and is now a COUNT with a required value per frame: exactly ONE on an ordinary or modal view,
     //    exactly ZERO on an emergency one (§5.3, §11.2).
     int draw_rect_calls = 0;
+    // ★★★ W7+W8 (brief §2.8) — `draw_hline` RECORDS ITS GEOMETRY (x, y, width; height 1) and its page. It used to count
+    //     calls only, which can prove that a line was drawn and never WHERE — and the editor's cursor is exactly a
+    //     6x1 underline at `x = 12 + 6 * column`, `y = baseline + 1` (design §5.3). ⛔ The count is kept beside it.
+    static constexpr int kMaxHline = 64;
+    struct HLine { int page, x, y, w; };
+    HLine hl[kMaxHline] = {};
+    int n_hl = 0;
 };
 Canvas g_c;
 
@@ -592,7 +599,8 @@ void begin_frame() { ++g_c.begin_frame; g_c.pages_left = 8; g_c.pages_this_frame
                      // from an earlier frame would satisfy a "the panel says X" check for ever.
                      g_c.have_first = false; g_c.first_text[0] = '\0';
                      g_c.n_page_text = 0;    g_c.page_text[0]  = '\0';
-                     g_c.n_rec = 0;          g_c.cur_page      = 0; }
+                     g_c.n_rec = 0;          g_c.cur_page      = 0;
+                     g_c.n_hl  = 0; }
 bool next_page()   {
     ++g_c.next_page;
     ++g_c.cur_page;   // §CHROME-3: everything recorded from here on belongs to the NEXT page's replay
@@ -626,7 +634,10 @@ void draw_text(int x, int y, const char* s) {
         g_c.page_text[g_c.n_page_text]   = '\0';
     }
 }
-void draw_hline(int, int, int)         { ++g_c.draw_hline; }
+void draw_hline(int x, int y, int w)   {
+    ++g_c.draw_hline;
+    if (g_c.n_hl < Canvas::kMaxHline) g_c.hl[g_c.n_hl++] = Canvas::HLine{g_c.cur_page, x, y, w};
+}
 // ★★ §CHROME-3 — THE TWO §CHROME-2 PRIMITIVES, faked here for the first time because THIS SLICE IS THEIR FIRST
 //    CALLER. Both are compose-only on the real board (`variants/heltec_common/board_ui.cpp`, pure forwards to U8g2's
 //    `drawXBM` / `drawFrame`) and `tools/probe_board_ui` measures that against the real TU; here they only record.
@@ -714,6 +725,28 @@ ICfgLive&  device_cfg_live()  { return probe_live(); }
 }  // namespace mrfw
 
 // ---- the executor fake --------------------------------------------------------------------------------------------
+// ★★★ W7 (brief §2.8) — THE NAME SAVE's RECORDED STAND-IN, signature-correct for `mrfw::rename_node`. ⛔ NAMED HONESTLY:
+//     it proves only the PANEL's half — the one call per SAVE with the model's exact counted bytes, the five answers
+//     mapped, and the live name published on `saved` / `unchanged` ONLY (W0's durable-before-live rule, scripted).
+//     That a rename really PERSISTS is W0's real identity service, witnessed by the inbox-verbs probe's identity arms.
+struct RenameLog {
+    int    calls = 0;
+    char   last[48] = {};
+    size_t last_len = 0;
+    mrfw::RenameResult answer = mrfw::RenameResult::saved;
+};
+RenameLog g_rename;
+namespace mrfw {
+RenameResult rename_node(const char* name, size_t name_len) {
+    ++g_rename.calls;
+    const size_t n = name_len < sizeof g_rename.last - 1 ? name_len : sizeof g_rename.last - 1;
+    memcpy(g_rename.last, name, n); g_rename.last[n] = '\0';
+    g_rename.last_len = name_len;
+    if (g_rename.answer == RenameResult::saved || g_rename.answer == RenameResult::unchanged)
+        g_node.set_name(name, uint8_t(name_len));            // the live name, published only once "durable"
+    return g_rename.answer;
+}
+}  // namespace mrfw
 namespace mrfw {
 ExecResult exec_command(const char* line, size_t len) {
     ++g_exec.calls;
@@ -2250,6 +2283,9 @@ int main() {
         g_exec = ExecLog{}; g_exec.ok = true;
         g_exec.code = MESHROUTE_NS::CmdCode::queued;
         g_exec.ctr  = 300;                                   // ★ ABOVE 255 on purpose — §b40's 16-bit handle
+        // ⓘ W8 (owner-ruled D19): an ordinary team post executes only once the team-local ID EXISTS — these cases were
+        //   written for a node that sends, so the fixture now states the ID it always assumed (P9d re-inits with 50).
+        g_node.set_team_local_id(50);
         uint32_t t9 = settle(400000);
         t9 = enter_list(t9, kSlotSend);                       // the SEND screen -> the canned CHANNEL list
         // ⓘ W4b fixture: SEND is reached BY THE RAIL in menu mode and entered with `double` (the Send LIST, design
@@ -3186,8 +3222,8 @@ int main() {
             body_row_is(0, "probe") && body_row(1) == nullptr);
         CHK("P17m ...row 2 is the stable identity `ID 0x<HASH8>`", body_row_is(2, id_row));
         CHK("P17m ...row 3 is the configured position", body_row_is(3, "52.123,21.456"));
-        CHK("P17m ...row 4 is `>BACK`, its only row, and the rail still boxes STATUS",
-            body_row_is(4, ">BACK") && rail_boxed_slot() == kSlotStatus && rail_cue_slot() == -1);
+        CHK("P17m ...row 4 is ` CHANGE NAME >BACK` (W7), BACK selected, and the rail still boxes STATUS",
+            body_row_is(4, " CHANGE NAME >BACK") && rail_boxed_slot() == kSlotStatus && rail_cue_slot() == -1);
 
         // ---- (c) ★★★ THE FROZEN FRAME: A POSITION THAT MOVES **BETWEEN PAGES** MAY NOT TEAR THE ROW -------------
         // ⛔⛔ THE CONTROL FOR A DEFECT THAT SHIPPED IN S3's FIRST CUT (C102, re-anchored on My device's row 3): a row
@@ -3229,13 +3265,14 @@ int main() {
         }
         // ---- (e) §2.10 — THE POSITION REFRESHES MY DEVICE WITH NO PRESS AND NO STRIP TOKEN MOVING -----------------
         {
-            t18 = settle(t18 + 500);                          // a keep-alive: a `short` on My device stays on BACK
+            // a keep-alive: ⓘ W7 — a `short` on My device now TOGGLES (CHANGE NAME / BACK), so TWO keep it on BACK
+            t18 = settle(settle(t18 + 500) + 500);
             const char* before_mail = text_at(8, 7);
             char strip_mail[8]; snprintf(strip_mail, sizeof strip_mail, "%s", before_mail ? before_mail : "?");
             g_node.mutable_config().lat_e7 = 521234567;
             frame_only();
             CHK("P17r the fix moving repaints My device's position with NO press",
-                body_row_is(3, "52.123,21.456") && body_row_is(4, ">BACK"));
+                body_row_is(3, "52.123,21.456") && body_row_is(4, " CHANGE NAME >BACK"));
             CHK("P17r ...and no strip token moved (the repaint is the BODY's)",
                 text_at(8, 7) != nullptr && strcmp(text_at(8, 7), strip_mail) == 0);
         }
@@ -3259,7 +3296,7 @@ int main() {
                      unsigned(n.len));
             CHK(lab, body_row_is(0, n.dev0) && (n.dev1 ? body_row_is(1, n.dev1) : body_row(1) == nullptr));
         }
-        t18 = settle(t18 + 500);                              // keep-alive on My device (BACK stays)
+        t18 = settle(settle(t18 + 500) + 500);                // keep-alive on My device: ⓘ W7 — two toggles, BACK again
         t18 = double_press(t18 + 500); t18 += 700; paint(t18); // BACK -> Home, the arrow on MY DEVICE
         CHK("P17n BACK returns Home with the arrow ON MY DEVICE",
             rail_boxed_slot() == kSlotStatus && strstr(g_c.page_text, ">MY DEVICE") != nullptr);
@@ -6209,15 +6246,18 @@ int main() {
                     t17 = see(double_press(t17 + 500));
                     // ★★★ THE ACT SUB-VIEW IS THE MEMBER'S OWN, and `GRANT KEY` is an ADDED row: the canned texts
                     //     keep their places and `back, don't send` stays LAST (⇒ ⛔ no landed row became a grant).
+                    // ⓘ W8 (design §7.5 — the named revision of preset R-1): WRITE MESSAGE follows the texts, so GRANT
+                    //   KEY moved down one row (row 4) and `back` scrolled below it. K7's semantics are unchanged.
                     CHK("P24k7b GRANT KEY is a row on the member's act sub-view, between the texts and the way out",
                         body_row_is(1, ">-Are you OK?") && body_row_is(2, " -I'm OK") &&
-                        body_row_is(3, " GRANT KEY") && body_row_is(4, " back, don't send"));
+                        body_row_is(3, " WRITE MESSAGE") && body_row_is(4, " GRANT KEY"));
                     CHK("P24k7b ⛔ opening it reached NO grant seam, issued NO command and queued NOTHING (P-12)",
                         grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
                     t17 = see(settle(t17 + 500));                       // short -> "I'm OK"
+                    t17 = see(settle(t17 + 500));                       // short -> WRITE MESSAGE (W8)
                     t17 = see(settle(t17 + 500));                       // short -> GRANT KEY
                     CHK("P24k7b GRANT KEY is selectable, and the SHORT ALONE performs nothing",
-                        body_row_is(3, ">GRANT KEY") && grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
+                        body_row_is(4, ">GRANT KEY") && grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
                     grant_seam().tx = MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
                     grant_seam().ctr = 7777; grant_seam().dst = 90;
                     t17 = see(double_press(t17 + 500));
@@ -6304,9 +6344,10 @@ int main() {
                         dirty_the_model(t17 + 100); t17 = see(t17 + 200);
                         t17 = see(double_press(t17 + 500));             // the member's act sub-view
                         CHK("P24k7d the act is offered for them too — the pubkey is the CHAIN's question, not the row's",
-                            body_row_is(3, " GRANT KEY"));
+                            body_row_is(4, " GRANT KEY"));                  // ⓘ W8: after WRITE MESSAGE
                         t17 = see(settle(t17 + 500));
                         t17 = see(settle(t17 + 500));
+                        t17 = see(settle(t17 + 500));                   // ⓘ W8: one more row (WRITE MESSAGE)
                         t17 = see(double_press(t17 + 500));
                         // ★★★ N5's LANDING, VERBATIM: the ruled word, the FULL hash, BACK selected, and ⛔ the
                         //     forbidden twin `WAITING FOR KEY` nowhere near it.
@@ -6349,10 +6390,11 @@ int main() {
                         t17 = see(double_press(t17 + 500));
                         CHK("P24k7f ⛔ a roster row that is US offers NO act — the list is the shipped canned one",
                             body_row_is(1, ">-Are you OK?") && body_row_is(2, " -I'm OK") &&
-                            body_row_is(3, " back, don't send") &&
-                            strstr(g_c.page_text, "GRANT KEY") == nullptr);
+                            body_row_is(3, " WRITE MESSAGE") && body_row_is(4, " back, don't send") &&
+                            strstr(g_c.page_text, "GRANT KEY") == nullptr);   // ⓘ W8: + WRITE MESSAGE
                         t17 = see(settle(t17 + 500));
                         t17 = see(settle(t17 + 500));
+                        t17 = see(settle(t17 + 500));                   // ⓘ W8: past WRITE MESSAGE
                         t17 = see(double_press(t17 + 500));             // the way out, which grants nothing
                         CHK("P24k7f ⛔ ...and leaving reached no grant seam and queued nothing",
                             grant_seam().calls == gcf && g_hal.txq_depth() == 0);
@@ -6373,12 +6415,13 @@ int main() {
                         t17 = see(double_press(t17 + 500));
                         CHK("P24k7e ⛔ the act is ABSENT — the list is exactly the shipped canned one",
                             body_row_is(1, ">-Are you OK?") && body_row_is(2, " -I'm OK") &&
-                            body_row_is(3, " back, don't send") &&
-                            strstr(g_c.page_text, "GRANT KEY") == nullptr);
+                            body_row_is(3, " WRITE MESSAGE") && body_row_is(4, " back, don't send") &&
+                            strstr(g_c.page_text, "GRANT KEY") == nullptr);   // ⓘ W8: + WRITE MESSAGE
                         t17 = see(settle(t17 + 500));
                         t17 = see(settle(t17 + 500));
+                        t17 = see(settle(t17 + 500));                   // ⓘ W8: past WRITE MESSAGE
                         CHK("P24k7e ...and the last row is still the way out, which grants nothing",
-                            body_row_is(3, ">back, don't send"));
+                            body_row_is(4, ">back, don't send"));
                         t17 = see(double_press(t17 + 500));
                         CHK("P24k7e ⛔ leaving reached no grant seam and queued nothing",
                             grant_seam().calls == gc2 && g_hal.txq_depth() == 0);
@@ -6769,9 +6812,10 @@ int main() {
         CHK("P27b the DM compose sub-view is open on the reconfigured list", g_c.page_text[0] != '\0');
         // ★★★ THE HEADLINE: three ENABLED slots with GAPS (dm1, dm4, dm8), in stable-slot order, each row carrying
         //     its own configured words — ⛔ never dm2's, which a row-index resolution would have shown at row 2.
+        // ⓘ W8 (design §7.5): WRITE MESSAGE follows the phrases, so row 4 is WRITE and `back` (still LAST) scrolls below.
         CHK("P27b ★★★★ the gapped catalog renders dm1 / dm4 / dm8 in stable-slot order, with `back` LAST",
             body_row_is(1, ">-Are you OK?") && body_row_is(2, " LMEET AT THE COL") &&
-            body_row_is(3, " -ON MY WAY")   && body_row_is(4, " back, don't send"));
+            body_row_is(3, " -ON MY WAY")   && body_row_is(4, " WRITE MESSAGE"));
         CHK("P27b ⛔ ...and the CLEARED slot's words are nowhere on the panel (a disabled slot has no row)",
             strstr(g_c.page_text, "I'm OK") == nullptr);
         // ★★ THE `L` / `-` COLUMN, ALWAYS EXACTLY ONE OF THE TWO (OQ-A's premise). `dm4` is `loc=on`, the other two
@@ -6811,9 +6855,13 @@ int main() {
                                 MESHROUTE_NS::Node::IdBindConf::authoritative);
             dirty_the_model(t27 + 100); t27 = see(t27 + 200);
             t27 = see(double_press(t27 + 500));
+            // ⓘ W8: WRITE MESSAGE is row 4 now; GRANT KEY follows it (walked to: it scrolls into row 4), then `back`.
             CHK("P27b2 ★★★★ K7's GRANT KEY row follows the LIST's length — after dm8, still before `back`",
                 body_row_is(1, ">-Are you OK?") && body_row_is(2, " LMEET AT THE COL") &&
-                body_row_is(3, " -ON MY WAY")   && body_row_is(4, " GRANT KEY"));
+                body_row_is(3, " -ON MY WAY")   && body_row_is(4, " WRITE MESSAGE"));
+            for (int i = 0; i < 4; ++i) t27 = see(settle(t27 + 500));     // -> GRANT KEY (index 4)
+            CHK("P27b2 ★★★★ ...GRANT KEY is the row right after WRITE MESSAGE",
+                body_row_is(3, " WRITE MESSAGE") && body_row_is(4, ">GRANT KEY"));
             CHK("P27b2 ⛔ ...and the act row carries NO location column (R-1: byte-identical)",
                 strstr(g_c.page_text, " -GRANT KEY") == nullptr &&
                 strstr(g_c.page_text, " LGRANT KEY") == nullptr);
@@ -6937,11 +6985,15 @@ int main() {
                 cleared && probe_presets().enabled_count(mrfw::PresetKind::dm) == 0);
             t27 = enter_list(t27 + 500, kSlotTeam);
             t27 = see(double_press(t27 + 500));
-            CHK("P27e ★★★ a catalog with NO enabled DM slot shows the empty note and offers only `back`",
-                body_row_is(1, mrui::kNoPresetsText) && body_row_is(2, ">back, don't send"));
+            // ⓘ W8 (design §7.5): an empty catalog still offers WRITE MESSAGE — the rows are the note, WRITE MESSAGE
+            //   (selected) and `back`. The way out still sends nothing.
+            CHK("P27e ★★★ a catalog with NO enabled DM slot shows the empty note and offers WRITE MESSAGE and `back`",
+                body_row_is(1, mrui::kNoPresetsText) && body_row_is(2, ">WRITE MESSAGE") &&
+                body_row_is(3, " back, don't send"));
             const int exec2 = g_exec.calls;
+            t27 = see(settle(t27 + 500));                                 // -> back
             t27 = see(double_press(t27 + 500));
-            CHK("P27e ⛔ ...and the only press it offers SENDS NOTHING", g_exec.calls == exec2);
+            CHK("P27e ⛔ ...and the way out SENDS NOTHING", g_exec.calls == exec2);
         }
 
         // ---- (f) RESTORE, THROUGH THE REAL VERB, so no later phase inherits a reconfigured catalog -------------
@@ -7052,6 +7104,10 @@ int main() {
         t31 = see(settle(now + 500));                         // the note's press: clears it, nothing else
         // ---- (e) THE 163 BYTES REACH THE EXECUTOR WHOLE, through the review's SEND -----------------------------
         g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 3131;
+        // ⓘ W8 (owner-ruled D19): a team phrase executes only once the team-local ID EXISTS; the child-enabled arm
+        //   reaches this phase without one, so the fixture states the ID the send always assumed — and restores it.
+        const uint8_t lid31 = g_node.team_local_id();
+        if (lid31 == 0) g_node.set_team_local_id(50);
         t31 = confirm_review(see(double_press(t31 + 500)));
         paint(t31);
         {
@@ -7060,6 +7116,7 @@ int main() {
             CHK("P31e ★★★ the review's SEND issues the WHOLE 163-byte phrase, `-l` because the slot asks for it",
                 g_exec.calls == exec_c + 1 && strcmp(g_exec.last, want) == 0);
         }
+        g_node.set_team_local_id(lid31);
         t31 = see(double_press(t31 + 500));                  // acknowledge the result
         CHK("P31f `preset reset all` restores the compiled catalog",
             run_preset_cmd("preset reset all") &&
@@ -7478,8 +7535,9 @@ int main() {
             CHK(lab, body_row_is(2, un_plain));
             // ⓘ W4b (design §6.5): the CHANNEL list is the top-level Send list now, so its exit row is ` MENU` (was
             //   ` back, don't send`, which the DM sub-view keeps). The width property this phase pins is unchanged.
-            snprintf(lab, sizeof lab, "P29b %s compose: the exit row follows unchanged at row 3", k.who);
-            CHK(lab, body_row_is(3, dm ? " back, don't send" : " MENU"));
+            // ⓘ W8 (design §7.5): WRITE MESSAGE follows the phrases (row 3), and the exit row follows it (row 4).
+            snprintf(lab, sizeof lab, "P29b %s compose: WRITE MESSAGE (W8) at row 3, the exit row unchanged at row 4", k.who);
+            CHK(lab, body_row_is(3, " WRITE MESSAGE") && body_row_is(4, dm ? " back, don't send" : " MENU"));
             t29 = see(settle(t29 + 500));
             snprintf(lab, sizeof lab, "P29b %s compose: after one short the located phrase is UNSELECTED, whole", k.who);
             CHK(lab, body_row_is(1, un_loc));
@@ -7879,6 +7937,449 @@ int main() {
             CHK("P26b ⛔ ...and the boot NEVER writes, not even to repair a corrupt record", no_writes);
             CHK("P26b ...and the emergency slot is live and non-empty on every one of the five", usable);
         }
+    }
+
+    // ============================================================================================================ P32
+    // ★★★★ W7 + W8 (design r2.27 §4.3, §4.4, §5, §7.3–§7.5; brief §2.8) — THE EDITOR, THE NAME AND WRITTEN MESSAGES ON
+    //      GLASS, through the REAL `firmware_ui.cpp` and the REAL `InputFsm` (every press below is button samples):
+    //      exact rows of every new screen, the 6x1 cursor underline's GEOMETRY, the name save's ONE call per SAVE
+    //      (the recorded `rename_node` stand-in — W0's identity arms remain the real-service witness), the written
+    //      lines the executor receives (count, body, ⛔ no `-l`), ZERO submissions on cancellation and refusal —
+    //      D19's two-phase traces included — the five notes' exact row 0 (over a full-length draft too) with the wake
+    //      and overlay press rules, and a frame that stays frozen across its pages while input lands mid-frame.
+    {
+        auto see  = [&](uint32_t at) { paint(at); paint(at + 700); return at + 800; };
+        auto shp  = [&](uint32_t at) { return see(settle(at + 500)); };           // one SHORT, then the frame
+        auto dbl  = [&](uint32_t at) { return see(double_press(at + 500)); };     // one DOUBLE, then the frame
+        auto hline_at = [&](int x, int y, int w) {
+            for (int i = 0; i < g_c.n_hl; ++i)
+                if (g_c.hl[i].page == 0 && g_c.hl[i].x == x && g_c.hl[i].y == y && g_c.hl[i].w == w) return true;
+            return false;
+        };
+        // E1 → a group's character → inserted (E1 back on group 1): `g` shorts, double, `i` shorts, double.
+        auto type_at = [&](uint32_t at, int g, int i) {
+            for (int k = 0; k < g; ++k) at = settle(at + 500);
+            at = double_press(at + 500);
+            for (int k = 0; k < i; ++k) at = settle(at + 500);
+            return double_press(at + 500);
+        };
+        auto type_text = [&](uint32_t at, const char* txt) {
+            for (const char* p = txt; *p; ++p) {
+                int k = 0;
+                while (k < int(mrui::kEditorRepertoireSize) && mrui::kEditorRepertoire[k] != *p) ++k;
+                at = type_at(at, k / int(mrui::kEditorGroupSize), k % int(mrui::kEditorGroupSize));
+            }
+            return see(at);
+        };
+        // Onto control `want` (e.g. `>DONE`) BY WHAT THE PANEL SHOWS: from the group ring walk to `>EDIT` and enter
+        // the control ring, then walk to the control. ⛔ Bounded — a missing item fails the caller's next check.
+        auto to_control = [&](uint32_t at, const char* want) {
+            at = see(at);
+            if (!(body_row(3) && strstr(body_row(3), "DEL") != nullptr)) {
+                for (int k = 0; k < 9 && strstr(g_c.page_text, ">EDIT") == nullptr; ++k) at = shp(at);
+                at = dbl(at);
+            }
+            for (int k = 0; k < 7 && strstr(g_c.page_text, want) == nullptr; ++k) at = shp(at);
+            return at;
+        };
+        const uint32_t team32 = 0x5A5A0001u;
+        uint8_t t_pub[32], t_priv[32];
+        for (int i = 0; i < 32; ++i) { t_pub[i] = uint8_t(0x30 + i); t_priv[i] = uint8_t(0x50 + i); }
+        uint8_t m_pub[32];
+        for (int i = 0; i < 32; ++i) m_pub[i] = uint8_t(0x70 + i);
+        m_pub[0] = 0x32; m_pub[1] = 0x00; m_pub[2] = 0x57; m_pub[3] = 0x88;
+        const uint32_t m_hash = MESHROUTE_NS::key_hash32_of(m_pub);
+        // ⓘ THE PERSON IS (RE-)SEATED RIGHT BEFORE THE ROSTER IS OPENED: this file's paints repeat earlier tick times,
+        //   which the HAL's wrap-tracking clock reads as 49-day jumps, so a binding seated phases earlier is past its
+        //   48-hour TTL by the time it is asked. Seated fresh, it answers.
+        auto seat_person = [&]() {
+            g_node.clear_team_routing_state();                    // only THIS phase's person on the roster
+            g_node.test_learn_route(/*dest=*/47, /*via=*/47, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.team_key_set(47, m_hash, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            (void)g_node.peer_key_set(m_hash, m_pub, MESHROUTE_NS::Node::PeerKeyConf::authoritative, "STANISLAW", 9);
+        };
+        auto seat_team = [&]() {
+            MESHROUTE_NS::NodeConfig c{};
+            c.routing_sf = 7; c.allowed_sf_bitmap = (1u << 7); c.leaf_id = 0;
+            c.team_id = team32;
+            g_node.on_init(c);
+            g_node.set_team_local_id(32);
+            g_node.team_channel_key_load(t_pub, t_priv, /*present=*/true);
+            seat_person();
+        };
+        uint32_t t32 = g_probe_millis + 5000;
+        // ⓘ P26 leaves its alarm FIRING (attempt 1, accepted with the executor's CURRENT handle): resolve it with that
+        //   handle's relay verdict and acknowledge it, so this phase starts on an idle panel.
+        if (mrfw::ui_emergency_active()) {
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::channel_sent; pu.ctr = g_exec.ctr;
+            pu.relayed = true;
+            mr_ui_on_push(pu);
+            t32 = see(t32); t32 = see(t32 + 1000);
+            t32 = shp(t32);
+        }
+        CHK("P32 precondition: no alarm is running", !mrfw::ui_emergency_active());
+        seat_team();
+        g_node.set_name("ANN", 3);
+        g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 3201;
+        g_rename = RenameLog{};
+        t32 = settle(t32 + 1000);
+
+        // ---- (a) MY DEVICE → CHANGE NAME → the editor, preloaded ----------------------------------------------------
+        t32 = walk_to_slot(t32 + 500, kSlotStatus);
+        t32 = see(double_press(t32 + 500));                     // Home's list
+        t32 = open_highlighted(t32 + 200, ">MY DEVICE"); t32 = see(t32 + 200);
+        CHK("P32a My device's action row is ` CHANGE NAME >BACK`, BACK selected", body_row_is(4, " CHANGE NAME >BACK"));
+        t32 = shp(t32);
+        CHK("P32a a short TOGGLES to CHANGE NAME and stays on My device",
+            body_row_is(4, ">CHANGE NAME  BACK") && rail_boxed_slot() == kSlotStatus);
+        t32 = dbl(t32);
+        CHK("P32a the name editor: row 0 `NAME` and 3/32, the preloaded name on row 1",
+            body_row_is(0, "NAME           3/32") && body_row_is(1, "ANN") && body_row(2) == nullptr);
+        CHK("P32a ...the group ring on rows 3-4, group 1 highlighted, and the rail on STATUS",
+            body_row_is(3, ">ABCDEF GHIJKL") && body_row_is(4, " MNOPQR STUVWX") && rail_boxed_slot() == kSlotStatus);
+        CHK("P32a ★ the cursor is a 6x1 underline one pixel below its cell (x 12 + 6 x 3, y baseline + 1)",
+            hline_at(kBodyXExpected + 6 * 3, body_y_expected(1) + 1, 6));
+        // E2 on group 1, its first character highlighted, the announcement on row 4
+        t32 = dbl(t32);
+        CHK("P32a a double on group 1 opens its character ring, `A` highlighted and announced",
+            body_row_is(3, ">A B C D E F BACK") && body_row_is(4, "ADD A"));
+        t32 = shp(t32);
+        t32 = dbl(t32);                                         // insert B
+        CHK("P32a an insertion lands at the cursor and returns to group 1",
+            body_row_is(0, "NAME           4/32") && body_row_is(1, "ANNB") && body_row_is(3, ">ABCDEF GHIJKL") &&
+            hline_at(kBodyXExpected + 6 * 4, body_y_expected(1) + 1, 6));
+        CHK("P32a ⛔ editing saved nothing", g_rename.calls == 0);
+
+        // ---- (b) SAVE NAME? → SAVE → the ONE call → NAME SAVED --------------------------------------------------------
+        t32 = to_control(t32, ">DONE");
+        CHK("P32b the control ring, DONE highlighted", body_row_is(3, " DEL LEFT RIGHT") && body_row_is(4, ">DONE DISCARD BACK"));
+        t32 = dbl(t32);
+        CHK("P32b SAVE NAME? with the name on row 1, WAS on row 3 and EDIT selected",
+            body_row_is(0, "SAVE NAME?") && body_row_is(1, "ANNB") && body_row_is(3, "WAS ANN") &&
+            body_row_is(4, " SAVE >EDIT") && rail_boxed_slot() == kSlotStatus);
+        CHK("P32b ⛔ opening the review saved nothing", g_rename.calls == 0);
+        // the frozen frame: a console rename lands mid-frame — every page still draws the review's own WAS
+        {
+            dirty_the_model(t32 + 1000);
+            run_ticks(t32 + 1100, 3, 10);
+            g_node.set_name("ZED", 3);
+            run_ticks(t32 + 1130, 5, 10);
+            bool same = true;
+            for (int p = 0; p < 8; ++p) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(3), p);
+                if (!r || strcmp(r, "WAS ANN") != 0) same = false;
+            }
+            CHK("P32b every page of that frame drew the review's frozen WAS row", same);
+            t32 = see(t32 + 2000);
+            CHK("P32b ...and the review keeps it after the frame (WAS was captured when the review opened)",
+                body_row_is(3, "WAS ANN"));
+        }
+        t32 = shp(t32);
+        CHK("P32b a short selects SAVE", body_row_is(4, ">SAVE  EDIT"));
+        t32 = dbl(t32);
+        CHK("P32b ★ SAVE called the rename service EXACTLY ONCE with the counted draft",
+            g_rename.calls == 1 && g_rename.last_len == 4 && strcmp(g_rename.last, "ANNB") == 0);
+        CHK("P32b the result reads NAME SAVED", body_row_is(1, "NAME SAVED") && body_row(2) == nullptr);
+        t32 = shp(t32);
+        CHK("P32b acknowledged: My device, BACK selected, the NEW live name on row 0",
+            body_row_is(0, "ANNB") && body_row_is(4, " CHANGE NAME >BACK"));
+        CHK("P32b ⛔ the acknowledgement and the redraws saved nothing more", g_rename.calls == 1);
+
+        // ---- (c) THE FIVE ANSWERS: each not-saved one keeps the draft and returns to the editor ----------------------
+        {
+            struct Ans { mrfw::RenameResult r; const char* head; const char* why; };
+            const Ans ans[] = {
+                { mrfw::RenameResult::unchanged,      "NAME SAVED",     nullptr },
+                { mrfw::RenameResult::nv_save_failed, "NAME NOT SAVED", "NV WRITE FAILED" },
+                { mrfw::RenameResult::too_long,       "NAME NOT SAVED", "NAME TOO LONG" },
+                { mrfw::RenameResult::bad_args,       "NAME NOT SAVED", "BAD NAME" },
+            };
+            bool all = true;
+            for (const Ans& a : ans) {
+                g_rename.answer = a.r;
+                const int calls = g_rename.calls;
+                t32 = shp(t32); t32 = dbl(t32);                    // CHANGE NAME → the editor (preloaded "ANNB")
+                t32 = to_control(t32, ">DONE"); t32 = dbl(t32);      // DONE → the review
+                t32 = shp(t32); t32 = dbl(t32);                    // SAVE
+                const bool head = body_row_is(1, a.head) && (a.why ? body_row_is(2, a.why) : body_row(2) == nullptr);
+                const bool once = g_rename.calls == calls + 1;
+                t32 = shp(t32);                                    // acknowledge
+                const bool back = a.why ? (body_row_is(0, "NAME           4/32") && body_row_is(3, ">ABCDEF GHIJKL"))
+                                        : body_row_is(4, " CHANGE NAME >BACK");
+                if (!(head && once && back)) all = false;
+                if (a.why) {                                       // leave the editor: DISCARD, confirmed
+                    t32 = to_control(t32, ">DISCARD"); t32 = dbl(t32);
+                    t32 = shp(t32); t32 = dbl(t32);
+                }
+            }
+            CHK("P32c all five answers: NAME SAVED, or NAME NOT SAVED + its OWN reason, the draft kept", all);
+            g_rename.answer = mrfw::RenameResult::saved;
+            CHK("P32c ⛔ no retry: one call per SAVE, five SAVEs in all", g_rename.calls == 5);
+        }
+
+        // ---- (d) EMPTY owns row 0 alone; an overlay's absorbed press does not clear it; the next press does ----------
+        t32 = shp(t32); t32 = dbl(t32);                            // CHANGE NAME → the editor
+        t32 = to_control(t32, ">DEL");
+        for (int k = 0; k < 4; ++k) t32 = dbl(t32);                // DEL x4: empty
+        t32 = to_control(t32, ">DONE");
+        t32 = dbl(t32);                                            // DONE on an empty draft
+        CHK("P32d ★ EMPTY owns row 0 ALONE, left-aligned, the counter hidden", body_row_is(0, "EMPTY"));
+        {   // long_arm, released before the fire: CANCELLED; the overlay absorbs a short; the note survives it
+            g_c.button_down = true; for (int k = 0; k <= 10; ++k) tick(t32 + 500 + uint32_t(k) * 100);
+            g_c.button_down = false; tick(t32 + 1600); tick(t32 + 1650);
+            t32 = settle(t32 + 1700);                              // absorbed by the CANCELLED overlay
+            t32 = see(t32 + mrui::kCancelledMs + 500);
+            CHK("P32d the note survives the alarm overlay's absorbed press", body_row_is(0, "EMPTY"));
+        }
+        t32 = shp(t32);
+        CHK("P32d ...and the next ELIGIBLE press clears it and still acts (DONE → DISCARD)",
+            body_row_is(0, "NAME           0/32") && body_row_is(4, " DONE>DISCARD BACK"));
+        t32 = dbl(t32);                                            // DISCARD on an empty draft leaves at once
+        CHK("P32d DISCARD on an empty draft returns to My device", body_row_is(4, " CHANGE NAME >BACK"));
+        t32 = see(double_press(t32 + 500)); t32 += 700; paint(t32);   // BACK → Home
+        CHK("P32d ⛔ nothing in (c)/(d) reached the executor", g_exec.calls == 0);
+
+        // ---- (e) WRITE MESSAGE on the Send list: the team editor, the review, SEND → the executor -------------------
+        t32 = enter_list(t32 + 500, kSlotSend);
+        t32 = open_highlighted(t32 + 200, ">WRITE MESSAGE"); t32 = see(t32 + 200);
+        CHK("P32e WRITE MESSAGE opens the TEAM editor: `TO TEAM` and 0/163, the rail on SEND",
+            body_row_is(0, "TO TEAM       0/163") && body_row_is(3, ">ABCDEF GHIJKL") && rail_boxed_slot() == kSlotSend);
+        t32 = type_text(t32, "MEET AT 9");
+        CHK("P32e the typed draft and its count", body_row_is(0, "TO TEAM       9/163") && body_row_is(1, "MEET AT 9"));
+        t32 = to_control(t32, ">DONE"); t32 = dbl(t32);
+        char thead[24]; snprintf(thead, sizeof thead, "TO TEAM %08lX", (unsigned long)team32);
+        CHK("P32e the review: TO TEAM <ID8>, the wrapped body, ` SEND >EDIT     1/1` — never LOC",
+            body_row_is(0, thead) && body_row_is(1, "MEET AT 9") && body_row_is(4, " SEND >EDIT     1/1"));
+        CHK("P32e ⛔ the review submitted nothing", g_exec.calls == 0);
+        t32 = shp(t32); t32 = dbl(t32);                            // SEND
+        CHK("P32e ★ SEND reached the executor ONCE with the written team line — `-t -e`, ⛔ no `-l`",
+            g_exec.calls == 1 && strcmp(g_exec.last, "send_channel 0 \"MEET AT 9\" -t -e") == 0);
+        CHK("P32e the result reads QUEUED", strstr(g_c.page_text, "QUEUED") != nullptr);
+        {
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::channel_sent; pu.ctr = 3201; pu.relayed = true;
+            mr_ui_on_push(pu);
+            t32 = see(t32 + 700);
+            CHK("P32e the outcome lands: PICKED UP", strstr(g_c.page_text, "PICKED UP") != nullptr);
+        }
+        t32 = shp(t32);
+        CHK("P32e acknowledged: the Send list, the arrow on WRITE MESSAGE", strstr(g_c.page_text, ">WRITE MESSAGE") != nullptr);
+
+        // ---- (f) FULL over a FULL-LENGTH draft; the wake rule ------------------------------------------------------
+        t32 = dbl(t32);                                            // WRITE MESSAGE again (the arrow is on it)
+        for (int k = 0; k < 163; ++k) t32 = double_press(double_press(t32 + 500) + 500);   // 163 x `A`
+        t32 = see(t32);
+        CHK("P32f a full draft: 163/163, the cursor's rows 7-8 of the grid",
+            body_row_is(0, "TO TEAM     163/163") && body_row_is(1, "AAAAAAAAAAAAAAAAAAA") && body_row_is(2, "AAAAAAAAAAA") &&
+            hline_at(kBodyXExpected + 6 * 11, body_y_expected(2) + 1, 6));
+        t32 = double_press(double_press(t32 + 500) + 500); t32 = see(t32);   // the 164th `A`
+        CHK("P32f ★ FULL owns row 0 ALONE over the full draft — nothing written", body_row_is(0, "FULL") &&
+            body_row_is(2, "AAAAAAAAAAA"));
+        t32 = see(t32 + mrui::kBlankMs + 2000);                          // the panel goes dark
+        CHK("P32f precondition: the panel is dark", g_c.last_power_save == 1);
+        t32 = shp(t32);                                            // the waking press: consumed
+        CHK("P32f the first press on a dark panel only WAKES — the note stays, the ring did not move",
+            body_row_is(0, "FULL") && body_row_is(3, ">ABCDEF GHIJKL"));
+        t32 = shp(t32);
+        CHK("P32f ...the next press clears it AND acts (the ring moves to group 2)",
+            body_row_is(0, "TO TEAM     163/163") && body_row_is(3, ">GHIJKL MNOPQR"));
+        // the frozen frame across pages: a press lands mid-frame
+        {
+            const uint32_t b = t32 + 2000;                          // well past the 2 Hz throttle
+            dirty_the_model(b);
+            run_ticks(b + 100, 3, 10);                             // pages 0-2
+            g_c.button_down = true;  tick(b + 140); tick(b + 190); // pages 3-4
+            g_c.button_down = false; tick(b + 240);                // page 5
+            tick(b + 700);                                         // page 6 — the SHORT is classified here, mid-frame
+            tick(b + 710);                                         // page 7: the frame is complete (read it NOW)
+            bool same = true;
+            for (int p = 0; p < 8; ++p) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(3), p);
+                if (!r || strcmp(r, ">GHIJKL MNOPQR") != 0) same = false;
+            }
+            CHK("P32f precondition: the frame really spanned the press — eight pages, the last one after it",
+                g_c.pages_this_frame == 8);
+            CHK("P32f every page of that frame drew the ring it FROZE, though the press moved it mid-frame", same);
+            t32 = see(b + 1500);
+            CHK("P32f ...and the NEXT frame shows the move", body_row_is(3, ">MNOPQR STUVWX"));
+        }
+        t32 = to_control(t32, ">DISCARD"); t32 = dbl(t32);
+        CHK("P32f E4: DISCARD DRAFT? over the first 19 bytes, BACK first",
+            body_row_is(0, "DISCARD DRAFT?") && body_row_is(1, "AAAAAAAAAAAAAAAAAAA") &&
+            body_row_is(3, ">BACK") && body_row_is(4, " DISCARD"));
+        t32 = shp(t32); t32 = dbl(t32);
+        CHK("P32f DISCARD: back on the Send list, ⛔ nothing sent", strstr(g_c.page_text, ">WRITE MESSAGE") != nullptr &&
+            g_exec.calls == 1);
+
+        // ---- (g) D19 ON GLASS — before the team-local ID: the review OPENS, SEND is refused, ZERO submissions ---------
+        g_node.set_team_local_id(0);
+        {
+            const int exec0 = g_exec.calls;
+            t32 = dbl(t32);                                        // WRITE MESSAGE (the arrow is on it)
+            t32 = type_text(t32, "OK");
+            t32 = to_control(t32, ">DONE"); t32 = dbl(t32);
+            CHK("P32g D19 phase 1: before the ID, the WRITTEN review still OPENS",
+                body_row_is(0, thead) && body_row_is(4, " SEND >EDIT     1/1"));
+            t32 = shp(t32); t32 = dbl(t32);
+            CHK("P32g ★ D19 phase 2: SEND answers NOT SENT / NO TEAM ID YET with ZERO submissions",
+                body_row_is(1, "NOT SENT") && body_row_is(2, "NO TEAM ID YET") && g_exec.calls == exec0);
+            t32 = shp(t32);
+            CHK("P32g ...acknowledged: the editor, unlocked, the draft kept",
+                body_row_is(0, "TO TEAM       2/163") && body_row_is(1, "OK") && body_row_is(3, ">ABCDEF GHIJKL"));
+            t32 = to_control(t32, ">DISCARD"); t32 = dbl(t32); t32 = shp(t32); t32 = dbl(t32);
+            // the PHRASE: the same two phases
+            t32 = walk_to(t32, ">-Got your message");
+            t32 = dbl(t32);
+            CHK("P32g D19 phase 1: a team PHRASE still opens its review", body_row_is(0, thead) &&
+                body_row_is(4, " SEND >BACK     1/1"));
+            t32 = shp(t32); t32 = dbl(t32);
+            CHK("P32g ★ D19 phase 2: the phrase's SEND is refused too, ZERO submissions",
+                body_row_is(1, "NOT SENT") && body_row_is(2, "NO TEAM ID YET") && g_exec.calls == exec0);
+            t32 = shp(t32);
+            CHK("P32g ...acknowledged: the phrase list", strstr(g_c.page_text, ">-Got your message") != nullptr);
+        }
+        g_node.set_team_local_id(32);
+
+        // ---- (h) TEAM CHANGED owns row 0 when the team changes under the editor; DONE re-shows it --------------------
+        t32 = walk_to(t32, ">WRITE MESSAGE"); t32 = dbl(t32);
+        t32 = type_text(t32, "X");
+        g_node.mutable_config().team_id = team32 + 1;
+        t32 = see(t32 + 700);
+        CHK("P32h ★ TEAM CHANGED owns row 0 ALONE", body_row_is(0, "TEAM CHANGED"));
+        t32 = to_control(t32, ">DONE");                              // these presses cleared it...
+        t32 = dbl(t32);                                            // ...and DONE shows it again, opening nothing
+        CHK("P32h DONE over a broken binding shows TEAM CHANGED again and opens no review",
+            body_row_is(0, "TEAM CHANGED") && body_row_is(4, ">DONE DISCARD BACK"));
+        g_node.mutable_config().team_id = team32;
+        t32 = see(t32 + 700);
+        t32 = shp(t32);                                            // the note clears, the press still acts: DISCARD
+        CHK("P32h the clearing press still acted (DONE → DISCARD)", body_row_is(4, " DONE>DISCARD BACK"));
+        t32 = dbl(t32); t32 = shp(t32); t32 = dbl(t32);            // DISCARD, confirmed
+        t32 = leave_list(t32 + 500);
+
+        // ---- (i) A PERSON: the DM editor's 8-column label, the review, SEND → `send 47 … -t -a` ----------------------
+        t32 = walk_to_slot(t32 + 500, kSlotTeam);
+        seat_person();                                             // the person, bound and named, seated fresh
+        t32 = see(double_press(t32 + 500));                        // enter the roster
+        t32 = open_highlighted(t32 + 200, ">STANI"); t32 = see(t32 + 200);
+        t32 = open_highlighted(t32 + 200, ">WRITE MESSAGE"); t32 = see(t32 + 200);
+        CHK("P32i the DM editor: `TO STANISL»` at 8 columns (the FULL name's label, never TEAM's six), SEND rail",
+            body_row_is(0, "TO STANISL\xBB   0/163") && rail_boxed_slot() == kSlotSend);
+        t32 = type_text(t32, "HI");
+        t32 = to_control(t32, ">DONE"); t32 = dbl(t32);
+        char dhead[24]; snprintf(dhead, sizeof dhead, "TO STANIS\xBB %08lX", (unsigned long)m_hash);
+        CHK("P32i the DM review: TO <label ≤7> <HASH8>", body_row_is(0, dhead) && body_row_is(1, "HI"));
+        {
+            const int exec0 = g_exec.calls;
+            g_exec.ctr = 3202;
+            t32 = shp(t32); t32 = dbl(t32);
+            CHK("P32i ★ SEND reached the executor ONCE with the written DM line — `-t -a`, ⛔ no `-l`",
+                g_exec.calls == exec0 + 1 && strcmp(g_exec.last, "send 47 \"HI\" -t -a") == 0);
+        }
+        {
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::send_e2e_acked; pu.ctr = 3202; pu.dst = 47;
+            mr_ui_on_push(pu);
+            t32 = see(t32 + 700);
+            CHK("P32i the e2e ack lands: DELIVERED to the bound person", body_row_is(1, "DELIVERED to"));
+        }
+        t32 = shp(t32);
+        CHK("P32i acknowledged: the person's list, the arrow on WRITE MESSAGE",
+            strstr(g_c.page_text, ">WRITE MESSAGE") != nullptr && rail_boxed_slot() == kSlotSend);
+        // RECIPIENT CHANGED: the person re-keys under the editor
+        t32 = dbl(t32);
+        g_node.team_key_set(47, m_hash ^ 0x00010000u, MESHROUTE_NS::Node::IdBindSource::bcn,
+                            MESHROUTE_NS::Node::IdBindConf::authoritative);
+        t32 = see(t32 + 700);
+        CHK("P32i ★ RECIPIENT CHANGED owns row 0 ALONE when the person re-keys under the editor",
+            body_row_is(0, "RECIPIENT CHANGED"));
+        t32 = to_control(t32, ">DISCARD"); t32 = dbl(t32);           // empty draft: DISCARD leaves at once
+        t32 = open_highlighted(t32 + 200, ">back, don't send");
+        seat_person();                                             // the person's original key, for what follows
+
+        // ---- (j) BUSY: SEND over an owed ordinary request queues nothing ------------------------------------------
+        {
+            g_exec.ctr = 3203;
+            t32 = enter_list(t32 + 500, kSlotSend);
+            t32 = confirm_review(dbl(t32)); t32 = see(t32);        // phrase 1: accepted, its tracker open
+            const int exec0 = g_exec.calls;
+            t32 = shp(t32);                                        // acknowledged → the Send list (tracker still open)
+            t32 = confirm_review(dbl(t32)); t32 = see(t32);        // phrase 1 again: OWED — the tracker is busy
+            CHK("P32j precondition: the second phrase is owed, not yet executed", g_exec.calls == exec0);
+            t32 = shp(t32);                                        // acknowledged — still owed
+            t32 = walk_to(t32, ">WRITE MESSAGE"); t32 = dbl(t32);
+            t32 = type_text(t32, "Q");
+            t32 = to_control(t32, ">DONE"); t32 = dbl(t32);
+            t32 = shp(t32); t32 = dbl(t32);                        // SEND
+            CHK("P32j ★ BUSY owns row 0 and NOTHING queued — the owed phrase is not overwritten",
+                body_row_is(0, "BUSY") && body_row_is(4, ">SEND  EDIT     1/1") && g_exec.calls == exec0);
+            t32 = shp(t32);
+            CHK("P32j ...the next press clears BUSY and still acts (SEND → EDIT)",
+                body_row_is(0, thead) && body_row_is(4, " SEND >EDIT     1/1"));
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::channel_sent; pu.ctr = 3203; pu.relayed = true;
+            mr_ui_on_push(pu);
+            t32 = see(t32 + 700);
+            CHK("P32j the owed phrase executes once its slot frees — the phrase line, not the draft",
+                g_exec.calls == exec0 + 1 && strstr(g_exec.last, "\"Q\"") == nullptr);
+            t32 = dbl(t32);                                        // EDIT → the editor
+            t32 = to_control(t32, ">DISCARD"); t32 = dbl(t32); t32 = shp(t32); t32 = dbl(t32);
+            MESHROUTE_NS::Push p2{}; p2.kind = MESHROUTE_NS::PushKind::channel_sent; p2.ctr = 3203; p2.relayed = true;
+            mr_ui_on_push(p2);
+            t32 = leave_list(t32 + 500);
+        }
+
+        // ---- (k) long_fire over a written REVIEW: the review closes, the alarm airs, the draft never does ---------
+        {
+            const int exec0 = g_exec.calls;
+            t32 = enter_list(t32 + 500, kSlotSend);
+            t32 = walk_to(t32, ">WRITE MESSAGE"); t32 = dbl(t32);
+            t32 = type_text(t32, "Z");
+            t32 = to_control(t32, ">DONE"); t32 = dbl(t32);
+            g_c.button_down = true; for (int k = 0; k <= 40; ++k) tick(t32 + 500 + uint32_t(k) * 100);   // arm + FIRE
+            g_c.button_down = false; tick(t32 + 4600); tick(t32 + 4650);
+            t32 = see(t32 + 5000);
+            CHK("P32k the alarm fired and aired its OWN line once", g_exec.calls == exec0 + 1 &&
+                strstr(g_exec.last, "\"Z\"") == nullptr);
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::channel_sent; pu.ctr = g_exec.ctr; pu.relayed = true;
+            mr_ui_on_push(pu);
+            t32 = see(t32 + 700);
+            t32 = shp(t32);                                        // the presented outcome, acknowledged
+            CHK("P32k after the alarm: the EDITOR with the draft on group 1 — the review is gone, nothing was sent",
+                body_row_is(0, "TO TEAM       1/163") && body_row_is(1, "Z") && body_row_is(3, ">ABCDEF GHIJKL") &&
+                g_exec.calls == exec0 + 1);
+            t32 = to_control(t32, ">DISCARD"); t32 = dbl(t32); t32 = shp(t32); t32 = dbl(t32);
+            t32 = leave_list(t32 + 500);
+        }
+
+#if MR_N_LAYERS < 2
+        // ---- (l) THE UNNAMED JOIN/CREATE PROMPT (the child-enabled arm: only it has JOIN/CREATE) -------------------
+        {
+            MESHROUTE_NS::NodeConfig c{};
+            c.routing_sf = 7; c.allowed_sf_bitmap = (1u << 7); c.leaf_id = 0; c.team_id = 0;
+            g_node.on_init(c);
+            g_node.set_team_local_id(0);
+            g_node.set_name("", 0);
+            t32 = walk_to_slot(t32 + 500, kSlotStatus);
+            t32 = see(double_press(t32 + 500));
+            char join_row[24]; snprintf(join_row, sizeof join_row, ">%s", mrui::provision_row_label(mrui::ProvRow::join_team));
+            t32 = open_highlighted(t32 + 200, join_row); t32 = see(t32 + 200);
+            CHK("P32l ★ an unnamed JOIN TEAM asks first: NO NAME SET / SET NAME / >SKIP, rail on STATUS",
+                body_row_is(0, "NO NAME SET") && body_row_is(1, " SET NAME") && body_row_is(2, ">SKIP") &&
+                rail_boxed_slot() == kSlotStatus);
+            t32 = shp(t32); t32 = dbl(t32);                        // SET NAME → the editor, empty
+            CHK("P32l SET NAME opens the name editor, empty", body_row_is(0, "NAME           0/32"));
+            t32 = type_text(t32, "SAM");
+            t32 = to_control(t32, ">DONE"); t32 = dbl(t32);
+            CHK("P32l the review reads WAS NO NAME SET", body_row_is(3, "WAS NO NAME SET"));
+            const int calls = g_rename.calls;
+            t32 = shp(t32); t32 = dbl(t32);
+            CHK("P32l SAVE: one call with `SAM`", g_rename.calls == calls + 1 && strcmp(g_rename.last, "SAM") == 0);
+            t32 = shp(t32);                                        // NAME SAVED, acknowledged → the gate, then the step
+            CHK("P32l ★ NAME SAVED continues into JOIN's NEARBY list (the settings gate asked again)",
+                body_row_is(0, mrui::kNearbyTitle) || strstr(g_c.page_text, mrui::kNearbyTitle) != nullptr);
+            t32 = open_highlighted(t32 + 200, ">BACK"); t32 = see(t32 + 200);
+        }
+#endif
+        printf("  INFO P32 done at t=%lu\n", (unsigned long)t32);
     }
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);

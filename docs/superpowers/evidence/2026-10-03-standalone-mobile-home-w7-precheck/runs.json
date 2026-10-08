@@ -1,0 +1,103 @@
+[
+  {
+    "label": "native-build",
+    "args": [
+      "pio",
+      "test",
+      "-e",
+      "native"
+    ],
+    "exit": 0,
+    "seconds": 1.746
+  },
+  {
+    "label": "native-binary",
+    "args": [
+      "./.pio/build/native/program"
+    ],
+    "exit": 0,
+    "seconds": 0.742
+  },
+  {
+    "label": "abi",
+    "args": [
+      "python3",
+      "-B",
+      "tools/probe_board_abi.py"
+    ],
+    "exit": 0,
+    "seconds": 19.613
+  },
+  {
+    "label": "firmware-ui",
+    "args": [
+      "tools/probe_firmware_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 390.032
+  },
+  {
+    "label": "board-ui",
+    "args": [
+      "tools/probe_board_ui/run.sh"
+    ],
+    "exit": 0,
+    "seconds": 25.48
+  },
+  {
+    "label": "sim-configure",
+    "args": [
+      "cmake",
+      "-S",
+      "/home/staszek/lora-universal-simulator",
+      "-B",
+      "/tmp/w7-precheck-m6n5vvdo/sim-build",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DMESHROUTE_DIR=/home/staszek/MeshRoute"
+    ],
+    "exit": 0,
+    "seconds": 0.498
+  },
+  {
+    "label": "sim-build",
+    "args": [
+      "cmake",
+      "--build",
+      "/tmp/w7-precheck-m6n5vvdo/sim-build",
+      "--target",
+      "lus",
+      "-j",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 32.043
+  },
+  {
+    "label": "corpus",
+    "args": [
+      "python3",
+      "-B",
+      "tools/run_corpus.py",
+      "--out",
+      "/tmp/w7-precheck-m6n5vvdo/corpus",
+      "--lus",
+      "/tmp/w7-precheck-m6n5vvdo/sim-build/orchestrator/lus",
+      "--require-anchors",
+      "--jobs",
+      "4"
+    ],
+    "exit": 0,
+    "seconds": 52.191
+  },
+  {
+    "label": "inventory",
+    "args": [
+      "python3",
+      "-B",
+      "tools/gen_command_inventory.py",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 2.216
+  }
+]

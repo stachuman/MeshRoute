@@ -1,0 +1,9 @@
+{
+  "scope": "Labelled synthetic exercise of the actual step() definition; no full chain or firmware gates run.",
+  "exit": 0,
+  "stdout": "DONE\n",
+  "stderr": "",
+  "status_tsv": "qa-failed-step\t1\t0\nqa-following-step\t0\t0\n",
+  "failure_log": "/tmp/w7w8-stop-qa-oykg0j_x/final-qa-failed-step.log",
+  "continued_log_exists": true
+}

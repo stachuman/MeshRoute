@@ -1,0 +1,240 @@
+{
+  "fails_before": [
+    {
+      "case": "raw_bb_stdout",
+      "defect": "B478",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xbb in position 0: invalid start byte"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "raw_c5_stderr",
+      "defect": "B478",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xc5 in position 0: invalid continuation byte"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "malformed_both",
+      "defect": "B478",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "truncated_utf8",
+      "defect": "B478",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xc5 in position 72: unexpected end of data"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "signal_with_failure_summary",
+      "defect": "B490",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "signal_with_failure_summary: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit -11"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "signal_with_success_summary",
+      "defect": "B490",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "signal_with_success_summary: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit -11"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "exit2_with_summary",
+      "defect": "B490",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "exit2_with_summary: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit 2"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "build_raw_stderr",
+      "defect": "B478",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xbb in position 7: invalid start byte"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "success_exit1",
+      "defect": "B490",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "success_exit1: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit 1"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "failure_exit0",
+      "defect": "B490",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "failure_exit0: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit 0"
+      },
+      "final": "PASS"
+    },
+    {
+      "case": "failed_case_without_failed_assertion",
+      "defect": "B490",
+      "base": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "failed_case_without_failed_assertion: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit 1"
+      },
+      "final": "PASS"
+    }
+  ],
+  "controls": {
+    "A-C1": {
+      "raw_bb_stdout": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xbb in position 0: invalid start byte"
+      },
+      "raw_c5_stderr": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xc5 in position 0: invalid continuation byte"
+      },
+      "malformed_both": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte"
+      },
+      "truncated_utf8": {
+        "outcome": "FAILED",
+        "exception": "UnicodeDecodeError",
+        "message": "'utf-8' codec can't decode byte 0xc5 in position 72: unexpected end of data"
+      }
+    },
+    "A-C2": {
+      "signal_with_failure_summary": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "signal_with_failure_summary: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit -11"
+      },
+      "signal_with_success_summary": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "signal_with_success_summary: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit -11"
+      },
+      "exit2_with_summary": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "exit2_with_summary: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit 2"
+      },
+      "success_exit1": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "success_exit1: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit 1"
+      },
+      "failure_exit0": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "failure_exit0: CREDITED verdict (1, 1, 1) \u2014 expected a run failure with exit 0"
+      },
+      "failed_case_without_failed_assertion": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "failed_case_without_failed_assertion: CREDITED verdict (0, 1, 1) \u2014 expected a run failure with exit 1"
+      }
+    },
+    "A-C3": {
+      "outcome": "FAILED",
+      "exception": "AssertionError",
+      "message": "F01: no `retained:` line"
+    },
+    "A-C4": {
+      "outcome": "FAILED",
+      "exception": "AssertionError",
+      "message": "size: retention failed: S01: its evidence was NOT retained (/tmp/mr-qa-regressions-yjojrxf7/.pio/mutation-unusable/sizecase/S01.log: /tmp/mr-qa-regressions-yjojrxf7/.pio/mutation-unusable/sizecase/S01.stdout reads back different bytes); the raw bytes are removed with the scratch root at exit \u2014 rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+    },
+    "A-C5": {
+      "utf8": {
+        "outcome": "PASSED"
+      },
+      "ascii": {
+        "outcome": "FAILED",
+        "exception": "AssertionError",
+        "message": "a traceback reached the console: #######################################################################\n  ##  \u26d4 RUN INTEGRITY FAILURE \u2014 this run's verdicts may NOT be read as a battery result.\n  ##    worker 0 exited 120 \u2014 not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed\n  ##    worker 0 did not report its source restored\n  ##    worker 1 exited 120 \u2014 not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed\n  ##    worker 1 did not report its source restored\n  ##    7 selected entries came back with NO verdict: F03, F04, F05, F06, F07, F08, F09\n  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).\n  ################################################################################################################\nException in thread Thread-2 (_pump):\nTraceback (most recent call last):\n  File \"/usr/lib/python3.11/threading.py\", line 1038, in _bootstrap_inner\n    self.run()\n  File \"/usr/lib/python3.11/threading.py\", line 975, in run\n    self._target(*self._args, **self._kwargs)\n  File \"/tmp/mr-b478-e2e-tca_0833/tree/tools/probe_ui_model_mutations.py\", line 12770, in _pump\n    for raw in proc.stdout:\n  File \"/tmp/mr-b478-e2e-tca_0833/tree/tools/probe_ui_model_mutations.py\", line 12798, in <genexpr>\nException in thread Thread-1 (_pump):\n    p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=wenv, text=True, bufsize=1); p.stdout = (x.encode('utf-8') for x in p.stdout)\nTraceback (most recent call last):\n  File \"/usr/lib/python3.11/threading.py\", line 1038, in _bootstrap_inner\n                                                                                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.11/encodings/ascii.py\", line 26, in decode\n    self.run()\n  File \"/usr/lib/python3.11/threading.py\", line 975, in run\n    return codecs.ascii_decode(input, self.errors)[0]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nUnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 15: ordinal not in range(128)\n    self._target(*self._args, **self._kwargs)\n  File \"/tmp/mr-b478-e2e-tca_0833/tree/tools/probe_ui_model_mutations.py\", line 12770, in _pump\n    for raw in proc.stdout:\n  File \"/tmp/mr-b478-e2e-tca_0833/tree/tools/probe_ui_model_mutations.py\", line 12798, in <genexpr>\n    p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=wenv, text=True, bufsize=1); p.stdout = (x.encode('utf-8') for x in p.stdout)\n                                                                                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.11/encodings/ascii.py\", line 26, in decode\n    return codecs.ascii_decode(input, self.errors)[0]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nUnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 15: ordinal not in range(128)\n"
+      },
+      "ascii_exit": 9
+    },
+    "A-C6": {
+      "outcome": "FAILED",
+      "exception": "AssertionError",
+      "message": "a corrupted transfer exits 9 (got 1)"
+    },
+    "A-C7": {
+      "outcome": "FAILED",
+      "exception": "AssertionError",
+      "message": "a traceback reached the console:  panel (UTF-8 as Latin-1 mojibake, lost cells) -> RED (11 assertion(s) failed, match count 1)\n  [w0]   ok   F03 \u2605\u2605 the marker is placed BEFORE sanitizing, so the sanitizer turns the generated 0xBB into `.` -> RED (12 assertion(s) failed, match count 1)\n  [w1]   ok   F04 \u2605\u2605\u2605 an unnamed peer at 6-9 columns gets a CLIPPED `0x\u2026` hash instead of its fingerprint (the third spelling) -> RED (13 assertion(s) failed, match count 1)\n  [w0]   ok   F05 \u2605\u2605 the six-digit FINGERPRINT is used at 10+ columns, where the full `0x<HASH8>` fits and is ruled -> RED (14 assertion(s) failed, match count 1)\n  [w1]   ok   F06 \u2605\u2605\u2605 NO name and NO hash FABRICATES `0x00000000` instead of answering `none` (the caller's `id <n>` is lost) -> RED (15 assertion(s) failed, match count 1)\n  [w0]   ok   F07 \u2605\u2605 the marker is written ONE PAST the budget \u2014 the abbreviated label is `cols + 1` cells wide -> RED (16 assertion(s) failed, match count 1)\n  [w1]   ok   F08 \u2605\u2605 the CAPACITY rule is dropped \u2014 a destination shorter than the budget gets a partial result past its end -> RED (17 assertion(s) failed, match count 1)\n  [w1] source restored: md5 d6cb727d0c45448c1468b8b33f671163 (MATCHES)\n  [w1] shard 1: 4 RED / 0 unusable   (of 4 entries)\n  [w0]   ok   F09 \u2605\u2605 a NAME is ignored whenever a hash is known \u2014 the peer's chosen name is replaced by its hash token -> RED (18 assertion(s) failed, match count 1)\n  [w0] source restored: md5 d6cb727d0c45448c1468b8b33f671163 (MATCHES)\n  [w0] shard 0: 4 RED / 1 unusable   (of 5 entries)\n\n======================================================================================================================\n-- MERGED REPORT \u2014 target w4aident: /tmp/mr-b478-e2e-be8lpoob/tree/src/firmware_ui_model.h\n  ok   clean baseline 5 / 50 / 0   (DERIVED per worker tree; 2 tree(s) agree)\n  UNUSABLE F01 \u2605\u2605 the MARKER IS DROPPED \u2014 the last kept cell is the next name byte, a SILENT clip (B441's defect restored) \u2014 the suite ran without a verdict (binary rc 3)\nTraceback (most recent call last):\n  File \"/tmp/mr-b478-e2e-be8lpoob/tree/tools/probe_ui_model_mutations.py\", line 12988, in <module>\n    orchestrate()\n  File \"/tmp/mr-b478-e2e-be8lpoob/tree/tools/probe_ui_model_mutations.py\", line 12909, in orchestrate\n    lines, problem = retain_shipped(_TARGET, ent[\"label\"].split()[0], ent[\"label\"], ent[\"worker\"],\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/mr-b478-e2e-be8lpoob/tree/tools/probe_ui_model_mutations.py\", line 12521, in retain_shipped\n    return retain_unusable(target, label, meta, stdout, stderr)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/tmp/mr-b478-e2e-be8lpoob/tree/tools/probe_ui_model_mutations.py\", line 12452, in retain_unusable\n    path.parent.mkdir(parents=True, exist_ok=True)\n  File \"/usr/lib/python3.11/pathlib.py\", line 1117, in mkdir\n    os.mkdir(self, mode)\nFileExistsError: [Errno 17] File exists: '/tmp/mr-b478-e2e-be8lpoob/tree/.pio/mutation-unusable/w4aident'\n",
+      "exit": 1,
+      "unhandled_traceback": true
+    },
+    "collapsed": {
+      "selftest": "RED (regression PASS)"
+    },
+    "deleted-retention": {
+      "selftest": "RED (regression PASS)"
+    }
+  },
+  "integrity_faults": {
+    "transfer": {
+      "exit": 9,
+      "no_traceback": true,
+      "integrity": [
+        "  ##    F01 (worker 0): its shipped stderr does not match the worker's declaration (declared 20 B sha256 53799d9e998708ea44e8014a818d08604beb8d13e35b48854dd149c83963bfad, received 21 B sha256 0c2790c285cc87f1ed0ce4ca33902e9465f1a0e9bc507271eaa372cec498ac83) \u2014 NOT retained; the raw bytes are removed with the scratch root at exit \u2014 rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+      ]
+    },
+    "write": {
+      "exit": 9,
+      "no_traceback": true,
+      "integrity": [
+        "  ##    F01: its evidence was NOT retained (/tmp/mr-b478-e2e-xnjxdddr/tree/.pio/mutation-unusable/w4aident/F01.log: [Errno 17] File exists: '/tmp/mr-b478-e2e-xnjxdddr/tree/.pio/mutation-unusable/w4aident'); the raw bytes are removed with the scratch root at exit \u2014 rerun with MR_MUT_KEEP_SCRATCH=1 to keep them"
+      ]
+    },
+    "baseline-write": {
+      "exit": 2,
+      "no_traceback": true,
+      "integrity": [
+        "  ##    worker 0 exited 2 \u2014 not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+        "  ##    worker 0 did not report its source restored",
+        "  ##    worker 1 exited 2 \u2014 not a verdict code (0 = all RED, 1 = something worthless); its shard was not completed",
+        "  ##    worker 1 did not report its source restored",
+        "  ##    no worker derived a clean baseline \u2014 nothing measured a clean tree",
+        "  ##    baseline-w0: its evidence was NOT retained (/tmp/mr-b478-e2e-zse34lz_/tree/.pio/mutation-unusable/w4aident/baseline-w0.log: [Errno 17] File exists: '/tmp/mr-b478-e2e-zse34lz_/tree/.pio/mutation-unusable/w4aident'); the raw bytes are removed with the scratch root at exit \u2014 rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+        "  ##    baseline-w1: its evidence was NOT retained (/tmp/mr-b478-e2e-zse34lz_/tree/.pio/mutation-unusable/w4aident/baseline-w1.log: [Errno 17] File exists: '/tmp/mr-b478-e2e-zse34lz_/tree/.pio/mutation-unusable/w4aident'); the raw bytes are removed with the scratch root at exit \u2014 rerun with MR_MUT_KEEP_SCRATCH=1 to keep them",
+        "  ##    9 selected entries came back with NO verdict: F01, F02, F03, F04, F05, F06, F07, F08, F09"
+      ]
+    }
+  },
+  "verdict": "PASS"
+}

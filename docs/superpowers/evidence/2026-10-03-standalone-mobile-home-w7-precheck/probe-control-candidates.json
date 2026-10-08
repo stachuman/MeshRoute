@@ -1,0 +1,177 @@
+[
+  {
+    "line": 668,
+    "label": "C11 next_page()'s verdict is never fed back to the gate",
+    "source": "  ctl \"C11 next_page()'s verdict is never fed back to the gate\" yes \\\n      's|    s_gate.on_page(mrui::next_page(), s_model, s_counters);|    (void)mrui::next_page();|'"
+  },
+  {
+    "line": 674,
+    "label": "C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank)",
+    "source": "  ctl \"C4  pages advance WITHOUT re-drawing the scene (7 of 8 blank)\" yes \\\n      's|        case mrui::FrameStep::next_page:|        case mrui::FrameStep::next_page: mrui::set_power_save(false); s_gate.on_page(mrui::next_page(), s_model, s_counters); return;|'"
+  },
+  {
+    "line": 732,
+    "label": "C19 the preview row carries msg_id where the identity should be",
+    "source": "  ctl \"C19 the preview row carries msg_id where the identity should be\" yes \\\n      's|^    r.seq        = e.seq;|    r.seq        = e.msg_id;|'"
+  },
+  {
+    "line": 734,
+    "label": "C20 the preview row hardcodes the kind (every row reads DM)",
+    "source": "  ctl \"C20 the preview row hardcodes the kind (every row reads DM)\" yes \\\n      's|^    r.kind       = e.kind;|    r.kind       = MESHROUTE_NS::InboxKind::dm;|'"
+  },
+  {
+    "line": 740,
+    "label": "C21 every erase is reported as a SUCCESS regardless of the outcome",
+    "source": "  ctl \"C21 every erase is reported as a SUCCESS regardless of the outcome\" yes \\\n      's|    s_model.on_inbox_erased(rq.kind, rq.seq, g_node.inbox().erase(rq.kind, rq.seq));|    (void)g_node.inbox().erase(rq.kind, rq.seq); s_model.on_inbox_erased(rq.kind, rq.seq, MESHROUTE_NS::InboxEraseResult::erased);|'"
+  },
+  {
+    "line": 768,
+    "label": "C23 the body length is left for the model to measure (the strlen shape)",
+    "source": "  ctl \"C23 the body length is left for the model to measure (the strlen shape)\" yes \\\n      's|s_model.on_inbox_opened(e.kind, e.seq, e.origin, e.channel_id, e.body, e.body_len, c->now_ms);|s_model.on_inbox_opened(e.kind, e.seq, e.origin, e.channel_id, e.body, 0, c->now_ms);|'"
+  },
+  {
+    "line": 770,
+    "label": "C24 draw_frame stops giving the modal the body",
+    "source": "  ctl \"C24 draw_frame stops giving the modal the body\" yes \\\n      's|    if (st.detail != mrui::InboxModal::closed) { draw_inbox_detail(st); return; }|    ;|'"
+  },
+  {
+    "line": 781,
+    "label": "C30 the model is never given the config service (the menu is inert)",
+    "source": "  ctl \"C30 the model is never given the config service (the menu is inert)\" yes \\\n      's|    s_model.attach_config(s_cfg);|    ;|'"
+  },
+  {
+    "line": 786,
+    "label": "C31 the draft marker renders UiState::dirty instead of config_unsaved()",
+    "source": "  ctl \"C31 the draft marker renders UiState::dirty instead of config_unsaved()\" yes \\\n      's|    v.unsaved  = s_cfg.config_unsaved();|    v.unsaved  = s_model.state().dirty;|'"
+  },
+  {
+    "line": 832,
+    "label": "C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)",
+    "source": "  ctl \"C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)\" yes \\\n      's|    if (s_cfg.conflict() != was) s_model.mark_dirty();|    (void)was;|\n       s|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    (void)live_chrome;|'"
+  },
+  {
+    "line": 884,
+    "label": "C54 an arm is put back into mr_ui_init() (B200, literally)",
+    "source": "  ctl \"C54 an arm is put back into mr_ui_init() (B200, literally)\" yes \\\n      's|    s_model.attach_config(s_cfg);|    (void)mrui::arm_button_wake();\\n    s_model.attach_config(s_cfg);|'"
+  },
+  {
+    "line": 897,
+    "label": "C57 the boot announces a wake source again (nothing arms one there)",
+    "source": "  ctl \"C57 the boot announces a wake source again (nothing arms one there)\" yes \\\n      's|^    s_model.attach_config(s_cfg);$|    mrcon.println(F(\"!! OLED button wake unavailable; sleep disabled\"));\\n    s_model.attach_config(s_cfg);|'"
+  },
+  {
+    "line": 916,
+    "label": "C49 the hook always permits sleep (the whole policy bypassed)",
+    "source": "  ctl \"C49 the hook always permits sleep (the whole policy bypassed)\" yes \\\n      's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return true;|'"
+  },
+  {
+    "line": 918,
+    "label": "C50 the hook never permits sleep (the panel-lit answer for ever)",
+    "source": "  ctl \"C50 the hook never permits sleep (the panel-lit answer for ever)\" yes \\\n      's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return false;|'"
+  },
+  {
+    "line": 923,
+    "label": "C51 the policy is re-derived here without the input term (B197 back)",
+    "source": "  ctl \"C51 the policy is re-derived here without the input term (B197 back)\" yes \\\n      's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return s_model.state().blanked \\&\\& !s_gate.frame_open();|'"
+  },
+  {
+    "line": 938,
+    "label": "C61 the strip is drawn from the LIVE chrome instead of the frozen copy",
+    "source": "  ctl \"C61 the strip is drawn from the LIVE chrome instead of the frozen copy\" yes \\\n      's|    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, s_frame_chrome);|    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, live_chrome);|'"
+  },
+  {
+    "line": 944,
+    "label": "C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)",
+    "source": "  ctl \"C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)\" yes \\\n      's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    (void)live_chrome;|'"
+  },
+  {
+    "line": 950,
+    "label": "C63 the comparison reference is updated where the change is OBSERVED, not at the freeze",
+    "source": "  ctl \"C63 the comparison reference is updated where the change is OBSERVED, not at the freeze\" yes \\\n      's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    if (mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome)) s_frame_chrome = live_chrome;|'"
+  },
+  {
+    "line": 997,
+    "label": "C74 a chrome change is treated as user input (the panel never blanks)",
+    "source": "  ctl \"C74 a chrome change is treated as user input (the panel never blanks)\" yes \\\n      's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    if (mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome)) s_model.on_gesture(mrui::Gesture::short_press, s);|'"
+  },
+  {
+    "line": 1257,
+    "label": "C109 the S4 repaint invalidation is never called (F-8 re-opened)",
+    "source": "  ctl \"C109 the S4 repaint invalidation is never called (F-8 re-opened)\" yes \\\n      's|    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);|    ;|'"
+  },
+  {
+    "line": 1261,
+    "label": "C110 the invalidation compares the live snapshot with ITSELF",
+    "source": "  ctl \"C110 the invalidation compares the live snapshot with ITSELF\" yes \\\n      's|    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);|    (void)mrui::ui_team_invalidate(s_model, s, s);|'"
+  },
+  {
+    "line": 1266,
+    "label": "C111 the tick marks the model dirty unconditionally instead",
+    "source": "  ctl \"C111 the tick marks the model dirty unconditionally instead\" yes \\\n      's|    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);|    s_model.mark_dirty();|'"
+  },
+  {
+    "line": 1324,
+    "label": "C119 the wake is hard-wired into the device push entry (wake-on-any-push)",
+    "source": "  ctl \"C119 the wake is hard-wired into the device push entry (wake-on-any-push)\" yes \\\n      's|    const uint32_t now = uint32_t(g_hal.now());|    const uint32_t now = uint32_t(g_hal.now()); s_model.on_msg_wake(now);|'"
+  },
+  {
+    "line": 1471,
+    "label": "W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND)",
+    "source": "  ctl \"W6-D1 the device's capture EXECUTES the reviewed phrase (one double sends before the review's SEND)\" yes \\\n      \"$w6d1s\""
+  },
+  {
+    "line": 1477,
+    "label": "W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent)",
+    "source": "  ctl \"W6-D2 the tick never serves the review's capture (a phrase double opens nothing; nothing can be sent)\" yes \\\n      \"$w6d2s\""
+  },
+  {
+    "line": 1584,
+    "label": "W4b-N4 the Settings preview keeps its body arrow",
+    "source": "  ctl \"W4b-N4 the Settings preview keeps its body arrow\" yes \\\n      \"$w4bs\""
+  },
+  {
+    "line": 1658,
+    "label": "L8 the model is never given the provisioning adapter",
+    "source": "  ctl \"L8 the model is never given the provisioning adapter\" yes \\\n      's|    s_model.attach_provision(s_prov_adapter);|    ;|'"
+  },
+  {
+    "line": 1699,
+    "label": "L18 \u2605\u2605 the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology",
+    "source": "  ctl \"L18 \u2605\u2605 the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology\" yes \\\n      's|    s_model.on_join_push(pu, b.layer0_id, g_node.canonical_node_id());|    s_model.on_join_push(pu, b.layer0_id, pu.dst);|'"
+  },
+  {
+    "line": 1703,
+    "label": "L19 the session guard is dropped (a /mrcfg read on every inbound push)",
+    "source": "  ctl \"L19 the session guard is dropped (a /mrcfg read on every inbound push)\" yes \\\n      's|    if (!s_model.join_session_active()) return;|    ;|'"
+  },
+  {
+    "line": 1778,
+    "label": "N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)",
+    "source": "  ctl \"N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)\" yes \\\n      's|            body_text(0, title);|            body_text(0, title); snprintf(l, sizeof l, \"%c%s\", (st.prov_confirm == mrui::ProvConfirm::back) ? char(62) : char(32), mrui::prov_confirm_label(mrui::ProvConfirm::back)); body_text(3, l); snprintf(l, sizeof l, \"%c%s\", (st.prov_confirm == mrui::ProvConfirm::confirm) ? char(62) : char(32), mrui::prov_confirm_label(mrui::ProvConfirm::confirm)); body_text(4, l); return;|'"
+  },
+  {
+    "line": 1780,
+    "label": "N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)",
+    "source": "  ctl \"N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)\" yes \\\n      's|            body_text(0, title);|            body_text(0, title); snprintf(l, sizeof l, \"%c%s\", (st.prov_confirm == mrui::ProvConfirm::confirm) ? char(62) : char(32), mrui::join_confirm_label(false)); body_text(3, l); snprintf(l, sizeof l, \"%c%s\", (st.prov_confirm == mrui::ProvConfirm::back) ? char(62) : char(32), mrui::join_confirm_label(true)); body_text(4, l); return;|'"
+  },
+  {
+    "line": 1897,
+    "label": "O11 \u2605\u2605 the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)",
+    "source": "  ctl \"O11 \u2605\u2605 the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)\" yes \\\n      's|            s_model.on_invite_push(pu);     // \u00a7UI-16 N5 \u2014 pure hash correlation + grant-bar recheck|            ;|'"
+  },
+  {
+    "line": 1972,
+    "label": "K3 \u2605\u2605\u2605 the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)",
+    "source": "  ctl \"K3 \u2605\u2605\u2605 the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)\" yes \\\n      's|    s_model.on_team_key_note(/\\*saved=\\*/false, keyring_full, uint32_t(g_hal.now()));|    s_model.on_team_key_note(/*saved=*/true, keyring_full, uint32_t(g_hal.now()));|'"
+  },
+  {
+    "line": 1974,
+    "label": "K4 \u2605\u2605\u2605 the failed-save door does nothing at all ([[B243]] restored from the new end)",
+    "source": "  ctl \"K4 \u2605\u2605\u2605 the failed-save door does nothing at all ([[B243]] restored from the new end)\" yes \\\n      's|    s_model.on_team_key_note(/\\*saved=\\*/false, keyring_full, uint32_t(g_hal.now()));|    (void)keyring_full;|'"
+  },
+  {
+    "line": 1995,
+    "label": "K8 \u2605\u2605\u2605\u2605 the PROTECTED screen grows the destructive action row \u2014 the panel offers FORGET KEY for the ACTIVE key",
+    "source": "  ctl \"K8 \u2605\u2605\u2605\u2605 the PROTECTED screen grows the destructive action row \u2014 the panel offers FORGET KEY for the ACTIVE key\" yes \\\n      's|            body_text(2, aid);|            body_text(2, aid); body_text(4, mrui::kForgetKeyText);|'"
+  }
+]

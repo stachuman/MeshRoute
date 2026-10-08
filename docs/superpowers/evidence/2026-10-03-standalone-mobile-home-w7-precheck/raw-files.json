@@ -1,0 +1,167 @@
+[
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/abi.log",
+    "bytes": 5488,
+    "sha256": "c6d499ec5bf5817a69f2ba13acd7001a2e28506c2220aecae1f598165fcb0fa7"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/baseline-summary.json",
+    "bytes": 3503,
+    "sha256": "6b1273b1f37e956f1482c96b222153e5c9ca89a7f27124c2e9c4be10ba6f40cb"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/baselines.py",
+    "bytes": 1465,
+    "sha256": "09f1a3f7d61d7ca7b38c85d73ab7d39196310b300f0b3c45d8e11700201bdd35"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/board-ui.log",
+    "bytes": 18816,
+    "sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/census.py",
+    "bytes": 4143,
+    "sha256": "bcd5319a0991fad529086db243228d6fe3124d335e6f166e03d9f150923c893c"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/control-reconciliation.json",
+    "bytes": 31827,
+    "sha256": "cb5c9db9150c6a8281cc64c9c041fd8848409b651d8afbc429d738d195fc3073"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/corpus-manifest.json",
+    "bytes": 28928,
+    "sha256": "572249f111a8fda1c1121ad1a3c8cd03a9f4e58c273bcae7c818e31eaad87762"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/corpus.log",
+    "bytes": 3349,
+    "sha256": "bb808b57358160324c1739dba0931f4b94c84de13938524d66bbb244d4a0b21c"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/firmware-ui.log",
+    "bytes": 43315,
+    "sha256": "83bc4d5df6a1505cbc0572c82c958a755c45c3e711bfccd02f2cff3ca91a74b5"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/font-glyphs.txt",
+    "bytes": 5963,
+    "sha256": "1426f8336fcf52a3f287039b39b2378821134df2b8d6113adbdb8fa2c79d9f00"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/font-measure.json",
+    "bytes": 4561,
+    "sha256": "14eb7f7d65bc237503f504a5e4f1cf9f61a38984e084b798163fb3863cecb911"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/font_measure.py",
+    "bytes": 1862,
+    "sha256": "d3876b6323f2bad1f8c18901b9f48914eb1caa33ba105eaed85185358c98d21f"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/inputs.json",
+    "bytes": 518193,
+    "sha256": "67e599125c812a5c2df1c445c1786704b80f2397d0619d13d2f0d4d2ad702f7e"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/inventory.log",
+    "bytes": 176,
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/layout-measure.json",
+    "bytes": 10733,
+    "sha256": "e7b818e3d1f0c0b194290e8a2b903edb7363b17706d5613b970c3bdc9fa293b8"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/layout_measure.py",
+    "bytes": 2747,
+    "sha256": "0538703afced3380b9ef4632f7f56330c1d825b379f67fec1fc555492ccb27c9"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/mutation-census.json",
+    "bytes": 412512,
+    "sha256": "602e00d4ae8a38ed8cfe528a92c156ee6b970c7e27c957d5fb945a12d09fc434"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/native-binary.log",
+    "bytes": 409,
+    "sha256": "425e35e8b9c837b3a6641751252f9a60c0fc587dda184576fbbb599be3a4dc0e"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/native-build.log",
+    "bytes": 414,
+    "sha256": "58f958bfd134affde9af181860d3d268cd834c42a056579470bb283654e3ba14"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/native-cases.json",
+    "bytes": 59785,
+    "sha256": "ecb65df9cb4d2b0572e7e3d6080e06efd74a1c855e651eefabb28a483f2eee56"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/preflight.json",
+    "bytes": 4548,
+    "sha256": "5b39bf6386819b479ae7f5013e838bffd3e2f4b4507a0cf5a4af1e7a4e2f8622"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/preflight.py",
+    "bytes": 2482,
+    "sha256": "cb37a2dca9749daa3fc312e013a75cf8a349751b4128818990b598ba5cd5e770"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/preservation-before-report.json",
+    "bytes": 271,
+    "sha256": "19166bb200d16e40db4704151851fc1e74d001b6e3c6e78379afa7ca4ba75249"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/probe-control-candidates.json",
+    "bytes": 12568,
+    "sha256": "e7863adb06f145e4f922477609d806c74dfd75bbdc9a7801ee0017fac296553a"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/recommended-union.json",
+    "bytes": 623,
+    "sha256": "6edb7b2597b83c766ba98fc8439e768e0454e2dfa2051849eba76461e38e7c35"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/reconcile-output.txt",
+    "bytes": 1546,
+    "sha256": "699ead755176095818b7e78a6dabce43ad9fdbcf45d6c384a3e9d7ee3593f1a1"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/reconcile.py",
+    "bytes": 2706,
+    "sha256": "68cc9c3330e4fc0ba70600ea8ef2777ff22af27189d3cf8e282469e0086c0bba"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/runs.json",
+    "bytes": 1742,
+    "sha256": "203e3a381b2dca517a6dba72ed23e50e917746bce43f59c991a04a307b04896b"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/scratch.json",
+    "bytes": 38,
+    "sha256": "d9b517fbf5bcfaaf6d2de33b73311c3ae83cf20b317bc939202cbdd839ac73db"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/sim-build.log",
+    "bytes": 8312,
+    "sha256": "cba5249eeef885d1574c181f4a0222b83cfc5bde8e5670bb4574aaadf098a626"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/sim-configure.log",
+    "bytes": 998,
+    "sha256": "c0e6a5be2891bf8d1dffbe2607c8faa73d627e256c0cb3a5c9d9c5c99468a7d3"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/symbol-readers.json",
+    "bytes": 209043,
+    "sha256": "a5dcfec673f2df52f3717592d4c1c9c9b31e133ecb6ba2754b30891224f3b06a"
+  },
+  {
+    "path": "artifacts/2026-10-03-standalone-mobile-home-w7-precheck/write_report.py",
+    "bytes": 40691,
+    "sha256": "0ce05999c2e7a528715030ced72d8bd69a47fe9165d1b96cea78e556592b092a"
+  }
+]

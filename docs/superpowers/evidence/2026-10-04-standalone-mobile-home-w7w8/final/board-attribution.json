@@ -1,0 +1,525 @@
+{
+ "runs": [
+  "base-1",
+  "final-1"
+ ],
+ "gateway": {
+  "ram": {
+   "base": 203740,
+   "final": 203740,
+   "delta": 0,
+   "ram_object_delta_sum": 0,
+   "alignment_and_padding": 0,
+   "ram_objects": []
+  },
+  "flash": {
+   "base": 572096,
+   "final": 572096,
+   "delta": 0,
+   "changed_code_and_rodata_symbols": 0,
+   "code_symbol_delta_sum": 0,
+   "largest": []
+  },
+  "sections_changed": {},
+  "measurement_fields_changed": {},
+  "compatibility_fields": 48,
+  "compatibility_differences": []
+ },
+ "heltec_mobile": {
+  "ram": {
+   "base": 219540,
+   "final": 219748,
+   "delta": 208,
+   "ram_object_delta_sum": 208,
+   "alignment_and_padding": 0,
+   "ram_objects": [
+    {
+     "symbol": "_ZN12_GLOBAL__N_113s_frame_stateE",
+     "type": "OBJECT",
+     "section": ".dram0.data",
+     "base": 560,
+     "final": 568,
+     "delta": 8
+    },
+    {
+     "symbol": "_ZN12_GLOBAL__N_17s_modelE",
+     "type": "OBJECT",
+     "section": ".dram0.data",
+     "base": 1000,
+     "final": 1200,
+     "delta": 200
+    }
+   ]
+  },
+  "flash": {
+   "base": 1400540,
+   "final": 1407844,
+   "delta": 7304,
+   "changed_code_and_rodata_symbols": 73,
+   "code_symbol_delta_sum": 6524,
+   "largest": [
+    {
+     "symbol": "_ZN4mrui15ui_perform_sendERNS_11SendTrackerES1_RNS_7UiModelERKNS_7SendReqERKN4mrnv12UiPresetBlobERKNS_8SendLiveEPcjhbPFNS_8SendExecEPKcjPvESI_m",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 530,
+     "delta": 530
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel15compose_gestureENS_7GestureERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 503,
+     "final": 1010,
+     "delta": 507
+    },
+    {
+     "symbol": "_ZN4mrui16editor_ring_rowsEPcjS0_jRKNS_10EditorViewE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 486,
+     "delta": 486
+    },
+    {
+     "symbol": "_ZN4mrui14editor_gestureERNS_10EditorViewERNS_5DraftENS_7GestureE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 475,
+     "delta": 475
+    },
+    {
+     "symbol": "_Z10mr_ui_tickm",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 9069,
+     "final": 9490,
+     "delta": 421
+    },
+    {
+     "symbol": "_ZN12_GLOBAL__N_115ui_perform_sendERKN4mrui7SendReqEm",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 511,
+     "final": 90,
+     "delta": -421
+    },
+    {
+     "symbol": "_ZN4mrui9ui_chromeERKNS_10UiSnapshotERKNS_7UiStateENS_9EmergencyERKNS_9ChromeCfgE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 418,
+     "delta": 418
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel13home_activateENS_8HomeItemERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 320,
+     "delta": 320
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel17emergency_gestureENS_7GestureERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 290,
+     "delta": 290
+    },
+    {
+     "symbol": "_ZN12_GLOBAL__N_111draw_editorERKN4mrui7UiStateEPKc$constprop$0",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 270,
+     "delta": 270
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel14editor_refreshEv",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 247,
+     "delta": 247
+    },
+    {
+     "symbol": "_ZN12_GLOBAL__N_114draw_name_flowERKN4mrui7UiStateE$constprop$0",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 236,
+     "delta": 236
+    },
+    {
+     "symbol": "_ZN4mrui20ui_compose_send_lineEPcjRKNS_7SendReqERKN4mrnv12UiPresetBlobEhbRKNS_9DraftViewE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 224,
+     "delta": 224
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel16open_name_reviewERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 222,
+     "delta": 222
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel15name_flow_pressENS_7GestureERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 190,
+     "delta": 190
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel16open_name_editorENS_10NameOriginERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 180,
+     "delta": 180
+    },
+    {
+     "symbol": "_ZN4mrui16ui_review_headerEPcjRKNS_7SendReqEPKch",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 174,
+     "delta": 174
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel15written_on_fireEv",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 160,
+     "delta": 160
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel20written_editor_pressENS_7GestureERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 159,
+     "delta": 159
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel10on_gestureENS_7GestureERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 560,
+     "final": 420,
+     "delta": -140
+    },
+    {
+     "symbol": "_ZN4mrui16ui_pump_trackersERNS_11SendTrackerES1_RNS_7UiModelEm",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 126,
+     "delta": 126
+    },
+    {
+     "symbol": "_ZN4mrui16review_page_rowsEPKchhRA3_A20_c",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 120,
+     "delta": 120
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel24written_outcome_admittedERKNS_11SendOutcomeE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 119,
+     "delta": 119
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel15on_send_refusedENS_8SendKindENS_12RefuseReasonEN9meshroute7CmdCodeEm",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 118,
+     "delta": 118
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel12home_gestureENS_7GestureERKNS_10UiSnapshotEb",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 368,
+     "final": 268,
+     "delta": -100
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel7on_tickERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 503,
+     "final": 595,
+     "delta": 92
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel19refresh_review_pageEv",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 137,
+     "final": 52,
+     "delta": -85
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel17on_review_refusedENS_11ReviewPhaseERKNS_10UiSnapshotEm",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 71,
+     "delta": 71
+    },
+    {
+     "symbol": "_ZN4mrui15name_prompt_rowEPcjbb",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 66,
+     "delta": 66
+    },
+    {
+     "symbol": "_ZNK4mrui7UiModel19editor_capture_owedERNS_7SendReqERb",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 66,
+     "delta": 66
+    },
+    {
+     "symbol": "_ZNK4mrui7UiModel20written_binding_noteERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 62,
+     "delta": 62
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel20written_back_to_listERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 61,
+     "delta": 61
+    },
+    {
+     "symbol": "_ZN4mrui18editor_group_labelERA7_ch",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 59,
+     "delta": 59
+    },
+    {
+     "symbol": "_ZN4mrui17review_page_countEPKch",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 55,
+     "delta": 55
+    },
+    {
+     "symbol": "_ZN4mrui17send_dest_gate_ofERKNS_7SendReqERKNS_8SendLiveE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 54,
+     "delta": 54
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel15written_releaseEv",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 54,
+     "delta": 54
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel17name_editor_leaveEv",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 52,
+     "delta": 52
+    },
+    {
+     "symbol": "_ZN4mrui16editor_note_textENS_10EditorNoteE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 49,
+     "delta": 49
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel21written_editor_returnEv",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": null,
+     "final": 49,
+     "delta": 49
+    },
+    {
+     "symbol": "_ZN4mrui7UiModel12review_checkERKNS_10UiSnapshotE",
+     "type": "FUNC",
+     "section": ".flash.text",
+     "base": 251,
+     "final": 297,
+     "delta": 46
+    }
+   ]
+  },
+  "sections_changed": {
+   ".debug_abbrev": {
+    "base": 745711,
+    "final": 745740,
+    "delta": 29
+   },
+   ".debug_aranges": {
+    "base": 102888,
+    "final": 103232,
+    "delta": 344
+   },
+   ".debug_frame": {
+    "base": 273476,
+    "final": 274508,
+    "delta": 1032
+   },
+   ".debug_info": {
+    "base": 10264674,
+    "final": 10282911,
+    "delta": 18237
+   },
+   ".debug_line": {
+    "base": 4387983,
+    "final": 4408214,
+    "delta": 20231
+   },
+   ".debug_loc": {
+    "base": 1974943,
+    "final": 1983252,
+    "delta": 8309
+   },
+   ".debug_ranges": {
+    "base": 278304,
+    "final": 279560,
+    "delta": 1256
+   },
+   ".debug_str": {
+    "base": 1433780,
+    "final": 1439412,
+    "delta": 5632
+   },
+   ".dram0.bss": {
+    "base": 194104,
+    "final": 194104,
+    "delta": 0
+   },
+   ".dram0.data": {
+    "base": 25436,
+    "final": 25644,
+    "delta": 208
+   },
+   ".dram0.heap_start": {
+    "base": 0,
+    "final": 0,
+    "delta": 0
+   },
+   ".flash.rodata": {
+    "base": 218452,
+    "final": 218820,
+    "delta": 368
+   },
+   ".flash.rodata_noload": {
+    "base": 21755,
+    "final": 21755,
+    "delta": 0
+   },
+   ".flash.text": {
+    "base": 1077782,
+    "final": 1084510,
+    "delta": 6728
+   },
+   ".noinit": {
+    "base": 0,
+    "final": 0,
+    "delta": 0
+   },
+   ".strtab": {
+    "base": 302595,
+    "final": 304955,
+    "delta": 2360
+   },
+   ".symtab": {
+    "base": 213392,
+    "final": 214080,
+    "delta": 688
+   },
+   ".xt.lit": {
+    "base": 1344,
+    "final": 1472,
+    "delta": 128
+   },
+   ".xt.prop": {
+    "base": 50304,
+    "final": 55260,
+    "delta": 4956
+   }
+  },
+  "measurement_fields_changed": {
+   "artifacts.payload.bytes": {
+    "base": 1401184,
+    "final": 1408480
+   },
+   "artifacts.payload.sha256": {
+    "base": "045d4e144a60c950ea0895fa136a000e63dbf7bbd17c9e193b2d4460a452b98e",
+    "final": "85fba0e0e8e783b51208b7198ef1ef38b940a001825576b70faa2d1af1e0aad2"
+   },
+   "measurements.flash_bytes": {
+    "base": 1400540,
+    "final": 1407844
+   },
+   "measurements.loadable_sections..dram0.data": {
+    "base": 25436,
+    "final": 25644
+   },
+   "measurements.loadable_sections..flash.rodata": {
+    "base": 218452,
+    "final": 218820
+   },
+   "measurements.loadable_sections..flash.text": {
+    "base": 1077782,
+    "final": 1084510
+   },
+   "measurements.ram_bytes": {
+    "base": 219540,
+    "final": 219748
+   },
+   "measurements.symbol_count": {
+    "base": 13337,
+    "final": 13380
+   },
+   "measurements.symbol_size_total": {
+    "base": 1509363,
+    "final": 1516095
+   },
+   "measurements.symbols_sha256": {
+    "base": "1cd06c99be63d92ea4db05f8a3b764c45ea4f4b251a86fb70b82b454f47214c0",
+    "final": "c0a606526fbc85bba6a99ebd2cb23175732cb4268e1f53b0b9a0ff5cfdd43ec3"
+   }
+  },
+  "compatibility_fields": 48,
+  "compatibility_differences": []
+ }
+}

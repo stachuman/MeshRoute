@@ -1,0 +1,57 @@
+{
+ "scope": "synthetic: the real step() extracted verbatim; no firmware gate runs",
+ "helper_sha256_source": "bc7bf64f15f6c6265413a3fc618f8bdd7e31fca8a9562137edec1816e5fcf73c",
+ "real": {
+  "fault": {
+   "exit": 1,
+   "stdout": "",
+   "stderr": "STOP: step first exited 1 - the chain ends here (no later step, no DONE)\n",
+   "tsv_rows": [
+    [
+     "first",
+     "1"
+    ]
+   ],
+   "following_ran": false
+  },
+  "fault_ok": true,
+  "healthy": {
+   "exit": 0,
+   "stdout": "DONE\n",
+   "stderr": "",
+   "tsv_rows": [
+    [
+     "first",
+     "0"
+    ],
+    [
+     "following",
+     "0"
+    ]
+   ],
+   "following_ran": true
+  },
+  "healthy_ok": true
+ },
+ "control_stop_removed": {
+  "fault": {
+   "exit": 0,
+   "stdout": "DONE\n",
+   "stderr": "",
+   "tsv_rows": [
+    [
+     "first",
+     "1"
+    ],
+    [
+     "following",
+     "0"
+    ]
+   ],
+   "following_ran": true
+  },
+  "proof_fails_as_required": true,
+  "control_is_a_working_helper": true
+ },
+ "verdict": "PASS"
+}

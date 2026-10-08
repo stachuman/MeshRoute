@@ -1,0 +1,32 @@
+{
+  "checkpoint_mesh_paths": 2569,
+  "permitted_changed_existing_paths": [
+    "docs/2026-07-30-open-bug-register.md"
+  ],
+  "register_sha256": "5ad4e8acb1e9a686d268453018a6e7824a450d4d6a2484aaa2ecb60822d0c835",
+  "shared_model_test_sha256": "95f6ead0f265cad3372c9df90861c57f65c46f4f80c2d1432c361ac7ea58de2a",
+  "shared_presets_test_sha256": "8811f177de4d94467505758a1b09f294e5f30283f8387865e3ce95e211831c03",
+  "brief_sha256": "47cb5a461d07cc3cbaf0ab6ae81fe535e206eda996201885f4dbe878dd11cb8e",
+  "qa_added_before_seal": [
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution.md",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/coder-ledger-checkpoint.md",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/coder-probe-attribution.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/copy-proof.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/guards.patch",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/inputs.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/proposed-guards.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/raw-files.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/register-before.md",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/reproduce.py",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/results.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/run-final-checkpoint.sh",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/runner-fault.json",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/runner-fault.sh",
+    "docs/superpowers/evidence/2026-10-06-standalone-mobile-home-w7w8-stop-resolution/runner-fixed-proof.json"
+  ],
+  "mesh_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+  "staged": "",
+  "sim_head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+  "sim_status": "",
+  "build_scope": "14 native experiments in independent scratch snapshots only; shared .pio and production source not built/mutated by QA."
+}

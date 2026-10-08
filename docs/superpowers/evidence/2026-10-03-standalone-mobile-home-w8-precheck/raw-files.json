@@ -1,0 +1,46 @@
+{
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/abi.log": {
+    "bytes": 5488,
+    "sha256": "c6d499ec5bf5817a69f2ba13acd7001a2e28506c2220aecae1f598165fcb0fa7"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/board-ui.log": {
+    "bytes": 18816,
+    "sha256": "1822b5b1ba23b3de821d4fafbb6d14074694ee877c27501835b8b3bf089d3286"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/corpus.log": {
+    "bytes": 3349,
+    "sha256": "019e90f2655bd128edfd56eb30f8c363a03d0a363edd448c8473ad274ab12bb0"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/firmware-ui.log": {
+    "bytes": 43315,
+    "sha256": "83bc4d5df6a1505cbc0572c82c958a755c45c3e711bfccd02f2cff3ca91a74b5"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/inventory.log": {
+    "bytes": 176,
+    "sha256": "d5eadf78174773b043925035f4a4e5ebf2d9d4da5b66f5fd8b6c56873fc9506b"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/native-binary.log": {
+    "bytes": 409,
+    "sha256": "425e35e8b9c837b3a6641751252f9a60c0fc587dda184576fbbb599be3a4dc0e"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/native-build.log": {
+    "bytes": 414,
+    "sha256": "14f500f06ed67b662b457967a1e08b561a663ebd2ee640d8d6cd7338ccd6f058"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/reach-build.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/reach.log": {
+    "bytes": 216,
+    "sha256": "19afc42c88a33fef255a5088284c6cf033ea0501044ac202054335da97f77a04"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/sim-build.log": {
+    "bytes": 8312,
+    "sha256": "3e4df72c1ee1ed775a98c1bfc19d4e29e75ce4f68e72a2cc60706fef58eeafc9"
+  },
+  "artifacts/2026-10-03-standalone-mobile-home-w8-precheck/sim-configure.log": {
+    "bytes": 998,
+    "sha256": "3a98b50d799ae5d96c80e0960407201e984a17233a7170db27da5aba43f18de1"
+  }
+}

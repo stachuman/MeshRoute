@@ -1,0 +1,70 @@
+{
+  "verdict": "PASS",
+  "B491_changed_symbols": [
+    "parse_ledger"
+  ],
+  "verify_profile_unchanged": true,
+  "all_exception_handlers_unchanged": true,
+  "tests": {
+    "tools/test_mutation_unusable_reason.py": {
+      "base": 7,
+      "now": 24,
+      "added": [
+        "MutationUnusableReasonTests.test_control_a_c1_strict_native_capture_fails_the_raw_byte_cases",
+        "MutationUnusableReasonTests.test_control_a_c2_exit_agreement_removed_fails_the_b490_cases",
+        "MutationUnusableReasonTests.test_control_a_c3_raw_write_removed_fails_end_to_end_retention",
+        "MutationUnusableReasonTests.test_control_a_c4_raw_retention_cut_to_the_view_fails_the_size_case",
+        "MutationUnusableReasonTests.test_control_a_c5_text_mode_pump_fails_only_the_outer_pipe",
+        "MutationUnusableReasonTests.test_control_a_c6_comparison_removed_fails_the_corrupted_transfer",
+        "MutationUnusableReasonTests.test_control_a_c7_write_handling_removed_fails_the_failed_write",
+        "MutationUnusableReasonTests.test_end_to_end_clean_tree_dying_after_its_summary_is_refused_and_retained",
+        "MutationUnusableReasonTests.test_end_to_end_mixed_battery_on_two_workers_and_on_one",
+        "MutationUnusableReasonTests.test_escape_rule_is_total_and_lossless",
+        "MutationUnusableReasonTests.test_exit_agreement_cases_through_real_children",
+        "MutationUnusableReasonTests.test_integrity_corrupted_transfer_exits_9",
+        "MutationUnusableReasonTests.test_integrity_failed_write_exits_9",
+        "MutationUnusableReasonTests.test_integrity_unanimous_refusal_with_failed_write_keeps_exit_2",
+        "MutationUnusableReasonTests.test_outer_pipe_survives_a_parent_that_decodes_by_an_ascii_locale",
+        "MutationUnusableReasonTests.test_precheck_scenarios_through_real_children",
+        "MutationUnusableReasonTests.test_size_case_retains_every_raw_byte"
+      ]
+    },
+    "tools/test_probe_inbox_transcript.py": {
+      "base": 0,
+      "now": 24,
+      "added": [
+        "TranscriptEndToEndTests.test_a_malformed_fresh_profile_line_is_a_named_refusal_of_the_run_path",
+        "TranscriptEndToEndTests.test_both_profiles_exit_0_with_five_macros_and_their_row_counts",
+        "TranscriptEndToEndTests.test_control_b_c1_pointer_parameter_refuses_every_row_longer_than_seven",
+        "TranscriptEndToEndTests.test_control_b_c2_live_fixture_removed_differs_on_exactly_regen_and_whoami",
+        "TranscriptEndToEndTests.test_control_b_c3_three_macro_profile_line_is_refused",
+        "TranscriptEndToEndTests.test_control_b_c4_value_changes_compare_1_and_row_changes_are_refused",
+        "TranscriptEndToEndTests.test_control_b_c5_unrepresentable_row_is_the_drivers_own_refusal",
+        "TranscriptEndToEndTests.test_control_b_c6_device_ble_include_removed_is_a_build_refusal",
+        "TranscriptEndToEndTests.test_pinned_records_with_sink_isolation_and_every_fingerprint_field",
+        "TranscriptEndToEndTests.test_the_build_is_the_runner_prefix_plus_the_appended_lines",
+        "TranscriptEndToEndTests.test_two_fresh_builds_per_profile_compare_equal",
+        "TranscriptRefusalTests.test_builder_boundary_missing_or_duplicated_refuses",
+        "TranscriptRefusalTests.test_label_that_would_break_the_head_is_refused",
+        "TranscriptRefusalTests.test_print_matrix_honours_the_profile",
+        "TranscriptRefusalTests.test_serial_and_ble_anchors_missing_or_duplicated_refuse",
+        "TranscriptRefusalTests.test_three_macro_profile_line_is_refused_by_verify_profile",
+        "TranscriptRefusalTests.test_unsupported_profile_refuses_before_building",
+        "TranscriptRefusalTests.test_usb_array_missing_duplicated_or_reshaped_refuses",
+        "TranscriptValidityTests.test_control_b_c0_trusting_the_ledger_count_lets_the_counterexamples_compare_equal",
+        "TranscriptValidityTests.test_invalid_ledgers_are_refused_even_when_identical",
+        "TranscriptValidityTests.test_malformed_ledgers_are_named_refusals_of_the_shared_validator",
+        "TranscriptValidityTests.test_malformed_numbers_and_profile_fields_are_named_refusals_in_either_position",
+        "TranscriptValidityTests.test_mixed_profiles_are_refused",
+        "TranscriptValidityTests.test_valid_ledgers_still_compare_equal_and_different"
+      ]
+    }
+  },
+  "discovery_expected": 447,
+  "syntax_files": [
+    "tools/probe_ui_model_mutations.py",
+    "tools/test_mutation_unusable_reason.py",
+    "tools/probe_inbox_verbs/transcript.py",
+    "tools/test_probe_inbox_transcript.py"
+  ]
+}

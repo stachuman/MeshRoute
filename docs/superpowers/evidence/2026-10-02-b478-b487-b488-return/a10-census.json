@@ -1,0 +1,580 @@
+{
+ "constants": {
+  "kLabelCap": 14,
+  "kReviewLabelCols": 7,
+  "kTeamLabelCols": 6,
+  "kInviteNameCap": 15,
+  "kInviteRowNameCols": 6,
+  "kHomeNameCols": 16,
+  "kBodyCols": 19,
+  "kTeamNameCols": 6,
+  "kReplyWhoCols": 14,
+  "kInviteNameCols": 14,
+  "kInviteCandCols": 6,
+  "kComposeToCols": 15,
+  "kDeliveredCols": 19,
+  "kComposeToPrefix": "to: "
+ },
+ "rows": [
+  {
+   "site": "ui_review_header \u2014 `TO <label>`",
+   "file": "src/firmware_ui_send.h",
+   "call": "ui_fmt_identity(label, sizeof label, name, name_len, b.peer_hash, kReviewLabelCols)",
+   "occurrences": 1,
+   "extent": 8,
+   "capacity": 8,
+   "budget": 7,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "ui_home_me_line \u2014 Home row 0",
+   "file": "src/firmware_ui_status.h",
+   "call": "ui_fmt_identity(id, sizeof id, s.own_name, s.own_name_len, s.my_key_hash32, kHomeNameCols)",
+   "occurrences": 1,
+   "extent": 17,
+   "capacity": 17,
+   "budget": 16,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "label_from_hash (wrapper: forwards its caller's out/cap/cols)",
+   "file": "src/firmware_ui.cpp",
+   "call": "(void)mrui::ui_fmt_identity(out, cap, raw, n, hash, cols)",
+   "occurrences": 1,
+   "extent": null,
+   "capacity": null,
+   "budget": null,
+   "cls": null
+  },
+  {
+   "site": "invite NEW MEMBER carrier (InviteMember::name)",
+   "file": "src/firmware_ui.cpp",
+   "call": "ui_fmt_identity(mem.name, sizeof mem.name, raw, nn, hash, kInviteNameCols)",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "invite candidate row (name6)",
+   "file": "src/firmware_ui.cpp",
+   "call": "(void)mrui::ui_fmt_identity(name6, sizeof name6, r.cand.name, uint8_t(strlen(r.cand.name)), 0,",
+   "occurrences": 1,
+   "extent": 7,
+   "capacity": 7,
+   "budget": 6,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "label_for_team_id -> label_from_hash (forwards)",
+   "file": "src/firmware_ui.cpp",
+   "call": "label_from_hash(hash, out, cap, cols); return hash;",
+   "occurrences": 1,
+   "extent": null,
+   "capacity": null,
+   "budget": null,
+   "cls": null
+  },
+  {
+   "site": "label_for_origin -> label_from_hash (forwards)",
+   "file": "src/firmware_ui.cpp",
+   "call": "label_from_hash(pu.sender_hash, out, cap, cols); return;",
+   "occurrences": 1,
+   "extent": null,
+   "capacity": null,
+   "budget": null,
+   "cls": null
+  },
+  {
+   "site": "TEAM row (TeamRow::label) via label_for_team_id",
+   "file": "src/firmware_ui.cpp",
+   "call": "label_for_team_id(r.id, r.label, uint8_t(sizeof r.label), kTeamNameCols)",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 6,
+   "cls": "ROOMY (cap >= cols + 2): new F07 ACTIVE"
+  },
+  {
+   "site": "DELIVERED via label_for_team_id",
+   "file": "src/firmware_ui.cpp",
+   "call": "char label[kDeliveredCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kDeliveredCols)",
+   "occurrences": 1,
+   "extent": 20,
+   "capacity": 20,
+   "budget": 19,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "compose TO via label_for_team_id",
+   "file": "src/firmware_ui.cpp",
+   "call": "char label[kComposeToCols + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label), kComposeToCols)",
+   "occurrences": 1,
+   "extent": 16,
+   "capacity": 16,
+   "budget": 15,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "REPLY sender via label_for_origin",
+   "file": "src/firmware_ui.cpp",
+   "call": "char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who), kReplyWhoCols)",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: id_fmt helper (IdBuf::out[48], guarded; per-call caps below)",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "return ui_fmt_identity(b.out, cap, bytes, len, hash, cols);",
+   "occurrences": 1,
+   "extent": null,
+   "capacity": null,
+   "budget": null,
+   "cls": null
+  },
+  {
+   "site": "native: null destination",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(nullptr, 20, \"Wolf\", 4, 0, 6)",
+   "occurrences": 1,
+   "extent": 0,
+   "capacity": 20,
+   "budget": 6,
+   "cls": "null destination"
+  },
+  {
+   "site": "native: two-pass a6 (one spare byte)",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(a6, 7, name, len, 0, 6)",
+   "occurrences": 1,
+   "extent": 8,
+   "capacity": 7,
+   "budget": 6,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: two-pass c14 (one spare byte)",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(c14, 15, name, len, 0, 14)",
+   "occurrences": 1,
+   "extent": 16,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: two-pass b6 (one spare byte)",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(b6, 7, c14, uint8_t(std::strlen(c14)), 0, 6)",
+   "occurrences": 2,
+   "extent": 8,
+   "capacity": 7,
+   "budget": 6,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: marker survives the second pass, c14",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(c14, 15, \"Wolfgangetta-the-longest\", 24, 0, 14)",
+   "occurrences": 1,
+   "extent": 16,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: preformatted REPLY sender (one spare byte)",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(who, kLabelCap + 1, \"Wolfgangetta-the-longest\", 24, 0, kLabelCap)",
+   "occurrences": 1,
+   "extent": 16,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: w6-review member token",
+   "file": "test/test_firmware_ui_model.cpp",
+   "call": "ui_fmt_identity(tok, sizeof tok, nullptr, 0, 0xA0000011u, 7)",
+   "occurrences": 1,
+   "extent": 8,
+   "capacity": 8,
+   "budget": 7,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: projected TEAM row (TeamRow::label)",
+   "file": "test/test_firmware_ui_team.cpp",
+   "call": "(void)ui_fmt_identity(t.label, sizeof t.label, name, uint8_t(name ? std::strlen(name) : 0), key_hash32,",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 6,
+   "cls": "ROOMY (cap >= cols + 2): new F07 ACTIVE"
+  },
+  {
+   "site": "native: invite cand_row name6 (one spare byte)",
+   "file": "test/test_firmware_ui_invite.cpp",
+   "call": "(void)mrui::ui_fmt_identity(name6, mrui::kInviteRowNameCols + 1u, m.name, uint8_t(strlen(m.name)), 0,",
+   "occurrences": 1,
+   "extent": 8,
+   "capacity": 7,
+   "budget": 6,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: invite high-byte name (InviteMember::name)",
+   "file": "test/test_firmware_ui_invite.cpp",
+   "call": "mrui::ui_fmt_identity(hb.name, sizeof hb.name, raw, 4, hb.key_hash32, uint8_t(mrui::kInviteNameCap - 1))",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: invite live[0] longest name",
+   "file": "test/test_firmware_ui_invite.cpp",
+   "call": "mrui::ui_fmt_identity(live[0].name, sizeof live[0].name, longest, uint8_t(strlen(longest)),",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  },
+  {
+   "site": "native: invite live[1] high bytes",
+   "file": "test/test_firmware_ui_invite.cpp",
+   "call": "mrui::ui_fmt_identity(live[1].name, sizeof live[1].name, hi, 4, live[1].key_hash32,",
+   "occurrences": 1,
+   "extent": 15,
+   "capacity": 15,
+   "budget": 14,
+   "cls": "exact (cap == cols + 1): new F07 inert"
+  }
+ ],
+ "native_id_fmt_calls": [
+  {
+   "line_hint": 2720,
+   "cap": 20,
+   "name_len": 1,
+   "budget": "19",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2728,
+   "cap": 7,
+   "name_len": 4,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2732,
+   "cap": 7,
+   "name_len": 4,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2740,
+   "cap": 7,
+   "name_len": 6,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2741,
+   "cap": 7,
+   "name_len": 7,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2742,
+   "cap": 7,
+   "name_len": 32,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2744,
+   "cap": 15,
+   "name_len": 14,
+   "budget": "14",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2745,
+   "cap": 15,
+   "name_len": 15,
+   "budget": "14",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2746,
+   "cap": 15,
+   "name_len": 32,
+   "budget": "14",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2748,
+   "cap": 16,
+   "name_len": 15,
+   "budget": "15",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2749,
+   "cap": 16,
+   "name_len": 16,
+   "budget": "15",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2750,
+   "cap": 20,
+   "name_len": 19,
+   "budget": "19",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2751,
+   "cap": 20,
+   "name_len": 20,
+   "budget": "19",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2752,
+   "cap": 20,
+   "name_len": 32,
+   "budget": "19",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2756,
+   "cap": 48,
+   "name_len": 32,
+   "budget": "6",
+   "cls": "ROOMY",
+   "f07_reachable": true
+  },
+  {
+   "line_hint": 2762,
+   "cap": 7,
+   "name_len": 3,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2766,
+   "cap": 7,
+   "name_len": 8,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2775,
+   "cap": 7,
+   "name_len": 10,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2777,
+   "cap": 11,
+   "name_len": 10,
+   "budget": "10",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2780,
+   "cap": 7,
+   "name_len": 0,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2782,
+   "cap": 11,
+   "name_len": 0,
+   "budget": "10",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2789,
+   "cap": 7,
+   "name_len": 0,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2790,
+   "cap": 10,
+   "name_len": 0,
+   "budget": "9",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2791,
+   "cap": 11,
+   "name_len": 0,
+   "budget": "10",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2792,
+   "cap": 20,
+   "name_len": 0,
+   "budget": "19",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2795,
+   "cap": 20,
+   "name_len": 0,
+   "budget": "cols",
+   "cls": "variable budget `cols` (no name: the F07 line is never reached)",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2802,
+   "cap": 20,
+   "name_len": 4,
+   "budget": "0",
+   "cls": "ROOMY",
+   "f07_reachable": true
+  },
+  {
+   "line_hint": 2804,
+   "cap": 20,
+   "name_len": 1,
+   "budget": "1",
+   "cls": "ROOMY",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2805,
+   "cap": 20,
+   "name_len": 2,
+   "budget": "1",
+   "cls": "ROOMY",
+   "f07_reachable": true
+  },
+  {
+   "line_hint": 2806,
+   "cap": 20,
+   "name_len": 4,
+   "budget": "3",
+   "cls": "ROOMY",
+   "f07_reachable": true
+  },
+  {
+   "line_hint": 2807,
+   "cap": 20,
+   "name_len": 4,
+   "budget": "4",
+   "cls": "ROOMY",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2808,
+   "cap": 20,
+   "name_len": 6,
+   "budget": "5",
+   "cls": "ROOMY",
+   "f07_reachable": true
+  },
+  {
+   "line_hint": 2813,
+   "cap": 0,
+   "name_len": 12,
+   "budget": "6",
+   "cls": "SHORT (deliberate no_fit)",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2815,
+   "cap": 1,
+   "name_len": 12,
+   "budget": "6",
+   "cls": "SHORT (deliberate no_fit)",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2817,
+   "cap": 6,
+   "name_len": 12,
+   "budget": "6",
+   "cls": "SHORT (deliberate no_fit)",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2819,
+   "cap": 10,
+   "name_len": 0,
+   "budget": "10",
+   "cls": "SHORT (deliberate no_fit)",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2821,
+   "cap": 7,
+   "name_len": 12,
+   "budget": "6",
+   "cls": "exact",
+   "f07_reachable": false
+  },
+  {
+   "line_hint": 2830,
+   "cap": 20,
+   "name_len": 0,
+   "budget": "cols",
+   "cls": "variable budget `cols` (no name: the F07 line is never reached)",
+   "f07_reachable": false
+  }
+ ],
+ "valid_callers_all_cap_ge_cols_plus_1": true,
+ "active_sites_production": [
+  "TEAM row (TeamRow::label) via label_for_team_id"
+ ],
+ "active_sites_native": [
+  "native: projected TEAM row (TeamRow::label)",
+  "id_fmt(b, 48, \u2026, 32, \u2026, 6) ~:2756",
+  "id_fmt(b, 20, \u2026, 4, \u2026, 0) ~:2802",
+  "id_fmt(b, 20, \u2026, 2, \u2026, 1) ~:2805",
+  "id_fmt(b, 20, \u2026, 4, \u2026, 3) ~:2806",
+  "id_fmt(b, 20, \u2026, 6, \u2026, 5) ~:2808"
+ ],
+ "problems": [],
+ "verdict": "PASS"
+}

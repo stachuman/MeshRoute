@@ -1,0 +1,70 @@
+test/test_firmware_ui_send.cpp:2749:        fail.reason = MESHROUTE_NS::SendFailReason::no_route;
+src/firmware_ui_model.h:2623:// `meshroute::SendFailReason::x` are the same value of the same type. It exists so this header names its one
+lib/core/node_cascade.cpp:41:// ⛔ WHY `SendFailReason::none` IS THE FAIL-CLOSED ANSWER, chosen rather than defaulted:
+lib/core/node_cascade.cpp:57:        case CustodyRootStage::cts:     return SendFailReason::no_cts;
+lib/core/node_cascade.cpp:58:        case CustodyRootStage::hop_ack: return SendFailReason::no_ack;
+lib/core/node_cascade.cpp:59:        case CustodyRootStage::invalid: return SendFailReason::none;   // the sentinel NEVER becomes a diagnosis
+lib/core/node_cascade.cpp:61:    return SendFailReason::none;   // out-of-range cast only; see the banner — not a `default:`, and fail-closed
+lib/core/node_cascade.cpp:484:    giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);
+lib/core/node_cascade.cpp:749:                                 SendFailReason::no_route, item.dst, item.ctr);
+lib/core/node_cascade.cpp:756:                                 SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)
+lib/core/node_cascade.cpp:791:                                     SendFailReason::no_route, d.item.dst, d.item.ctr);   // §3-A.5: match the sibling defer_send giveup in defer_send() — was reason=none
+lib/core/node_cascade.cpp:918:        giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);   // §3-A.5: was reason=none (telemetry-only)
+lib/core/node_cascade.cpp:941:                                  SendFailReason::queue_full, it.dst, it.ctr);
+lib/core/node_channel.cpp:643:        const SendFailReason r = (block_reason[0] == 'm') ? SendFailReason::min_interval : SendFailReason::cap;
+lib/core/node_channel.cpp:736:            push_send_failed(oc == SealOutcome::bad_rng   ? SendFailReason::bad_rng
+lib/core/node_channel.cpp:737:                           : oc == SealOutcome::too_large ? SendFailReason::too_large
+lib/core/node_channel.cpp:738:                                                          : SendFailReason::unsealable, /*dst=*/0, /*ctr=*/c);
+lib/core/node_channel.cpp:1492:                                                  SendFailReason::reprovisioned, it.dst, it.ctr);
+lib/core/node_channel.cpp:1510:                                              SendFailReason::reprovisioned, L._pending_tx->dst, L._pending_tx->ctr);
+lib/core/node_mobile.cpp:1032:                    push_send_failed(SendFailReason::no_route, /*dst=*/0, /*ctr=*/0);   // dst/ctr were never set here -> the Push{} zero defaults; now EXPLICIT, value-identical
+lib/core/node_hashlocate.cpp:1708:        if (generic_lifecycle) push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
+lib/core/node_hashlocate.cpp:1764:            if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);   // §CUSTODY-B §6.2(5): internal ⇒ unreachable; the emit above + TeamKeyGrantTx::delegated are the loud refusal
+lib/core/node_hashlocate.cpp:1779:                push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
+lib/core/node_hashlocate.cpp:1780:                               : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
+lib/core/node_hashlocate.cpp:1781:                                                                  : SendFailReason::too_large,
+lib/core/command.h:372:    SendFailReason reason = SendFailReason::none;   // send_failed / team_key_grant_failed / send_blocked (else none)
+lib/core/node_mac_rx.cpp:3258:            giveup_flight(SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none). §CUSTODY-E: the reason is NAMED, not parsed out of a literal event string
+lib/core/node_mac_rx.cpp:3299:                                         SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (§CUSTODY-E: named, not string-parsed)
+lib/core/node_mac_rx.cpp:3332:        giveup_flight(SendFailReason::no_cts, pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none). §CUSTODY-E: named, not string-parsed
+lib/core/node_mac.cpp:120:            push_send_failed(SendFailReason::joining, dst, /*ctr=*/0);
+lib/core/node_mac.cpp:193:            push_send_failed(SendFailReason::mobile_no_home, dst, /*ctr=*/0);
+lib/core/node_mac.cpp:303:            if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:308:            if (generic_lifecycle) push_send_failed(SendFailReason::no_location, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:322:        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst, /*ctr=*/0);
+lib/core/node_mac.cpp:353:                if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:356:                if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:384:                    if (generic_lifecycle) push_send_failed(SendFailReason::no_pubkey, dst, ctr);       // §CUSTODY-B §6.2(5); user
+lib/core/node_mac.cpp:388:                    if (generic_lifecycle) push_send_failed(SendFailReason::no_identity, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:392:                    if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:396:                    if (generic_lifecycle) push_send_failed(SendFailReason::bad_rng, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:444:            if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst, ctr);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:556:        push_send_failed(SendFailReason::e2e_ack_timeout, e.dst, e.ctr);
+lib/core/node_mac.cpp:638:        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5): internal ⇒ unreachable; the emit above is the loud refusal
+lib/core/node_mac.cpp:659:        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:751:        if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:769:            if (generic_lifecycle) push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:777:            push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
+lib/core/node_mac.cpp:778:                           : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
+lib/core/node_mac.cpp:779:                           : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng
+lib/core/node_mac.cpp:780:                                                              : SendFailReason::too_large,
+lib/core/node_mac.cpp:790:        if (generic_lifecycle) push_send_failed(SendFailReason::no_route, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:801:        if (generic_lifecycle) push_send_failed(SendFailReason::too_large, dst_node, /*ctr=*/0);   // §CUSTODY-B §6.2(5)
+lib/core/node_mac.cpp:1009:            emit_send_blocked(/*channel=*/false, SendFailReason::min_interval, next_ms);
+lib/core/node_mac.cpp:2251:                                 SendFailReason::none, pt.dst, pt.ctr);
+lib/core/node.cpp:880:                                     SendFailReason::reprovisioned, it.dst, it.ctr);
+lib/core/node.cpp:1807:            // `SendFailReason::unsealable` (U1 — NO new enumerator: the enum already means "this content may travel
+lib/core/node.cpp:1836:                push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1842:                    push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1847:                    push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1860:                    push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1875:                    push_send_failed(SendFailReason::no_identity, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1885:                    push_send_failed(SendFailReason::no_location, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1915:                    push_send_failed(SendFailReason::too_large, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:1929:                        push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:2216:                push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+lib/core/node.cpp:2236:                    push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
+lib/core/node.cpp:2237:                                   : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
+lib/core/node.cpp:2238:                                                                      : SendFailReason::too_large,
+lib/core/node.cpp:2542:            giveup_flight(SendFailReason::gateway_unreachable, dst, ctr);
+lib/core/node.cpp:2606:                                     /*generic_owed=*/false, SendFailReason::none,

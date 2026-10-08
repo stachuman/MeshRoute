@@ -1,0 +1,28 @@
+{
+  "selector_a": {
+    "model": 264,
+    "chrome": 48,
+    "sliceCbudget": 1,
+    "w4aident": 9,
+    "w4bhome": 26
+  },
+  "selector_b": {
+    "uistatus": 19,
+    "uiteam": 20,
+    "uiinvite": 32,
+    "uiprov": 45,
+    "uijoin": 26,
+    "uipresets": 39,
+    "uisend": 26,
+    "config": 32
+  },
+  "batteries": 13,
+  "entries": 587,
+  "new_editor_entries": "derive at freeze, not estimated floor",
+  "excluded_candidates": {
+    "devicenv": "W0 conversion and record unchanged",
+    "teamkeyring": "key store and grants unchanged",
+    "provservice": "provision service unchanged"
+  },
+  "all_selector_a_anchors_one": true
+}

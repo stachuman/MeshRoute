@@ -1608,6 +1608,106 @@ if [ "${1:-}" != "--no-neg" ]; then
   once '    (void)mrui::ui_home_invalidate(s_model, s, s_frame_snap);' "$w4bs" &&
   ctl "W4b-W3 the Home body invalidation is never called from the tick" yes \
       "$w4bs"
+  # ===================================================================== W7 + W8 (brief §2.8): P32's renderer and glue
+  # ★★★ EACH IS THE TEMPTING WRONG IMPLEMENTATION OF ONE NEW PROPERTY, on the one file these checks can reach. The pure
+  #     rules (rings, notes, the gate, the composer) are the native suite's and the mutation batteries'; these attack
+  #     what only the shipped renderer and tick glue decide.
+  # W7-C1/C2 THE CURSOR's GEOMETRY (design §5.3): one pixel below the baseline, at 12 + 6 x column.
+  w7c='s|body_y(1 + int(e.cursor_row)) + 1, kEditorCellPx);|body_y(1 + int(e.cursor_row)), kEditorCellPx);|'
+  once 'body_y(1 + int(e.cursor_row)) + 1, kEditorCellPx);' "$w7c" &&
+  ctl "W7-C1 the cursor underline is drawn ON the baseline instead of one pixel below it" yes \
+      "$w7c"
+  w7c='s|kBodyX + kEditorCellPx \* int(e.cursor_col)|kBodyX + kEditorCellPx * (int(e.cursor_col) + 1)|'
+  once 'kBodyX + kEditorCellPx * int(e.cursor_col)' "$w7c" &&
+  ctl "W7-C2 the cursor underline sits one cell to the right of the cursor" yes \
+      "$w7c"
+  # W7-C3/C4/C12 THE ONE SAVE (design §4.3): exactly one call per SAVE, served in the tick, and nothing else saves.
+  w7c='s|    s_model.on_name_result(name_result_of(mrfw::rename_node(bytes, len)));|    (void)mrfw::rename_node(bytes, len); s_model.on_name_result(name_result_of(mrfw::rename_node(bytes, len)));|'
+  once '    s_model.on_name_result(name_result_of(mrfw::rename_node(bytes, len)));' "$w7c" &&
+  ctl "W7-C3 the name service calls rename_node TWICE per SAVE" yes \
+      "$w7c"
+  w7c='s|^    ui_service_name_request();|    (void)0;|'
+  once '    ui_service_name_request();' "$w7c" &&
+  ctl "W7-C4 the tick never serves the name request — SAVE saves nothing" yes \
+      "$w7c"
+  w7c='s|    if (!s_model.take_name_request(bytes, len)) return;|    if (!s_model.take_name_request(bytes, len)) { (void)mrfw::rename_node("", 0); return; }|'
+  once '    if (!s_model.take_name_request(bytes, len)) return;' "$w7c" &&
+  ctl "W7-C12 the service saves on EVERY tick, not only on a taken SAVE request" yes \
+      "$w7c"
+  # W7-C5/C6/C7 THE RESULT MAPPING (r2.25): every answer keeps its OWN words — never an NV failure in disguise.
+  w7c='s|        case mrfw::RenameResult::unchanged:      return mrui::NameResult::saved;|        case mrfw::RenameResult::unchanged:      return mrui::NameResult::nv_failed;|'
+  once '        case mrfw::RenameResult::unchanged:      return mrui::NameResult::saved;' "$w7c" &&
+  ctl "W7-C5 saved and unchanged are mapped to NV WRITE FAILED" yes \
+      "$w7c"
+  w7c='s|        case mrfw::RenameResult::too_long:       return mrui::NameResult::too_long;|        case mrfw::RenameResult::too_long:       return mrui::NameResult::nv_failed;|'
+  once '        case mrfw::RenameResult::too_long:       return mrui::NameResult::too_long;' "$w7c" &&
+  ctl "W7-C6 too_long is drawn as an NV failure" yes \
+      "$w7c"
+  w7c='s|        case mrfw::RenameResult::bad_args:       return mrui::NameResult::bad_name;|        case mrfw::RenameResult::bad_args:       return mrui::NameResult::nv_failed;|'
+  once '        case mrfw::RenameResult::bad_args:       return mrui::NameResult::bad_name;' "$w7c" &&
+  ctl "W7-C7 bad_args is drawn as an NV failure" yes \
+      "$w7c"
+  # W7-C8/C9/C10/C13 THE NAME FLOW's ROWS (design §4.3, §5.3, §6.7).
+  w7c='s|            mrui::my_device_action_line(l, sizeof l, st.editor.primary);|            snprintf(l, sizeof l, ">%s", mrui::kListBackText);|'
+  once '            mrui::my_device_action_line(l, sizeof l, st.editor.primary);' "$w7c" &&
+  ctl "W7-C8 My device keeps its retired one-row BACK — CHANGE NAME is never offered" yes \
+      "$w7c"
+  w7c='s|            body_text(3, st.review_header);|            (void)0;|'
+  once '            body_text(3, st.review_header);' "$w7c" &&
+  ctl "W7-C9 the name review never draws its WAS row" yes \
+      "$w7c"
+  w7c='s|            if (why) body_text(2, why);|            (void)why;|'
+  once '            if (why) body_text(2, why);' "$w7c" &&
+  ctl "W7-C10 NAME NOT SAVED is drawn without its reason" yes \
+      "$w7c"
+  w7c='s|mrui::editor_note_text(e.note)|nullptr|'
+  once 'mrui::editor_note_text(e.note)' "$w7c" &&
+  ctl "W7-C13 the editor's note never reaches row 0 (FULL, EMPTY, TEAM / RECIPIENT CHANGED)" yes \
+      "$w7c"
+  # W8-C1/C2/C10/C12 THE MESSAGE EDITOR's ROWS (design §5.3, §5.4).
+  w8c='s|snprintf(caller, sizeof caller, "TO TEAM");|snprintf(caller, sizeof caller, "TO");|'
+  once 'snprintf(caller, sizeof caller, "TO TEAM");' "$w8c" &&
+  ctl "W8-C1 the team editor's header drops TEAM" yes \
+      "$w8c"
+  w8c='s|snprintf(caller, sizeof caller, "TO %s", st.review_header);|snprintf(caller, sizeof caller, "TO %.6s", st.review_header);|'
+  once 'snprintf(caller, sizeof caller, "TO %s", st.review_header);' "$w8c" &&
+  ctl "W8-C2 the DM editor's label is clipped to TEAM's six columns" yes \
+      "$w8c"
+  w8c='s|    if (mrui::editor_is_editing(st.editor.phase) \|\| st.editor.phase == mrui::EditorPhase::bind \|\||    if (false \|\||'
+  once '    if (mrui::editor_is_editing(st.editor.phase) || st.editor.phase == mrui::EditorPhase::bind ||' "$w8c" &&
+  ctl "W8-C10 the message editor is never drawn — compose keeps drawing its list" yes \
+      "$w8c"
+  w8c='s|        body_text(0, mrui::kEditorDiscardHead);|        (void)0;|'
+  once '        body_text(0, mrui::kEditorDiscardHead);' "$w8c" &&
+  ctl "W8-C12 the discard confirmation draws no DISCARD DRAFT? heading" yes \
+      "$w8c"
+  # W8-C3/C4 THE WRITTEN REVIEW (design §7.3): ` SEND >EDIT n/m` and BUSY on row 0.
+  w8c='s|    if (written) mrui::review_written_action_line(l, sizeof l, st.review_send, st.detail_page, st.detail_pages);|    if (written) mrui::review_action_line(l, sizeof l, st.review_send, false, st.detail_page, st.detail_pages);|'
+  once '    if (written) mrui::review_written_action_line(l, sizeof l, st.review_send, st.detail_page, st.detail_pages);' "$w8c" &&
+  ctl "W8-C3 the written review draws the phrase's SEND / BACK row" yes \
+      "$w8c"
+  w8c='s|    body_text(0, note ? note : st.review_header);|    body_text(0, st.review_header); (void)note;|'
+  once '    body_text(0, note ? note : st.review_header);' "$w8c" &&
+  ctl "W8-C4 BUSY never reaches the review's row 0" yes \
+      "$w8c"
+  # W8-C5/C6/C7 THE DEVICE's LIVE ANSWERS AND THE EDITOR's CAPTURE (brief §2.4).
+  w8c='s|    l.team_local_id = (g_node.team_local_id() != 0);|    l.team_local_id = true;|'
+  once '    l.team_local_id = (g_node.team_local_id() != 0);' "$w8c" &&
+  ctl "W8-C5 the live answer INVENTS the team-local ID — D19 never refuses" yes \
+      "$w8c"
+  w8c='s|    if (mrui::send_kind_dm(req.kind)) l.peer_found|    if (req.kind == mrui::SendKind::dm) l.peer_found|'
+  once '    if (mrui::send_kind_dm(req.kind)) l.peer_found' "$w8c" &&
+  ctl "W8-C6 the live answer resolves a phrase DM only — a written DM is bound UNVERIFIED" yes \
+      "$w8c"
+  w8c='s|    if (s_model.editor_capture_owed(b, resolve)) (void)mrui::ui_editor_capture(s_model, ui_send_live(b), ui_peer_name, nullptr);|    (void)resolve;|'
+  once '    if (s_model.editor_capture_owed(b, resolve)) (void)mrui::ui_editor_capture(s_model, ui_send_live(b), ui_peer_name, nullptr);' "$w8c" &&
+  ctl "W8-C7 the DM editor's capture is never served — the editor never opens" yes \
+      "$w8c"
+  # W8-C9 THE TWO NEW REFUSALS keep their OWN words (brief §2.4).
+  w8c='s|                body_text(2, mrui::kNoTeamIdText);|                body_text(2, mrui::kDraftChangedText);|'
+  once '                body_text(2, mrui::kNoTeamIdText);' "$w8c" &&
+  ctl "W8-C9 NO TEAM ID YET is drawn as DRAFT CHANGED" yes \
+      "$w8c"
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
@@ -2045,6 +2145,11 @@ $n4b"
   once '            body_text(1, mrui::prov_block_note(st.prov_block));' "$w4bs" &&
   ctl "W4b-N6 the blocked-setup note's reason is drawn on body row 2 instead of row 1" yes \
       "$w4bs"
+  # ★★★ W7-C11, on the ONLY arm whose Home offers JOIN TEAM: the name prompt drawn with SET NAME selected (P32l's rows).
+  w7c='s|            mrui::name_prompt_row(l, sizeof l, /\*set_row=\*/false, st.editor.primary);|            mrui::name_prompt_row(l, sizeof l, /*set_row=*/false, true);|'
+  once '            mrui::name_prompt_row(l, sizeof l, /*set_row=*/false, st.editor.primary);' "$w7c" &&
+  ctl "W7-C11 the name prompt draws SKIP unselected — the safe choice is not the default on the panel" yes \
+      "$w7c"
 
   ARM=l2; ARM_DEFS=DEFS
 fi

@@ -1,0 +1,248 @@
+{
+ "out_of_fence_identical_to_head": {
+  "src/device_nv.h": true,
+  "src/firmware_commands.h": true,
+  "src/firmware_ui_preset_verbs.h": true,
+  "src/firmware_ui_presets.h": true,
+  "src/firmware_ui_status.h": true,
+  "test/test_firmware_ui_team.cpp": true
+ },
+ "sendreq_aggregate_initialisers": {
+  "src/firmware_ui_model.h": 4,
+  "test/test_firmware_ui_send.cpp": 46,
+  "tools/probe_ui_model_mutations.py": 2
+ },
+ "symbols": {
+  "ComposeRow": {
+   "in_fence": {
+    "src/firmware_ui_model.h": 19,
+    "test/test_firmware_ui_model.cpp": 23,
+    "test/test_firmware_ui_send.cpp": 7,
+    "tools/probe_ui_model_mutations.py": 9
+   },
+   "outside_fence": {}
+  },
+  "HomeView": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 5,
+    "src/firmware_ui_chrome.h": 5,
+    "src/firmware_ui_model.h": 20,
+    "test/test_firmware_ui_chrome.cpp": 11,
+    "test/test_firmware_ui_model.cpp": 37,
+    "test/test_firmware_ui_send.cpp": 1,
+    "tools/probe_board_abi.py": 1,
+    "tools/probe_ui_model_mutations.py": 10
+   },
+   "outside_fence": {
+    "test/test_firmware_ui_team.cpp": 1
+   }
+  },
+  "ReviewPhase": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_model.h": 37,
+    "src/firmware_ui_send.h": 8,
+    "test/test_firmware_ui_chrome.cpp": 1,
+    "test/test_firmware_ui_model.cpp": 37,
+    "test/test_firmware_ui_send.cpp": 17,
+    "tools/probe_board_abi.py": 1,
+    "tools/probe_ui_model_mutations.py": 11
+   },
+   "outside_fence": {}
+  },
+  "SendKind": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_model.h": 53,
+    "src/firmware_ui_send.h": 15,
+    "test/test_firmware_ui_chrome.cpp": 1,
+    "test/test_firmware_ui_model.cpp": 81,
+    "test/test_firmware_ui_send.cpp": 164,
+    "tools/probe_board_ui/run.sh": 1,
+    "tools/probe_firmware_ui/run.sh": 1,
+    "tools/probe_ui_model_mutations.py": 21
+   },
+   "outside_fence": {}
+  },
+  "SendLive": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 3,
+    "src/firmware_ui_send.h": 12,
+    "test/test_firmware_ui_chrome.cpp": 1,
+    "test/test_firmware_ui_model.cpp": 8,
+    "test/test_firmware_ui_send.cpp": 51,
+    "tools/probe_board_abi.py": 3
+   },
+   "outside_fence": {}
+  },
+  "SendReq": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 4,
+    "src/firmware_ui_model.h": 23,
+    "src/firmware_ui_send.h": 9,
+    "test/test_firmware_ui_chrome.cpp": 2,
+    "test/test_firmware_ui_model.cpp": 112,
+    "test/test_firmware_ui_presets.cpp": 2,
+    "test/test_firmware_ui_send.cpp": 116,
+    "tools/probe_board_abi.py": 7,
+    "tools/probe_firmware_ui/run.sh": 1,
+    "tools/probe_ui_model_mutations.py": 6
+   },
+   "outside_fence": {
+    "src/device_nv.h": 2,
+    "src/firmware_commands.h": 1,
+    "src/firmware_ui_preset_verbs.h": 4,
+    "src/firmware_ui_presets.h": 5
+   }
+  },
+  "SendTracker": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_send.h": 9,
+    "test/test_firmware_ui_send.cpp": 109,
+    "tools/probe_board_abi.py": 1,
+    "tools/probe_firmware_ui/probe_main.cpp": 1
+   },
+   "outside_fence": {}
+  },
+  "compose_row_count": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_model.h": 4,
+    "test/test_firmware_ui_model.cpp": 15,
+    "tools/probe_firmware_ui/run.sh": 2
+   },
+   "outside_fence": {}
+  },
+  "compose_row_kind": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_model.h": 6,
+    "test/test_firmware_ui_model.cpp": 22,
+    "test/test_firmware_ui_send.cpp": 7
+   },
+   "outside_fence": {}
+  },
+  "match_aired": {
+   "in_fence": {
+    "src/firmware_ui_send.h": 4,
+    "test/test_firmware_ui_send.cpp": 3,
+    "tools/probe_ui_model_mutations.py": 2
+   },
+   "outside_fence": {}
+  },
+  "match_blocked": {
+   "in_fence": {
+    "src/firmware_ui_model.h": 1,
+    "src/firmware_ui_send.h": 4,
+    "test/test_firmware_ui_send.cpp": 18
+   },
+   "outside_fence": {}
+  },
+  "match_channel_sent": {
+   "in_fence": {
+    "src/firmware_ui_model.h": 1,
+    "src/firmware_ui_send.h": 3,
+    "test/test_firmware_ui_model.cpp": 1,
+    "test/test_firmware_ui_send.cpp": 23
+   },
+   "outside_fence": {}
+  },
+  "match_dm": {
+   "in_fence": {
+    "src/firmware_ui_send.h": 8,
+    "test/test_firmware_ui_send.cpp": 28
+   },
+   "outside_fence": {}
+  },
+  "send_dest_gate_of": {
+   "in_fence": {
+    "src/firmware_ui_send.h": 3,
+    "tools/probe_ui_model_mutations.py": 3
+   },
+   "outside_fence": {}
+  },
+  "send_exec_gate_of": {
+   "in_fence": {
+    "src/firmware_ui_send.h": 5,
+    "test/test_firmware_ui_send.cpp": 18
+   },
+   "outside_fence": {}
+  },
+  "send_gate_of": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_model.h": 5,
+    "src/firmware_ui_send.h": 7,
+    "test/test_firmware_ui_model.cpp": 1,
+    "test/test_firmware_ui_send.cpp": 33
+   },
+   "outside_fence": {
+    "src/firmware_ui_preset_verbs.h": 1,
+    "src/firmware_ui_presets.h": 1
+   }
+  },
+  "ui_nav_slot": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 1,
+    "src/firmware_ui_chrome.h": 3,
+    "test/test_firmware_ui_chrome.cpp": 36
+   },
+   "outside_fence": {
+    "src/firmware_ui_status.h": 1
+   }
+  },
+  "ui_pump_trackers": {
+   "in_fence": {
+    "src/firmware_ui.cpp": 3,
+    "src/firmware_ui_model.h": 4,
+    "src/firmware_ui_send.h": 4,
+    "test/test_firmware_ui_send.cpp": 23
+   },
+   "outside_fence": {}
+  }
+ },
+ "verdict": "PASS",
+ "whole_tree_scanners": {
+  "check_data_type_literals": {
+   "exit": 0,
+   "tail": [
+    "PASS \u2014 220 active source file(s) scanned; no numeric DataType comparison, argument literal or switch-case label survives.",
+    "       (roots: lib, src, test \u00b7 comments and strings stripped, so historical notes are allowed)",
+    "       semantic set = 21 current allocated value(s) | the 19 pre-transition ordinals"
+   ]
+  },
+  "check_data_type_literals --selftest": {
+   "exit": 0,
+   "tail": [
+    "  RED   (control fired)  an ordinal-inference comparison anywhere in the MAC receive path",
+    "           first: lib/core/node_mac_rx.cpp:2600  comparison  pa.type == 10",
+    "SELFTEST PASS \u2014 4/4 controls RED. The zero result above is a measurement."
+   ]
+  },
+  "probe_build_identity": {
+   "exit": 0,
+   "tail": [
+    "  RED: the hook is duplicated in env:gateway",
+    "       -> env:gateway must run pre:tools/git_rev.py exactly once (found 2x) \u2014 a board image that skips the hook falls back to `nogit` and cannot be identified from its own banner",
+    "PASS: build identity (27 checks, 12/12 controls RED, 0 unusable)"
+   ]
+  },
+  "probe_features/ownership": {
+   "exit": 0,
+   "tail": [
+    "  ok   O11 the pure decision is declared `static` and compiled UNGATED on every build (only its consumers are capability-gated)",
+    "  ok   O12 the pair has no `#ifndef` override surface in lib/, src/ or test/ (R-RA-26)",
+    "  ok   O13 source integrity: 220 scanned files, sha256(tree) 16dea08491ed4a76\u2026 before and after"
+   ]
+  },
+  "probe_features/ownership --controls": {
+   "exit": 0,
+   "tail": [
+    "  ctl-ok   Y4 an unreadable/malformed source raises a GATE ERROR, never a silent pass",
+    "  ctl-ok   Y5 the shared checkout is byte-identical before and after (16dea08491ed4a76\u2026)",
+    "ownership controls: 43 verified / 0 unusable"
+   ]
+  }
+ }
+}

@@ -1,0 +1,81 @@
+{
+  "verdict": "PASS",
+  "grep_groups": [
+    {
+      "pattern": "probe_ui_model_mutations|SuiteFailure|retain_shipped|ship_streams|unusable_verdict|run_suite\\(",
+      "files": [
+        "lib/core/node_hashlocate.cpp",
+        "src/firmware_config_service.h",
+        "src/firmware_ui_chrome.h",
+        "src/firmware_ui_invite.h",
+        "src/firmware_ui_join.h",
+        "src/firmware_ui_model.h",
+        "src/firmware_ui_nearby.h",
+        "src/firmware_ui_prov.h",
+        "src/firmware_ui_status.h",
+        "test/test_custody_internal_d.cpp",
+        "test/test_dual_layer.cpp",
+        "test/test_firmware_ui_chrome.cpp",
+        "tools/probe_ble_line/run.sh",
+        "tools/probe_board_abi.py",
+        "tools/probe_console_sink/ownership.py",
+        "tools/probe_custody_usb/run.sh",
+        "tools/probe_features/run.sh",
+        "tools/probe_firmware_ui/probe_main.cpp",
+        "tools/probe_inbox_verbs/run.sh",
+        "tools/probe_ui_model_mutations.py",
+        "tools/test_dm_delivery_breakdown.py",
+        "tools/test_mutation_unusable_reason.py",
+        "tools/test_worker_formula_derived.py"
+      ]
+    },
+    {
+      "pattern": "transcript\\.py|transcript_main\\.cpp|MR0C-PROFILE|parse_ledger|validate_ledger",
+      "files": [
+        "tools/probe_board_ui/fakes/Arduino.h",
+        "tools/probe_board_ui/run.sh",
+        "tools/probe_inbox_verbs/probe_main.cpp",
+        "tools/probe_inbox_verbs/transcript.py",
+        "tools/probe_inbox_verbs/transcript_main.cpp",
+        "tools/test_probe_inbox_transcript.py"
+      ]
+    },
+    {
+      "pattern": "ui_fmt_identity\\(|label_from_hash\\(|label_for_team_id\\(|label_for_origin\\(",
+      "files": [
+        "src/firmware_ui.cpp",
+        "src/firmware_ui_model.h",
+        "src/firmware_ui_send.h",
+        "src/firmware_ui_status.h",
+        "test/test_firmware_ui_invite.cpp",
+        "test/test_firmware_ui_model.cpp",
+        "test/test_firmware_ui_team.cpp",
+        "tools/probe_firmware_ui/probe_main.cpp",
+        "tools/probe_firmware_ui/run.sh"
+      ]
+    }
+  ],
+  "reader_dispositions": {
+    "tools/test_mutation_unusable_reason.py": "AST extracts real capture/retention functions; 24 regressions and explicit controls rerun",
+    "tools/test_worker_formula_derived.py": "strict worker constants and prose patterns are unchanged; discovery rerun",
+    "tools/test_probe_inbox_transcript.py": "new ledger/output/builder tests and B491 refusals; 24 cases rerun",
+    "tools/probe_inbox_verbs/run.sh": "builder prefix unchanged and copied verbatim by each fresh transcript build",
+    "tools/probe_inbox_verbs/probe_main.cpp": "adapter stand-in unchanged; transcript live-name setup verified in the new driver",
+    "tools/probe_deferred_actions/run.py": "same untouched inbox builder and included fixture; no transcript-output predicate",
+    "tools/probe_firmware_ui/run.sh": "label trampoline and source-control anchors unchanged; does not read F07 replacement table",
+    "tools/probe_firmware_ui/probe_main.cpp": "trampoline destination15 and passed width14; no new active roomy caller",
+    "tools/probe_board_abi.py": "historical harness references only; product/layout files identical",
+    "tools/probe_console_sink/ownership.py": "historical harness/reader references; no altered predicate",
+    "tools/probe_features/run.sh": "historical test instructions; ownership inputs unchanged",
+    "tools/probe_ble_line/run.sh": "historical battery instructions; runtime inputs unchanged",
+    "tools/probe_custody_usb/run.sh": "historical mutation reference; runtime inputs unchanged",
+    "tools/probe_board_ui/run.sh": "battery mentions only; product and probe inputs unchanged"
+  },
+  "other_dispositions": {
+    "historical_source_and_test_comments": "references do not consume changed harness/table text; all product and native-test input bytes unchanged",
+    "evidence_scripts": "historical copies/readers pinned and never edited; current QA recipes name the one allowed F07 exception",
+    "mutation_consumers": "all109 lists, target/pin/worker AST unchanged except exact F07 replacement; census and both required workers verified",
+    "external_output": "no lib/src/test consumer of transcript CLI output; current real consumer is tools/test_probe_inbox_transcript.py"
+  },
+  "A10_callers": "callers.json includes complete src/test census and probe-only wrapper separately"
+}

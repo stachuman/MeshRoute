@@ -1,0 +1,170 @@
+[
+  {
+    "path": "src/firmware_ui_status.h",
+    "pin": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd",
+    "actual": "338548341e579a3faac514592103cda794e2cca8cd1dd5fcc28a3a645d4c38cd",
+    "match": true
+  },
+  {
+    "path": "src/firmware_ui_input.h",
+    "pin": "30c74299c9bb580e016ed7efa847f1e6af29b5b560891cdbd2bb732d0ce4ecc0",
+    "actual": "30c74299c9bb580e016ed7efa847f1e6af29b5b560891cdbd2bb732d0ce4ecc0",
+    "match": true
+  },
+  {
+    "path": "src/firmware_ui_team.h",
+    "pin": "63f9074be7ba73072816ba3a3d3654853da1a721b8dfeff7db57e854e9c72cdf",
+    "actual": "63f9074be7ba73072816ba3a3d3654853da1a721b8dfeff7db57e854e9c72cdf",
+    "match": true
+  },
+  {
+    "path": "src/firmware_ui_presets.h",
+    "pin": "1d67253f74490dbb43d83eae06b7bb5389151d4256da37b3c97e114000aebe23",
+    "actual": "1d67253f74490dbb43d83eae06b7bb5389151d4256da37b3c97e114000aebe23",
+    "match": true
+  },
+  {
+    "path": "src/firmware_ui_invite.h",
+    "pin": "f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c",
+    "actual": "f3f61d692752bb24b131390690b2529327c75b47a6a769d720f36749220b9c7c",
+    "match": true
+  },
+  {
+    "path": "src/firmware_config.h",
+    "pin": "c72d59600745da4d7b65b8cbd37d3da5b9f5a74da33cc5a71a98a4fa8aac8bd6",
+    "actual": "c72d59600745da4d7b65b8cbd37d3da5b9f5a74da33cc5a71a98a4fa8aac8bd6",
+    "match": true
+  },
+  {
+    "path": "src/firmware_config.cpp",
+    "pin": "accb667703290ba57e590b4ec07d20ab6bf21dc8ae7d8b9ae1840e2bf3dfdc18",
+    "actual": "accb667703290ba57e590b4ec07d20ab6bf21dc8ae7d8b9ae1840e2bf3dfdc18",
+    "match": true
+  },
+  {
+    "path": "src/device_nv.h",
+    "pin": "36296bcbc1c6975a6cf0bea2caf1ca5eebd182832f2550c12de1a7185429fffa",
+    "actual": "36296bcbc1c6975a6cf0bea2caf1ca5eebd182832f2550c12de1a7185429fffa",
+    "match": true
+  },
+  {
+    "path": "src/firmware_commands.cpp",
+    "pin": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+    "actual": "48f9b19a9f402585c8f3c061999d4c993ec53cf936b6f6b9a4921e586bc060fd",
+    "match": true
+  },
+  {
+    "path": "src/fw_main.cpp",
+    "pin": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+    "actual": "4b9b86afd3303cec913a343faa159d4305591d31cf185fe8e8dfc27b509f7766",
+    "match": true
+  },
+  {
+    "path": "lib/core/command.h",
+    "pin": "f537b1cc28d5ac6ff22f8243913933455aa371a2e50989a88a6bc1d28c9c612d",
+    "actual": "f537b1cc28d5ac6ff22f8243913933455aa371a2e50989a88a6bc1d28c9c612d",
+    "match": true
+  },
+  {
+    "path": "variants/heltec_common/board_ui.cpp",
+    "pin": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46",
+    "actual": "35d7c07995d2fd6886da46dd556a6af47bf414dbec4e31d36c1bebf9641daa46",
+    "match": true
+  },
+  {
+    "path": "test/test_firmware_ui_input.cpp",
+    "pin": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed",
+    "actual": "6aefa729e89321f1d09f215fd31188bc43fcfe71b96511e382431e047ee57fed",
+    "match": true
+  },
+  {
+    "path": "test/test_firmware_ui_status.cpp",
+    "pin": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8",
+    "actual": "4605ac3df22c451b1b639a7a970e90fb71b3370b92277796542b7f02f611f6d8",
+    "match": true
+  },
+  {
+    "path": "test/test_firmware_ui_team.cpp",
+    "pin": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8",
+    "actual": "a97383e0df80825a0b8f39e047c6a261e8357f2ab714fad419c63fb586c296c8",
+    "match": true
+  },
+  {
+    "path": "tools/probe_board_ui/probe_main.cpp",
+    "pin": "a06c448fb7bb28e25cb2f86fa2fd18a12bd57aadfc0d2bed3ae157389e67b204",
+    "actual": "a06c448fb7bb28e25cb2f86fa2fd18a12bd57aadfc0d2bed3ae157389e67b204",
+    "match": true
+  },
+  {
+    "path": "tools/probe_board_ui/negctl.py",
+    "pin": "7634d66b9391b6fc90f293f51ef2b9376324c83da521fc8ba6abbcc0e1ff54c4",
+    "actual": "7634d66b9391b6fc90f293f51ef2b9376324c83da521fc8ba6abbcc0e1ff54c4",
+    "match": true
+  },
+  {
+    "path": "tools/probe_board_ui/fakes/Arduino.h",
+    "pin": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+    "actual": "deaa9f4a6f3d010fa4010722973c701c4f5effadb2442213812b7884f85ab853",
+    "match": true
+  },
+  {
+    "path": "tools/probe_accounting.sh",
+    "pin": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+    "actual": "785cf0f70951e0647429ac0b29587055636bf269b47ff71f8fd15dc87a26d9f5",
+    "match": true
+  },
+  {
+    "path": "tools/test_probe_firmware_ui.py",
+    "pin": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047",
+    "actual": "836ba7ac6eccae3b73b18e6929765fbf12d2181515c9ee2361b0e9cc43784047",
+    "match": true
+  },
+  {
+    "path": "tools/test_probe_board_ui.py",
+    "pin": "82a344994d963adc80b02d1758b9a3c81a73cb3af7834f5df06cf66fbf7c51e2",
+    "actual": "82a344994d963adc80b02d1758b9a3c81a73cb3af7834f5df06cf66fbf7c51e2",
+    "match": true
+  },
+  {
+    "path": "tools/test_mutation_unusable_reason.py",
+    "pin": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+    "actual": "7c04519c2f40f11fdac5fc1d55648349dd8ac10fa2237cad9313a72b186fb61d",
+    "match": true
+  },
+  {
+    "path": "tools/test_worker_formula_derived.py",
+    "pin": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+    "actual": "fb8704f2d3b0629b577b7c4c9ea0a4544e08f6c0d4c585321ad1f1f801c18176",
+    "match": true
+  },
+  {
+    "path": "tools/gen_command_inventory.py",
+    "pin": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+    "actual": "b9d141a4b6a560a3f4bfd0af68bbdb2c461fcd38a3b67eb5ac04fb206f3db68a",
+    "match": true
+  },
+  {
+    "path": "docs/superpowers/specs/2026-09-06-standalone-mobile-home-and-team-messaging-design.md",
+    "pin": "215f05ece4f6802886f815e19e1a84b004acc7ed4839fcb9c20da0dc5355c920",
+    "actual": "215f05ece4f6802886f815e19e1a84b004acc7ed4839fcb9c20da0dc5355c920",
+    "match": true
+  },
+  {
+    "path": "docs/2026-07-30-open-bug-register.md",
+    "pin": "8f4fa98e8856ae2c47f2e98cce6f3324ab043c6bc627f363ad1a3d3fc149f537",
+    "actual": "8f4fa98e8856ae2c47f2e98cce6f3324ab043c6bc627f363ad1a3d3fc149f537",
+    "match": true
+  },
+  {
+    "path": "tracker.md",
+    "pin": "89551cc069f8f8d57a553faf0610d51e50bf2c2e1fc5cde1b8dddf98f35538bc",
+    "actual": "89551cc069f8f8d57a553faf0610d51e50bf2c2e1fc5cde1b8dddf98f35538bc",
+    "match": true
+  },
+  {
+    "path": "MEMORY.md",
+    "pin": "93169b774d50113ab43cab9e2fdd0c134141398f25f1d0a582045afd31dc0130",
+    "actual": "93169b774d50113ab43cab9e2fdd0c134141398f25f1d0a582045afd31dc0130",
+    "match": true
+  }
+]

@@ -1,0 +1,22 @@
+{
+  "scope": "All entry inputs, including the pinned brief and preparation set, preserved. Only this review report/evidence added.",
+  "mesh_head": "4c1a000bc71706ac438e64161a9452966a66615f",
+  "staged": "",
+  "brief_sha256": "6890e3cf596071f0012e92caf9541db10f7e9980023218df361ae49b645aafbd",
+  "entry_mesh_paths": 2527,
+  "changed_or_missing_entry_mesh_paths": [],
+  "entry_simulator_paths": 285,
+  "changed_or_missing_entry_simulator_paths": [],
+  "simulator_status": "",
+  "review_additions_before_seal": [
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review.md",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/dependency-pins.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/entry-inputs.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout-measure.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/layout_measure.py",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/mutation-selection.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/preflight.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/row-width-measurement.json",
+    "docs/superpowers/evidence/2026-10-04-standalone-mobile-home-w7w8-brief-review/source-review.json"
+  ]
+}

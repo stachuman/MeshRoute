@@ -1635,6 +1635,42 @@ w54_help() {
 wchk_in "$HELP_H" "W54-help the help index's ui row is MR_FEAT_OLED-gated" \
      w54_help ':a;N;$!ba;s@\n#if MR_FEAT_OLED\n\(    out\.println(F("ui"));\n\)#endif   // MR_FEAT_OLED\n@\n\1@'
 
+# ================================================================================================ W55 / W56
+# ★★★★ W7 + W8 (brief §2.8) — THE TWO NEW DEVICE SEAMS NO OLDER PREDICATE REACHES, pinned where they live
+#      (`src/firmware_ui.cpp`, compiled by neither the native suite nor the simulator — §B115). The RULES behind them
+#      (the one request, the gate, D19, the capture) are the native suite's and the firmware-UI probe's; these pin
+#      that the device WIRES them.
+# W55 — THE NAME SAVE's DRAIN (design §4.3): the tick serves the model's ONE request AFTER the emergency drain and
+#   OUTSIDE the normal send busy gate, and the service TAKES it before calling `mrfw::rename_node` exactly once.
+w55() {
+  local c; c=$(code_flat "$1")
+  [ "$(printf '%s' "$c" | grep -oF 'mrfw::rename_node(' | wc -l)" -eq 1 ] || return 1
+  printf '%s' "$c" | grep -qE 'if \(!s_model\.take_name_request\(bytes, len\)\) return; +s_model\.on_name_result\(name_result_of\(mrfw::rename_node\(bytes, len\)\)\);' || return 1
+  printf '%s' "$c" | grep -qE 'if \(got_req\) ui_perform_send\(req, now_ms\); +\} +ui_service_name_request\(\); +ui_service_inbox_request\(now_ms\);'
+}
+wchk_in "$FW_UI" "W55 the tick serves the name save once, after the emergency drain and outside the busy gate" \
+     w55 '/^    ui_service_name_request();/d' \
+         's/^    s_model\.on_name_result(name_result_of(mrfw::rename_node(bytes, len)));/    (void)mrfw::rename_node(bytes, len); s_model.on_name_result(name_result_of(mrfw::rename_node(bytes, len)));/' \
+         's/^    if (!s_model\.take_name_request(bytes, len)) return;/    (void)s_model.take_name_request(bytes, len);/' \
+         '/^    ui_service_name_request();/d; s/^        if (got_req) ui_perform_send(req, now_ms);/&\n        ui_service_name_request();/'
+# W56 — THE WRITTEN MESSAGE's DRAFT-SOURCE WIRING (brief §2.4): the execution reads the draft from THE model (the one
+#   `s_model`, never a copy), the live answers carry D19's fact from the node and resolve BOTH DM kinds, and the DM
+#   editor's capture is served in the tick with the device's FULL raw-name read.
+w56() {
+  local c; c=$(code_flat "$1")
+  printf '%s' "$c" | grep -qF 'mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, s_model, req,' || return 1
+  printf '%s' "$c" | grep -qF 'l.team_local_id = (g_node.team_local_id() != 0);' || return 1
+  printf '%s' "$c" | grep -qF 'if (mrui::send_kind_dm(req.kind)) l.peer_found = g_node.team_key_of_id(req.peer_id, l.peer_hash);' || return 1
+  printf '%s' "$c" | grep -qF 'if (s_model.editor_capture_owed(b, resolve)) (void)mrui::ui_editor_capture(s_model, ui_send_live(b), ui_peer_name, nullptr);' || return 1
+  printf '%s' "$c" | grep -qE 'uint8_t ui_peer_name\(uint32_t hash, char\* out, uint8_t cap, void\* /\*ctx\*/\) \{ +return g_node\.peer_name_find\(hash, out, cap\); +\}'
+}
+wchk_in "$FW_UI" "W56 the written message reads THE model's draft, D19's live fact and both DM kinds, and the editor capture is served" \
+     w56 's/mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, s_model, req,/mrui::UiModel shadow_ = s_model; mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, shadow_, req,/' \
+         's/l\.team_local_id = (g_node\.team_local_id() != 0);/l.team_local_id = true;/' \
+         's/if (mrui::send_kind_dm(req\.kind)) l\.peer_found/if (req.kind == mrui::SendKind::dm) l.peer_found/' \
+         '/if (s_model\.editor_capture_owed(b, resolve))/d' \
+         's/    return g_node\.peer_name_find(hash, out, cap);/    return 0;/'
+
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

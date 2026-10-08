@@ -1,0 +1,23 @@
+{
+  "meshroute": {
+    "paths": 2427,
+    "changed": [],
+    "missing": [],
+    "new": [],
+    "head": "4c1a000bc71706ac438e64161a9452966a66615f",
+    "status": " M tools/probe_ui_model_mutations.py\n?? docs/superpowers/evidence/2026-10-02-b478-b487-b488-return.md\n?? docs/superpowers/evidence/2026-10-02-b478-b487-b488-return/\n",
+    "staged": "",
+    "whitespace_exit": 0
+  },
+  "simulator": {
+    "paths": 285,
+    "changed": [],
+    "missing": [],
+    "new": [],
+    "head": "6585649ea5a780f0542b2931853a667be56a5b2b",
+    "status": "",
+    "staged": "",
+    "whitespace_exit": 0
+  },
+  "all_inputs_unchanged": true
+}
